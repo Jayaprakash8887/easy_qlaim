@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # Provider Selection (choose which cloud/service to use)
     STORAGE_PROVIDER: str = "gcs"  # Options: gcs, azure, aws, local
     LLM_PROVIDER: str = "gemini"   # Options: gemini, openai, azure_openai, anthropic, bedrock, ollama
-    VISION_PROVIDER: str = "paddleocr"  # Options: google-vision, azure-vision, textract, tesseract, paddleocr
+    VISION_PROVIDER: str = "tesseract"  # Options: google-vision, azure-vision, textract, tesseract
     
     # ===========================================
     # GOOGLE CLOUD CONFIGURATION
@@ -128,15 +128,11 @@ class Settings(BaseSettings):
     # Local storage for development
     LOCAL_STORAGE_PATH: str = "./uploads"
     
-    # Tesseract
+    # Tesseract OCR Settings
     TESSERACT_LANG: str = "eng"
     TESSERACT_CMD: Optional[str] = None
     
-    # PaddleOCR
-    PADDLEOCR_LANG: str = "en"
-    PADDLEOCR_USE_GPU: bool = False
-    
-    # OCR Settings (legacy, still used)
+    # OCR Settings
     OCR_ENGINE: str = "tesseract"
     OCR_LANG: str = "en"
     OCR_CONFIDENCE_THRESHOLD: float = 0.8

@@ -9,8 +9,8 @@ This is the backend implementation of the Agentic AI Reimbursement System using 
 - **Framework**: FastAPI (async REST API)
 - **Database**: PostgreSQL with DocumentDB.io (MongoDB-compatible API)
 - **Task Queue**: Celery + Redis
-- **AI Engine**: Google Gemini 2.0
-- **OCR**: PaddleOCR (self-hosted)
+- **AI Engine**: Google Gemini 2.0 (with multi-vendor support: OpenAI, Azure OpenAI, Anthropic Claude, AWS Bedrock)
+- **OCR**: Tesseract (with Vision AI API fallback)
 - **Multi-Agent System**: Custom agent orchestration
 
 ## 📋 Prerequisites
@@ -199,8 +199,8 @@ backend/
    - Verify CELERY_BROKER_URL in .env
 
 3. **OCR not working**
-   - Install PaddleOCR dependencies
-   - Check system has enough memory
+   - Install Tesseract: `apt-get install tesseract-ocr`
+   - Check Tesseract is in PATH
 
 4. **Gemini API errors**
    - Verify GOOGLE_API_KEY is valid

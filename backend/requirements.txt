@@ -60,12 +60,9 @@ azure-ai-formrecognizer>=3.3.0
 
 # AWS Textract (uses boto3 which is already included above)
 
-# Tesseract (local OCR)
+# Tesseract (local OCR - default)
 pytesseract>=0.3.10
 Pillow==10.1.0
-
-# PaddleOCR (local OCR - already in project)
-# paddleocr>=2.7.0  # Large dependency, installed separately if needed
 
 # ==============================================================================
 # DATA VALIDATION & SECURITY

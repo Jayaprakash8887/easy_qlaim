@@ -5,8 +5,7 @@ Supports:
 - Google Cloud Vision
 - Azure Computer Vision
 - AWS Textract
-- Tesseract (local)
-- PaddleOCR (local)
+- Tesseract (local - default)
 """
 import os
 import logging
@@ -697,122 +696,6 @@ class TesseractProvider(VisionProvider):
         return "tesseract"
 
 
-class PaddleOCRProvider(VisionProvider):
-    """PaddleOCR provider (local)"""
-    
-    def __init__(
-        self,
-        lang: str = "en",
-        use_gpu: bool = False,
-        det_model_dir: Optional[str] = None,
-        rec_model_dir: Optional[str] = None
-    ):
-        self.lang = lang
-        self.use_gpu = use_gpu
-        self._ocr = None
-        self._init_ocr(det_model_dir, rec_model_dir)
-    
-    def _init_ocr(
-        self,
-        det_model_dir: Optional[str],
-        rec_model_dir: Optional[str]
-    ):
-        try:
-            from paddleocr import PaddleOCR
-            
-            kwargs = {
-                "use_angle_cls": True,
-                "lang": self.lang,
-                "use_gpu": self.use_gpu,
-                "show_log": False
-            }
-            
-            if det_model_dir:
-                kwargs["det_model_dir"] = det_model_dir
-            if rec_model_dir:
-                kwargs["rec_model_dir"] = rec_model_dir
-            
-            self._ocr = PaddleOCR(**kwargs)
-            logger.info(f"PaddleOCR initialized with language: {self.lang}")
-            
-        except ImportError:
-            logger.error("paddleocr not installed. Run: pip install paddleocr")
-        except Exception as e:
-            logger.error(f"Failed to initialize PaddleOCR: {e}")
-    
-    async def extract_text(
-        self,
-        image_data: Union[bytes, Path, str],
-    ) -> OCRResult:
-        if not self._ocr:
-            return OCRResult(text="", confidence=0.0)
-        
-        try:
-            import asyncio
-            import numpy as np
-            from PIL import Image
-            import io
-            
-            # Load image
-            if isinstance(image_data, bytes):
-                image = Image.open(io.BytesIO(image_data))
-                image_array = np.array(image)
-            elif isinstance(image_data, (Path, str)):
-                image_array = str(image_data)
-            
-            # Run OCR in executor
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: self._ocr.ocr(image_array, cls=True)
-            )
-            
-            # Extract text and blocks
-            lines = []
-            blocks = []
-            total_confidence = 0
-            count = 0
-            
-            if result and result[0]:
-                for item in result[0]:
-                    box, (text, confidence) = item
-                    lines.append(text)
-                    total_confidence += confidence
-                    count += 1
-                    blocks.append({
-                        "text": text,
-                        "confidence": confidence,
-                        "bounding_box": box
-                    })
-            
-            avg_confidence = total_confidence / count if count > 0 else 0
-            
-            return OCRResult(
-                text="\n".join(lines),
-                confidence=avg_confidence,
-                blocks=blocks
-            )
-            
-        except Exception as e:
-            logger.error(f"PaddleOCR error: {e}")
-            return OCRResult(text="", confidence=0.0)
-    
-    async def analyze_document(
-        self,
-        document_data: Union[bytes, Path, str],
-    ) -> DocumentAnalysisResult:
-        # PaddleOCR has table recognition but using basic text extraction here
-        ocr_result = await self.extract_text(document_data)
-        return DocumentAnalysisResult(
-            text=ocr_result.text,
-            confidence=ocr_result.confidence,
-            raw_response={"blocks": ocr_result.blocks}
-        )
-    
-    def get_provider_name(self) -> str:
-        return "paddleocr"
-
-
 # Provider factory
 _vision_provider: Optional[VisionProvider] = None
 
@@ -824,7 +707,7 @@ def get_vision_provider() -> VisionProvider:
     if _vision_provider is None:
         from config import settings
         
-        provider = getattr(settings, 'VISION_PROVIDER', 'paddleocr').lower()
+        provider = getattr(settings, 'VISION_PROVIDER', 'tesseract').lower()
         
         if provider == 'google' or provider == 'google-vision':
             _vision_provider = GoogleVisionProvider(
@@ -847,14 +730,9 @@ def get_vision_provider() -> VisionProvider:
                 lang=getattr(settings, 'TESSERACT_LANG', 'eng'),
                 tesseract_cmd=getattr(settings, 'TESSERACT_CMD', None)
             )
-        elif provider == 'paddleocr' or provider == 'paddle':
-            _vision_provider = PaddleOCRProvider(
-                lang=getattr(settings, 'PADDLEOCR_LANG', 'en'),
-                use_gpu=getattr(settings, 'PADDLEOCR_USE_GPU', False)
-            )
         else:
-            logger.warning(f"Unknown vision provider '{provider}', falling back to PaddleOCR")
-            _vision_provider = PaddleOCRProvider()
+            logger.warning(f"Unknown vision provider '{provider}', falling back to Tesseract")
+            _vision_provider = TesseractProvider()
     
     return _vision_provider
 
