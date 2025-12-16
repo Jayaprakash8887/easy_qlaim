@@ -637,10 +637,28 @@ async def run_ocr_with_llm_fallback(image_path: Path) -> Dict[str, Any]:
     return ocr_result
 
 
-async def extract_receipts_with_llm(ocr_text: str) -> List[Dict[str, Any]]:
+async def extract_receipts_with_llm(
+    ocr_text: str,
+    employee_region: str = "INDIA",
+    use_embedding_validation: bool = True
+) -> List[Dict[str, Any]]:
     """
     Use Gemini LLM to extract structured receipt data from OCR text.
-    Returns a list of receipts with their metadata.
+    
+    HYBRID APPROACH:
+    1. Pass cached category list to LLM (small token overhead)
+    2. LLM returns best category match
+    3. Validate LLM response against cached categories
+    4. Optionally use embedding-based semantic matching for uncertain cases
+    5. Default to 'other' if no valid match
+    
+    Args:
+        ocr_text: The OCR-extracted text from the document
+        employee_region: Employee's region for loading applicable categories
+        use_embedding_validation: If True, use semantic embeddings for validation
+        
+    Returns:
+        List of receipt dictionaries with validated categories
     """
     if not ocr_text or len(ocr_text.strip()) < 20:
         logger.warning("OCR text too short for LLM extraction")
@@ -648,22 +666,28 @@ async def extract_receipts_with_llm(ocr_text: str) -> List[Dict[str, Any]]:
     
     try:
         import google.generativeai as genai
+        from services.category_cache import get_category_cache
         
         # Configure Gemini
         genai.configure(api_key=settings.GOOGLE_API_KEY)
         model = genai.GenerativeModel(settings.GEMINI_MODEL)
         
-        # Create the prompt for receipt extraction
+        # Get cached category list for the employee's region
+        # This is cached for 24 hours to minimize DB queries
+        category_cache = get_category_cache()
+        categories_prompt = category_cache.get_llm_prompt_categories(employee_region)
+        
+        # Create the prompt for receipt extraction with region-specific categories
         prompt = f"""You are an expert at extracting receipt/invoice information from OCR text.
 Analyze the following OCR-extracted text and identify ALL receipts/invoices present.
+
+{categories_prompt}
 
 For EACH receipt found, extract:
 1. amount: The total/final amount paid (number only, no currency symbol)
 2. date: The transaction date in YYYY-MM-DD format
 3. vendor: The merchant/vendor/company name
-4. category: One of: travel, food, team_lunch, accommodation, certification, equipment, software, office_supplies, medical, passport_visa, conveyance, client_meeting, other
-   - Use "team_lunch" if the receipt mentions number of people/persons/guests/pax/covers or indicates a group meal
-   - Use "food" for individual meals
+4. category: Use ONLY the category codes listed above. If no match, use 'other'
 5. description: A brief description of what was purchased/service provided
 6. currency: The currency code (INR, USD, etc.) - default to INR if Indian context
 7. transaction_ref: The unique transaction/invoice/order ID (e.g., CRN9814090954, INV-2025-001, PNR123456)
@@ -674,6 +698,7 @@ IMPORTANT:
 - For the amount, use the FINAL/TOTAL amount, not subtotals or line items.
 - If the date format is DD/MM/YYYY, convert it properly (11/09/2025 means September 11, 2025, not November 9).
 - For transaction_ref, look for: Invoice ID, CRN (Customer Ride Number), Order ID, Booking ID, PNR, Receipt Number, etc.
+- CRITICAL: If the expense category doesn't match any of the listed categories, you MUST use 'other'
 
 OCR Text:
 ```
@@ -709,11 +734,74 @@ If no valid receipts can be identified, return an empty array: []
         logger.info(f"LLM response: {response_text[:500]}")
         
         # Parse JSON from response
-        # Try to extract JSON array from the response
         json_match = re.search(r'\[[\s\S]*\]', response_text)
         if json_match:
             receipts = json.loads(json_match.group())
             logger.info(f"LLM extracted {len(receipts)} receipts")
+            
+            # Initialize embedding service for semantic validation (if enabled)
+            embedding_service = None
+            if use_embedding_validation:
+                try:
+                    from services.embedding_service import get_embedding_service
+                    embedding_service = get_embedding_service()
+                except Exception as e:
+                    logger.warning(f"Embedding service unavailable: {e}")
+            
+            # Validate and normalize categories
+            for receipt in receipts:
+                llm_category = receipt.get('category', 'other')
+                
+                # Step 1: Validate against cached categories
+                validated_cat, is_valid = category_cache.validate_category(
+                    llm_category,
+                    employee_region,
+                    "REIMBURSEMENT"
+                )
+                
+                # Step 2: If LLM returned 'other' or invalid, try embedding-based matching
+                if (not is_valid or llm_category == 'other') and embedding_service:
+                    try:
+                        # Build search text from receipt data
+                        search_text = " ".join(filter(None, [
+                            receipt.get('vendor', ''),
+                            receipt.get('description', ''),
+                            llm_category if llm_category != 'other' else ''
+                        ]))
+                        
+                        if search_text.strip():
+                            # Get best embedding match
+                            emb_category, emb_score, emb_valid = await embedding_service.get_best_category_match(
+                                search_text,
+                                employee_region,
+                                "REIMBURSEMENT"
+                            )
+                            
+                            # Lower threshold to 0.55 for better matching
+                            if emb_valid and emb_score > 0.55:
+                                logger.info(
+                                    f"Embedding matched '{search_text}' to '{emb_category}' "
+                                    f"(score: {emb_score:.2f})"
+                                )
+                                validated_cat = emb_category
+                                is_valid = True
+                                receipt['embedding_matched'] = True
+                                receipt['embedding_score'] = emb_score
+                    except Exception as e:
+                        logger.warning(f"Embedding matching failed: {e}")
+                
+                # Step 3: Apply final validation result
+                if not is_valid:
+                    logger.info(
+                        f"Category '{llm_category}' not validated for region "
+                        f"'{employee_region}' - setting to 'other'"
+                    )
+                    validated_cat = 'other'
+                
+                receipt['category'] = validated_cat
+                receipt['category_validated'] = is_valid
+                receipt['llm_category'] = llm_category  # Keep original for debugging
+            
             return receipts
         else:
             logger.warning("No JSON array found in LLM response")
@@ -983,12 +1071,18 @@ def extract_receipts_with_regex(ocr_text: str) -> List[Dict[str, Any]]:
 
 @router.post("/ocr", response_model=Dict[str, Any])
 async def extract_text_ocr(
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    employee_region: str = "INDIA"
 ):
     """
     Extract text from image or PDF using OCR.
     Supports JPEG, PNG, GIF, WebP, TIFF and PDF formats.
     For PDFs, pages are converted to images first.
+    
+    Args:
+        file: The document file to process
+        employee_region: Employee's region for loading applicable expense categories.
+                        Categories are cached by region for 24 hours to optimize costs.
     """
     # Validate file type - now includes PDF
     allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/tiff', 'application/pdf']
@@ -1033,8 +1127,8 @@ async def extract_text_ocr(
                 logger.info(f"Direct PDF text extraction successful: {len(direct_result['lines'])} lines")
                 full_text = direct_result["text"]
                 
-                # Extract receipts using LLM, fallback to regex
-                receipts = await extract_receipts_with_llm(full_text)
+                # Extract receipts using LLM with region-specific categories, fallback to regex
+                receipts = await extract_receipts_with_llm(full_text, employee_region)
                 if not receipts:
                     logger.info("LLM extraction failed or returned empty, trying regex extraction")
                     receipts = extract_receipts_with_regex(full_text)
@@ -1062,8 +1156,8 @@ async def extract_text_ocr(
                 # If image conversion failed but direct extraction got some text, return that
                 if direct_result.get("lines"):
                     full_text = direct_result["text"]
-                    # Try LLM, then fallback to regex
-                    receipts = await extract_receipts_with_llm(full_text)
+                    # Try LLM with region-specific categories, then fallback to regex
+                    receipts = await extract_receipts_with_llm(full_text, employee_region)
                     if not receipts:
                         receipts = extract_receipts_with_regex(full_text)
                     return {
@@ -1099,8 +1193,8 @@ async def extract_text_ocr(
             # If OCR didn't get text but direct extraction did, use direct extraction
             if not all_text_lines and direct_result.get("lines"):
                 full_text = direct_result["text"]
-                # Try LLM, then fallback to regex
-                receipts = await extract_receipts_with_llm(full_text)
+                # Try LLM with region-specific categories, then fallback to regex
+                receipts = await extract_receipts_with_llm(full_text, employee_region)
                 if not receipts:
                     receipts = extract_receipts_with_regex(full_text)
                 return {
@@ -1127,8 +1221,8 @@ async def extract_text_ocr(
         
         logger.info(f"OCR completed. Method: {method}, Lines: {len(all_text_lines)}, Confidence: {avg_confidence:.2f}, LLM Vision: {used_llm_vision}")
         
-        # Try LLM first, then fallback to regex extraction
-        receipts = await extract_receipts_with_llm(full_text)
+        # Try LLM with region-specific categories first, then fallback to regex extraction
+        receipts = await extract_receipts_with_llm(full_text, employee_region)
         if not receipts:
             logger.info("LLM extraction returned empty, using regex fallback")
             receipts = extract_receipts_with_regex(full_text)

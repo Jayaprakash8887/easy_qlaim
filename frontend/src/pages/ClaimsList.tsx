@@ -344,7 +344,7 @@ export default function ClaimsList() {
                   </Button>
                 </TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>AI Score</TableHead>
+                <TableHead>AI / Compliance</TableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
@@ -398,9 +398,24 @@ export default function ClaimsList() {
                       <ClaimStatusBadge status={claim.status} size="sm" />
                     </TableCell>
                     <TableCell>
-                      {claim.aiConfidence > 0 && (
-                        <AIConfidenceBadge score={claim.aiConfidence} size="sm" />
-                      )}
+                      <div className="flex flex-col gap-1">
+                        {claim.aiConfidence > 0 && (
+                          <AIConfidenceBadge score={claim.aiConfidence} size="sm" />
+                        )}
+                        {(claim.complianceScore || 0) > 0 && (
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "text-xs font-medium w-fit",
+                              (claim.complianceScore || 0) >= 80 ? "bg-success/10 text-success border-success/20" :
+                              (claim.complianceScore || 0) >= 60 ? "bg-warning/10 text-warning border-warning/20" :
+                              "bg-destructive/10 text-destructive border-destructive/20"
+                            )}
+                          >
+                            {(claim.complianceScore || 0).toFixed(0)}% Policy
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <DropdownMenu>

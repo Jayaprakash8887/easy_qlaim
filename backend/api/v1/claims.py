@@ -27,7 +27,7 @@ from config import settings
 from agents.orchestrator import process_claim_task
 from services.storage import upload_to_gcs
 from services.duplicate_detection import check_duplicate_claim, check_batch_duplicates
-from services.ai_analysis import generate_ai_analysis
+from services.ai_analysis import generate_ai_analysis, generate_policy_checks
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -38,8 +38,18 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _map_category(category_str: str) -> str:
-    """Map frontend category string to backend category enum"""
-    category_map = {
+    """
+    Map/validate category string.
+    
+    Categories are now dynamic from policy_categories table.
+    This function normalizes the category code to uppercase.
+    Legacy category names are mapped for backward compatibility.
+    """
+    if not category_str:
+        return 'OTHER'
+    
+    # Legacy category mapping for backward compatibility
+    legacy_map = {
         'travel': 'TRAVEL',
         'food': 'FOOD',
         'team_lunch': 'TEAM_LUNCH',
@@ -54,9 +64,16 @@ def _map_category(category_str: str) -> str:
         'passport_visa': 'PASSPORT_VISA',
         'conveyance': 'CONVEYANCE',
         'client_meeting': 'CLIENT_MEETING',
-        'other': 'OTHER',
     }
-    return category_map.get(category_str.lower(), 'OTHER')
+    
+    # Check legacy map first
+    lower_cat = category_str.lower()
+    if lower_cat in legacy_map:
+        return legacy_map[lower_cat]
+    
+    # For dynamic categories (from policy_categories table), 
+    # return as uppercase to match category_code convention
+    return category_str.upper()
 
 
 @router.post("/batch", response_model=BatchClaimResponse, status_code=status.HTTP_201_CREATED)
@@ -165,6 +182,23 @@ async def create_batch_claims(
             is_potential_duplicate=is_potential_dup
         )
         claim_payload["ai_analysis"] = ai_analysis
+        
+        # Generate policy compliance checks
+        policy_checks = generate_policy_checks(
+            claim_data={
+                "amount": claim_item.amount,
+                "category": category,
+                "claim_type": batch.claim_type.value,
+                "claim_date": claim_item.claim_date,
+                "description": claim_item.description,
+                "vendor": claim_item.vendor,
+            },
+            has_document=False,
+            policy_limit=None,  # TODO: Get from policy_categories table
+            submission_window_days=15,
+            is_potential_duplicate=is_potential_dup
+        )
+        claim_payload["policy_checks"] = policy_checks
         
         # Create claim
         new_claim = Claim(
@@ -367,6 +401,23 @@ async def create_batch_claims_with_document(
             is_potential_duplicate=is_potential_dup
         )
         claim_payload["ai_analysis"] = ai_analysis
+        
+        # Generate policy compliance checks
+        policy_checks = generate_policy_checks(
+            claim_data={
+                "amount": claim_item.amount,
+                "category": category,
+                "claim_type": batch.claim_type.value,
+                "claim_date": claim_item.claim_date,
+                "description": claim_item.description,
+                "vendor": claim_item.vendor,
+            },
+            has_document=has_doc,
+            policy_limit=None,  # TODO: Get from policy_categories table
+            submission_window_days=15,
+            is_potential_duplicate=is_potential_dup
+        )
+        claim_payload["policy_checks"] = policy_checks
         
         # Create claim
         new_claim = Claim(
@@ -989,3 +1040,49 @@ async def _check_has_documents(db: AsyncSession, claim_id: UUID) -> bool:
     )
     count = result.scalar()
     return count > 0
+
+
+@router.post("/check-duplicate")
+async def check_duplicate(
+    employee_id: UUID,
+    amount: float,
+    claim_date: str,
+    transaction_ref: Optional[str] = None,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Check if a claim would be a duplicate before submission.
+    
+    Returns duplicate check result for real-time validation during form entry.
+    """
+    from datetime import datetime
+    
+    try:
+        # Parse claim_date
+        if 'T' in claim_date:
+            parsed_date = datetime.fromisoformat(claim_date.replace('Z', '+00:00')).date()
+        else:
+            parsed_date = datetime.strptime(claim_date, "%Y-%m-%d").date()
+        
+        result = await check_duplicate_claim(
+            db=db,
+            employee_id=employee_id,
+            amount=amount,
+            claim_date=parsed_date,
+            transaction_ref=transaction_ref,
+            tenant_id=UUID(settings.DEFAULT_TENANT_ID)
+        )
+        
+        return {
+            "is_duplicate": result["is_duplicate"],
+            "match_type": result["match_type"],
+            "duplicate_claims": result["duplicate_claims"]
+        }
+    except Exception as e:
+        logger.error(f"Error checking for duplicates: {e}")
+        return {
+            "is_duplicate": False,
+            "match_type": None,
+            "duplicate_claims": [],
+            "error": str(e)
+        }

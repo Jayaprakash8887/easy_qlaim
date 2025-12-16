@@ -200,6 +200,158 @@ def generate_ai_analysis(
     }
 
 
+def generate_policy_checks(
+    claim_data: Dict[str, Any],
+    has_document: bool = False,
+    policy_limit: Optional[float] = None,
+    submission_window_days: Optional[int] = None,
+    is_potential_duplicate: bool = False
+) -> Dict[str, Any]:
+    """
+    Generate policy compliance checks for a claim.
+    
+    Returns a dictionary with:
+    - compliance_score: Overall compliance percentage (0-100)
+    - checks: List of individual check results
+    """
+    checks = []
+    passed_count = 0
+    total_count = 0
+    
+    # 1. Category Check
+    category = claim_data.get("category", "")
+    category_status = "pass" if category and category.upper() != "OTHER" else ("warning" if category else "fail")
+    checks.append({
+        "id": "category",
+        "label": "Category selected",
+        "status": category_status,
+        "message": f"Category: {category}" if category else "No category selected"
+    })
+    total_count += 1
+    if category_status == "pass":
+        passed_count += 1
+    elif category_status == "warning":
+        passed_count += 0.5  # Partial credit for 'other'
+    
+    # 2. Amount Limit Check
+    amount = float(claim_data.get("amount", 0) or 0)
+    if policy_limit and policy_limit > 0:
+        if amount <= policy_limit:
+            amount_status = "pass"
+            amount_message = f"Amount ₹{amount:,.2f} within policy limit of ₹{policy_limit:,.2f}"
+        else:
+            amount_status = "fail"
+            amount_message = f"Amount ₹{amount:,.2f} exceeds policy limit of ₹{policy_limit:,.2f}"
+    else:
+        # No specific limit - check against default category limits
+        cat_limits = get_category_limits()
+        cat_limit = cat_limits.get(category.upper() if category else "OTHER", 10000)
+        if amount <= cat_limit:
+            amount_status = "pass"
+            amount_message = f"Amount ₹{amount:,.2f} within limit of ₹{cat_limit:,.2f}"
+        else:
+            amount_status = "warning"
+            amount_message = f"Amount ₹{amount:,.2f} may exceed typical limit of ₹{cat_limit:,.2f}"
+    checks.append({
+        "id": "amount",
+        "label": "Amount within limit",
+        "status": amount_status,
+        "message": amount_message
+    })
+    total_count += 1
+    if amount_status == "pass":
+        passed_count += 1
+    elif amount_status == "warning":
+        passed_count += 0.5
+    
+    # 3. Submission Window Check
+    claim_date = claim_data.get("claim_date")
+    window_days = submission_window_days or 15  # Default 15 days
+    if claim_date:
+        if isinstance(claim_date, str):
+            from datetime import datetime
+            try:
+                claim_date = datetime.strptime(claim_date.split('T')[0], "%Y-%m-%d").date()
+            except:
+                claim_date = None
+        
+        if claim_date:
+            days_old = (date.today() - claim_date).days
+            if days_old <= window_days:
+                date_status = "pass"
+                date_message = f"Receipt date is {days_old} days old, within {window_days}-day window"
+            else:
+                date_status = "fail"
+                date_message = f"Receipt date is {days_old} days old, exceeds {window_days}-day submission window"
+        else:
+            date_status = "warning"
+            date_message = "Could not validate expense date"
+    else:
+        date_status = "warning"
+        date_message = "No expense date provided"
+    checks.append({
+        "id": "date",
+        "label": "Within submission window",
+        "status": date_status,
+        "message": date_message
+    })
+    total_count += 1
+    if date_status == "pass":
+        passed_count += 1
+    elif date_status == "warning":
+        passed_count += 0.5
+    
+    # 4. Document Check
+    doc_status = "pass" if has_document else "warning"
+    doc_message = "Supporting document attached" if has_document else "No supporting document"
+    checks.append({
+        "id": "docs",
+        "label": "Required documents",
+        "status": doc_status,
+        "message": doc_message
+    })
+    total_count += 1
+    if doc_status == "pass":
+        passed_count += 1
+    elif doc_status == "warning":
+        passed_count += 0.5
+    
+    # 5. Duplicate Check
+    if is_potential_duplicate:
+        dup_status = "warning"
+        dup_message = "Potential duplicate detected - similar claim exists with same amount and date"
+    else:
+        dup_status = "pass"
+        # Provide clear message about what was checked
+        amount = claim_data.get("amount", 0)
+        claim_date_str = claim_data.get("claim_date", "")
+        if amount and claim_date_str:
+            dup_message = f"No duplicates found for ₹{float(amount):,.2f} on {str(claim_date_str).split('T')[0]}"
+        else:
+            dup_message = "No duplicate claims found"
+    checks.append({
+        "id": "duplicate",
+        "label": "No duplicate claims",
+        "status": dup_status,
+        "message": dup_message
+    })
+    total_count += 1
+    if dup_status == "pass":
+        passed_count += 1
+    elif dup_status == "warning":
+        passed_count += 0.5
+    
+    # Calculate compliance score (0-100)
+    compliance_score = round((passed_count / total_count) * 100, 1) if total_count > 0 else 0
+    
+    return {
+        "compliance_score": compliance_score,
+        "checks": checks,
+        "passed_count": int(passed_count),
+        "total_count": total_count
+    }
+
+
 def _score_document(has_document: bool) -> tuple:
     """Score based on document attachment."""
     if has_document:

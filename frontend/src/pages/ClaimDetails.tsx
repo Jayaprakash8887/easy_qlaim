@@ -647,6 +647,188 @@ export default function ClaimDetails() {
               </Card>
             </TabsContent>
           </Tabs>
+
+          {/* AI Analysis & Policy Checks - Only visible for Manager, HR, and Finance */}
+          {(user?.role === 'manager' || user?.role === 'hr' || user?.role === 'finance') && (
+            <div className="grid gap-6 md:grid-cols-2 mt-6">
+              {/* AI Analysis Card */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Bot className="h-5 w-5 text-primary" />
+                    AI Analysis
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* AI Confidence Score */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Confidence Score</span>
+                      <Badge 
+                        variant="outline" 
+                        className={cn(
+                          "font-semibold",
+                          (claim.aiConfidence || 0) >= 90 ? "bg-success/10 text-success border-success/20" :
+                          (claim.aiConfidence || 0) >= 70 ? "bg-warning/10 text-warning border-warning/20" :
+                          "bg-destructive/10 text-destructive border-destructive/20"
+                        )}
+                      >
+                        {claim.aiConfidence?.toFixed(1) || '0'}%
+                      </Badge>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-2">
+                      <div 
+                        className={cn(
+                          "h-2 rounded-full transition-all",
+                          (claim.aiConfidence || 0) >= 90 ? "bg-success" :
+                          (claim.aiConfidence || 0) >= 70 ? "bg-warning" :
+                          "bg-destructive"
+                        )}
+                        style={{ width: `${Math.min(claim.aiConfidence || 0, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* AI Recommendation */}
+                  <div className="space-y-2">
+                    <span className="text-sm text-muted-foreground">Recommendation</span>
+                    <div className="flex items-center gap-2">
+                      {claim.aiRecommendation === 'approve' ? (
+                        <CheckCircle className="h-5 w-5 text-success" />
+                      ) : claim.aiRecommendation === 'reject' ? (
+                        <XCircle className="h-5 w-5 text-destructive" />
+                      ) : (
+                        <AlertTriangle className="h-5 w-5 text-warning" />
+                      )}
+                      <span className={cn(
+                        "font-medium",
+                        claim.aiRecommendation === 'approve' ? "text-success" :
+                        claim.aiRecommendation === 'reject' ? "text-destructive" :
+                        "text-warning"
+                      )}>
+                        {claim.aiRecommendationText || 'Manual review required'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Compliance Score */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Compliance Score</span>
+                      <Badge 
+                        variant="outline" 
+                        className={cn(
+                          "font-semibold",
+                          (claim.complianceScore || 0) >= 90 ? "bg-success/10 text-success border-success/20" :
+                          (claim.complianceScore || 0) >= 70 ? "bg-warning/10 text-warning border-warning/20" :
+                          "bg-destructive/10 text-destructive border-destructive/20"
+                        )}
+                      >
+                        {claim.complianceScore?.toFixed(0) || '0'}%
+                      </Badge>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-2">
+                      <div 
+                        className={cn(
+                          "h-2 rounded-full transition-all",
+                          (claim.complianceScore || 0) >= 90 ? "bg-success" :
+                          (claim.complianceScore || 0) >= 70 ? "bg-warning" :
+                          "bg-destructive"
+                        )}
+                        style={{ width: `${Math.min(claim.complianceScore || 0, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* AI Processing Status */}
+                  <div className="flex items-center gap-2 pt-2">
+                    <Zap className={cn(
+                      "h-4 w-4",
+                      claim.aiProcessed ? "text-primary" : "text-muted-foreground"
+                    )} />
+                    <span className="text-sm text-muted-foreground">
+                      {claim.aiProcessed ? 'AI Processed' : 'Pending AI Analysis'}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Policy Checks Card */}
+              {claim.policyChecks && claim.policyChecks.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span className="flex items-center gap-2">
+                        <FileText className="h-5 w-5 text-primary" />
+                        Policy Checks
+                      </span>
+                      <Badge 
+                        variant="outline" 
+                        className={cn(
+                          "font-semibold",
+                          (claim.complianceScore || 0) >= 80 ? "bg-success/10 text-success border-success/20" :
+                          (claim.complianceScore || 0) >= 60 ? "bg-warning/10 text-warning border-warning/20" :
+                          "bg-destructive/10 text-destructive border-destructive/20"
+                        )}
+                      >
+                        {claim.policyChecks.filter(c => c.status === 'pass').length}/{claim.policyChecks.length}
+                      </Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {claim.policyChecks.map((check) => (
+                      <div
+                        key={check.id}
+                        className={cn(
+                          "flex items-start gap-3 rounded-lg p-3 transition-all",
+                          check.status === 'pass' ? "bg-success/10" :
+                          check.status === 'warning' ? "bg-warning/10" :
+                          check.status === 'fail' ? "bg-destructive/10" :
+                          "bg-secondary"
+                        )}
+                      >
+                        <div className={cn(
+                          "shrink-0 mt-0.5",
+                          check.status === 'pass' ? "text-success" :
+                          check.status === 'warning' ? "text-warning" :
+                          check.status === 'fail' ? "text-destructive" :
+                          "text-muted-foreground"
+                        )}>
+                          {check.status === 'pass' ? (
+                            <CheckCircle className="h-4 w-4" />
+                          ) : check.status === 'warning' ? (
+                            <AlertTriangle className="h-4 w-4" />
+                          ) : (
+                            <XCircle className="h-4 w-4" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={cn(
+                            "text-sm font-medium",
+                            check.status === 'pass' ? "text-foreground" :
+                            check.status === 'warning' ? "text-warning" :
+                            check.status === 'fail' ? "text-destructive" :
+                            "text-muted-foreground"
+                          )}>
+                            {check.label}
+                          </p>
+                          {check.message && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {check.message}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Sidebar */}
@@ -680,114 +862,6 @@ export default function ClaimDetails() {
               </p>
             </CardContent>
           </Card>
-
-          {/* AI Analysis - Only visible for Manager, HR, and Finance */}
-          {(user?.role === 'manager' || user?.role === 'hr' || user?.role === 'finance') && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Bot className="h-5 w-5 text-primary" />
-                  AI Analysis
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* AI Confidence Score */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Confidence Score</span>
-                    <Badge 
-                      variant="outline" 
-                      className={cn(
-                        "font-semibold",
-                        (claim.aiConfidence || 0) >= 90 ? "bg-success/10 text-success border-success/20" :
-                        (claim.aiConfidence || 0) >= 70 ? "bg-warning/10 text-warning border-warning/20" :
-                        "bg-destructive/10 text-destructive border-destructive/20"
-                      )}
-                    >
-                      {claim.aiConfidence?.toFixed(1) || '0'}%
-                    </Badge>
-                  </div>
-                  <div className="w-full bg-muted rounded-full h-2">
-                    <div 
-                      className={cn(
-                        "h-2 rounded-full transition-all",
-                        (claim.aiConfidence || 0) >= 90 ? "bg-success" :
-                        (claim.aiConfidence || 0) >= 70 ? "bg-warning" :
-                        "bg-destructive"
-                      )}
-                      style={{ width: `${Math.min(claim.aiConfidence || 0, 100)}%` }}
-                    />
-                  </div>
-                </div>
-
-                <Separator />
-
-                {/* AI Recommendation */}
-                <div className="space-y-2">
-                  <span className="text-sm text-muted-foreground">Recommendation</span>
-                  <div className="flex items-center gap-2">
-                    {claim.aiRecommendation === 'approve' ? (
-                      <CheckCircle className="h-5 w-5 text-success" />
-                    ) : claim.aiRecommendation === 'reject' ? (
-                      <XCircle className="h-5 w-5 text-destructive" />
-                    ) : (
-                      <AlertTriangle className="h-5 w-5 text-warning" />
-                    )}
-                    <span className={cn(
-                      "font-medium",
-                      claim.aiRecommendation === 'approve' ? "text-success" :
-                      claim.aiRecommendation === 'reject' ? "text-destructive" :
-                      "text-warning"
-                    )}>
-                      {claim.aiRecommendationText || 'Manual review required'}
-                    </span>
-                  </div>
-                </div>
-
-                <Separator />
-
-                {/* Compliance Score */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Compliance Score</span>
-                    <Badge 
-                      variant="outline" 
-                      className={cn(
-                        "font-semibold",
-                        (claim.complianceScore || 0) >= 90 ? "bg-success/10 text-success border-success/20" :
-                        (claim.complianceScore || 0) >= 70 ? "bg-warning/10 text-warning border-warning/20" :
-                        "bg-destructive/10 text-destructive border-destructive/20"
-                      )}
-                    >
-                      {claim.complianceScore?.toFixed(0) || '0'}%
-                    </Badge>
-                  </div>
-                  <div className="w-full bg-muted rounded-full h-2">
-                    <div 
-                      className={cn(
-                        "h-2 rounded-full transition-all",
-                        (claim.complianceScore || 0) >= 90 ? "bg-success" :
-                        (claim.complianceScore || 0) >= 70 ? "bg-warning" :
-                        "bg-destructive"
-                      )}
-                      style={{ width: `${Math.min(claim.complianceScore || 0, 100)}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* AI Processing Status */}
-                <div className="flex items-center gap-2 pt-2">
-                  <Zap className={cn(
-                    "h-4 w-4",
-                    claim.aiProcessed ? "text-primary" : "text-muted-foreground"
-                  )} />
-                  <span className="text-sm text-muted-foreground">
-                    {claim.aiProcessed ? 'AI Processed' : 'Pending AI Analysis'}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
           {/* Comments */}
           <Card>

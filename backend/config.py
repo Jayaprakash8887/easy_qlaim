@@ -196,6 +196,9 @@ class Settings(BaseSettings):
     AI_THRESHOLD_AUTO_APPROVE: float = 90.0  # Confidence >= this: auto-approve recommended
     AI_THRESHOLD_QUICK_REVIEW: float = 70.0  # Confidence >= this: quick review recommended
     
+    # Embedding similarity threshold for category matching
+    EMBEDDING_SIMILARITY_THRESHOLD: float = 0.50 # Minimum cosine similarity to consider a category match
+    
     # Category limits in INR (comma-separated key:value pairs)
     AI_CATEGORY_LIMITS: str = "TRAVEL:50000,FOOD:5000,TEAM_LUNCH:10000,CERTIFICATION:100000,ACCOMMODATION:20000,EQUIPMENT:50000,SOFTWARE:30000,OFFICE_SUPPLIES:5000,MEDICAL:25000,MOBILE:2000,PASSPORT_VISA:15000,CONVEYANCE:3000,CLIENT_MEETING:20000,OTHER:10000"
     

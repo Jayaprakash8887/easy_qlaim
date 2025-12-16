@@ -332,28 +332,39 @@ export default function ApprovalQueue() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {/* AI Analysis */}
-              <div className="rounded-lg bg-ai/5 border border-ai/20 p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Bot className="h-5 w-5 text-ai" />
-                  <span className="font-medium text-ai">AI Analysis</span>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">
-                      Confidence Score
-                    </p>
-                    <AIConfidenceBadge score={currentClaim.aiConfidence || 0} />
+            <CardContent className="space-y-4">
+              {/* AI Analysis - Compact */}
+              <div className="rounded-lg bg-ai/5 border border-ai/20 p-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <Bot className="h-4 w-4 text-ai" />
+                    <span className="font-medium text-sm text-ai">AI Analysis</span>
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">
-                      AI Recommendation
-                    </p>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground">Confidence Score</span>
+                      <AIConfidenceBadge score={currentClaim.aiConfidence || 0} />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground">Compliance Score</span>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'gap-1 font-semibold text-xs',
+                          (currentClaim.complianceScore || 0) >= 80
+                            ? 'bg-success/10 text-success border-success/20'
+                            : (currentClaim.complianceScore || 0) >= 60
+                            ? 'bg-warning/10 text-warning border-warning/20'
+                            : 'bg-destructive/10 text-destructive border-destructive/20'
+                        )}
+                      >
+                        {(currentClaim.complianceScore || 0).toFixed(0)}% Compliant
+                      </Badge>
+                    </div>
                     <Badge
                       variant="outline"
                       className={cn(
-                        'gap-1',
+                        'gap-1 text-xs',
                         (currentClaim.aiConfidence || 0) >= 90
                           ? 'bg-success/10 text-success border-success/20'
                           : 'bg-warning/10 text-warning border-warning/20'
@@ -373,14 +384,42 @@ export default function ApprovalQueue() {
                     </Badge>
                   </div>
                 </div>
+                {/* Policy Checks - Inline */}
+                {currentClaim.policyChecks && currentClaim.policyChecks.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-ai/20">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-muted-foreground">
+                        Policy Checks ({currentClaim.policyChecks.filter(c => c.status === 'pass').length}/{currentClaim.policyChecks.length} passed)
+                      </span>
+                      {currentClaim.policyChecks.map((check) => (
+                        <div 
+                          key={check.id}
+                          className={cn(
+                            "flex items-center gap-1 text-xs rounded px-1.5 py-0.5",
+                            check.status === 'pass' ? "bg-success/10 text-success" :
+                            check.status === 'warning' ? "bg-warning/10 text-warning" :
+                            "bg-destructive/10 text-destructive"
+                          )}
+                        >
+                          {check.status === 'pass' ? (
+                            <CheckCircle className="h-3 w-3 shrink-0" />
+                          ) : check.status === 'warning' ? (
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                          ) : (
+                            <XCircle className="h-3 w-3 shrink-0" />
+                          )}
+                          <span>{check.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {(currentClaim.policyViolations?.length || 0) > 0 && (
-                  <div className="mt-4 pt-4 border-t border-ai/20">
-                    <p className="text-sm text-muted-foreground mb-2">
-                      Policy Violations
-                    </p>
-                    <div className="flex flex-wrap gap-2">
+                  <div className="mt-2 pt-2 border-t border-ai/20">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-muted-foreground">Policy Violations</span>
                       {currentClaim.policyViolations?.map((violation, idx) => (
-                        <Badge key={idx} variant="destructive" className="gap-1">
+                        <Badge key={idx} variant="destructive" className="gap-1 text-xs">
                           <AlertTriangle className="h-3 w-3" />
                           {violation}
                         </Badge>

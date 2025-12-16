@@ -82,6 +82,7 @@ export interface Claim {
   aiRecommendation?: 'approve' | 'review' | 'reject';
   aiRecommendationText?: string;
   complianceScore?: number;
+  policyChecks?: PolicyCheck[];
   policyViolations?: string[];
   dataSource?: Record<string, DataSource>;
   // Return workflow fields
@@ -89,6 +90,14 @@ export interface Claim {
   returnCount?: number;
   returnedAt?: Date;
   canEdit?: boolean;
+}
+
+// Policy Check interface
+export interface PolicyCheck {
+  id: string;
+  label: string;
+  status: 'pass' | 'fail' | 'warning' | 'checking';
+  message?: string;
 }
 
 // Document interface

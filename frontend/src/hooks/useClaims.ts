@@ -35,7 +35,8 @@ async function fetchClaims(): Promise<Claim[]> {
     aiConfidence: claim.claim_payload?.ai_analysis?.ai_confidence || 0,
     aiRecommendation: claim.claim_payload?.ai_analysis?.ai_recommendation || 'review',
     aiRecommendationText: claim.claim_payload?.ai_analysis?.recommendation_text || 'Manual review required',
-    complianceScore: claim.compliance_score || 0,
+    complianceScore: claim.claim_payload?.policy_checks?.compliance_score || claim.compliance_score || 0,
+    policyChecks: claim.claim_payload?.policy_checks?.checks || [],
   }));
 }
 
@@ -88,7 +89,8 @@ async function fetchClaimById(id: string): Promise<Claim | undefined> {
     aiConfidence: claim.claim_payload?.ai_analysis?.ai_confidence || 0,
     aiRecommendation: claim.claim_payload?.ai_analysis?.ai_recommendation || 'review',
     aiRecommendationText: claim.claim_payload?.ai_analysis?.recommendation_text || 'Manual review required',
-    complianceScore: claim.compliance_score || 0,
+    complianceScore: claim.claim_payload?.policy_checks?.compliance_score || claim.compliance_score || 0,
+    policyChecks: claim.claim_payload?.policy_checks?.checks || [],
     // Add dataSource based on whether data was auto-extracted or manual
     dataSource: {
       category: payload.category_source || 'manual',

@@ -876,3 +876,182 @@ def get_audit_logs(
         performed_by=log.performed_by,
         performed_at=log.performed_at
     ) for log in logs]
+
+
+# =====================================================
+# EMBEDDING MANAGEMENT ENDPOINTS
+# =====================================================
+
+@router.post("/embeddings/refresh/{region}")
+async def refresh_region_embeddings(
+    region: str,
+    category_type: Optional[str] = None,
+    db: Session = Depends(get_sync_db)
+):
+    """
+    Force refresh embeddings for a region.
+    
+    This regenerates all category embeddings for the specified region,
+    which is useful when:
+    - Categories have been updated
+    - Embeddings are corrupted
+    - Manual refresh is needed
+    
+    Args:
+        region: The region to refresh (e.g., 'INDIA', 'US', 'GLOBAL')
+        category_type: Optional filter - 'REIMBURSEMENT' or 'ALLOWANCE'
+        
+    Returns:
+        Number of embeddings generated
+    """
+    try:
+        from services.embedding_service import get_embedding_service
+        
+        embedding_service = get_embedding_service()
+        count = await embedding_service.refresh_region_embeddings(region, category_type)
+        
+        # Also invalidate category cache
+        from services.category_cache import get_category_cache
+        get_category_cache().invalidate_cache(region)
+        
+        logger.info(f"Refreshed {count} embeddings for region: {region}")
+        
+        return {
+            "success": True,
+            "region": region,
+            "category_type": category_type,
+            "embeddings_generated": count,
+            "message": f"Successfully refreshed {count} embeddings"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to refresh embeddings: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to refresh embeddings: {str(e)}"
+        )
+
+
+@router.get("/embeddings/stats")
+async def get_embedding_stats():
+    """
+    Get embedding cache statistics.
+    
+    Returns information about:
+    - Cached regions
+    - Number of embeddings per region
+    - Cache expiry times
+    """
+    try:
+        from services.embedding_service import get_embedding_service
+        
+        embedding_service = get_embedding_service()
+        stats = embedding_service.get_cache_stats()
+        
+        return {
+            "success": True,
+            "stats": stats
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get embedding stats: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "stats": {}
+        }
+
+
+@router.post("/embeddings/invalidate")
+async def invalidate_embedding_cache(
+    region: Optional[str] = None
+):
+    """
+    Invalidate embedding cache.
+    
+    Args:
+        region: Optional region to invalidate. If not provided, invalidates all.
+    """
+    try:
+        from services.embedding_service import get_embedding_service
+        from services.category_cache import get_category_cache
+        
+        embedding_service = get_embedding_service()
+        category_cache = get_category_cache()
+        
+        if region:
+            embedding_service._invalidate_region_cache(region)
+            category_cache.invalidate_cache(region)
+            message = f"Cache invalidated for region: {region}"
+        else:
+            embedding_service.invalidate_all_caches()
+            category_cache.invalidate_cache()
+            message = "All caches invalidated"
+        
+        logger.info(message)
+        
+        return {
+            "success": True,
+            "message": message
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to invalidate cache: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to invalidate cache: {str(e)}"
+        )
+
+
+@router.post("/embeddings/match")
+async def test_embedding_match(
+    text: str,
+    region: str = "INDIA",
+    category_type: str = "REIMBURSEMENT",
+    top_k: int = 3
+):
+    """
+    Test embedding-based category matching.
+    
+    Useful for debugging and testing the semantic matching.
+    
+    Args:
+        text: Text to match (e.g., vendor name + description)
+        region: Employee region
+        category_type: REIMBURSEMENT or ALLOWANCE
+        top_k: Number of top matches to return
+        
+    Returns:
+        Top matching categories with similarity scores
+    """
+    try:
+        from services.embedding_service import get_embedding_service
+        
+        embedding_service = get_embedding_service()
+        matches = await embedding_service.match_category(
+            text, region, category_type, top_k
+        )
+        
+        return {
+            "success": True,
+            "query": text,
+            "region": region,
+            "category_type": category_type,
+            "matches": [
+                {
+                    "category": cat,
+                    "similarity": round(score, 4),
+                    "is_valid_match": valid
+                }
+                for cat, score, valid in matches
+            ],
+            "best_match": matches[0][0] if matches else "other",
+            "best_score": round(matches[0][1], 4) if matches else 0.0
+        }
+        
+    except Exception as e:
+        logger.error(f"Embedding match test failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Embedding match failed: {str(e)}"
+        )

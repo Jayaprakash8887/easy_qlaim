@@ -13,17 +13,10 @@ class ClaimType(str, Enum):
     ALLOWANCE = "ALLOWANCE"
 
 
-class ClaimCategory(str, Enum):
-    CERTIFICATION = "CERTIFICATION"
-    TRAVEL = "TRAVEL"
-    FOOD = "FOOD"
-    TEAM_LUNCH = "TEAM_LUNCH"
-    ONCALL = "ONCALL"
-    OVERTIME = "OVERTIME"
-    RELOCATION = "RELOCATION"
-    INTERNET = "INTERNET"
-    MOBILE = "MOBILE"
-    CONVEYANCE = "CONVEYANCE"
+# NOTE: ClaimCategory is no longer a fixed enum.
+# Categories are dynamically loaded from policy_categories table.
+# Valid categories depend on the employee's region and claim_type (REIMBURSEMENT/ALLOWANCE).
+# Use the /api/v1/policies/categories/active endpoint to get valid categories.
 
 
 class ClaimStatus(str, Enum):
@@ -70,7 +63,7 @@ class FieldTracking(BaseModel):
 # Claim Schemas
 class ClaimBase(BaseModel):
     claim_type: ClaimType
-    category: ClaimCategory
+    category: str  # Dynamic - validated against policy_categories table
     amount: float = Field(..., gt=0)
     claim_date: date
     description: Optional[str] = None
@@ -438,8 +431,8 @@ class BulkSettlement(BaseModel):
 # HR Correction Schema
 class HRCorrection(BaseModel):
     claim_id: UUID
-    corrected_claim_type: Optional[ClaimCategory] = None
-    type_change_reason: Optional[str] = None
+    corrected_category: Optional[str] = None  # Dynamic - from policy_categories
+    category_change_reason: Optional[str] = None
     approved_amount: Optional[float] = None
     amount_adjustment_reason: Optional[str] = None
 

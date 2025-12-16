@@ -234,6 +234,96 @@ export function SmartClaimForm({ form, onFilesChange, uploadedFiles = [], onMult
 
   const [isExtractingOCR, setIsExtractingOCR] = useState(false);
   const [extractedText, setExtractedText] = useState<string>('');
+  
+  // State for real-time duplicate check
+  const [duplicateCheckResult, setDuplicateCheckResult] = useState<{
+    isChecking: boolean;
+    isDuplicate: boolean;
+    matchType: string | null;
+    duplicateClaims: Array<{ claim_number: string; amount: number; claim_date: string }>;
+  }>({
+    isChecking: false,
+    isDuplicate: false,
+    matchType: null,
+    duplicateClaims: [],
+  });
+  
+  // Real-time duplicate check when amount, date, or transactionRef changes
+  useEffect(() => {
+    const checkForDuplicates = async () => {
+      const amount = watchedFields.amount;
+      const date = watchedFields.date;
+      const transactionRef = watchedFields.transactionRef;
+      
+      // Only check if we have amount and date
+      if (!amount || !date || !user?.id) {
+        setDuplicateCheckResult(prev => ({
+          ...prev,
+          isChecking: false,
+          isDuplicate: false,
+          matchType: null,
+          duplicateClaims: [],
+        }));
+        return;
+      }
+      
+      setDuplicateCheckResult(prev => ({ ...prev, isChecking: true }));
+      
+      try {
+        // Format date without timezone conversion (use local date)
+        let dateStr: string;
+        if (date instanceof Date) {
+          // Use local date parts to avoid timezone issues
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          dateStr = `${year}-${month}-${day}`;
+        } else {
+          dateStr = String(date).split('T')[0];
+        }
+        
+        // Debug logging
+        console.log('Duplicate check - user.id:', user.id);
+        console.log('Duplicate check - amount:', amount, '-> parsed:', parseFloat(amount.toString().replace(/,/g, '')));
+        console.log('Duplicate check - date:', date, '-> dateStr:', dateStr);
+        console.log('Duplicate check - transactionRef:', transactionRef);
+        
+        const params = new URLSearchParams({
+          employee_id: user.id,
+          amount: String(parseFloat(amount.toString().replace(/,/g, ''))),
+          claim_date: dateStr,
+        });
+        
+        if (transactionRef) {
+          params.append('transaction_ref', transactionRef);
+        }
+        
+        const response = await fetch(
+          `http://localhost:8000/api/v1/claims/check-duplicate?${params}`,
+          { method: 'POST' }
+        );
+        
+        if (response.ok) {
+          const data = await response.json();
+          setDuplicateCheckResult({
+            isChecking: false,
+            isDuplicate: data.is_duplicate,
+            matchType: data.match_type,
+            duplicateClaims: data.duplicate_claims || [],
+          });
+        } else {
+          setDuplicateCheckResult(prev => ({ ...prev, isChecking: false }));
+        }
+      } catch (error) {
+        console.error('Error checking for duplicates:', error);
+        setDuplicateCheckResult(prev => ({ ...prev, isChecking: false }));
+      }
+    };
+    
+    // Debounce the check
+    const timeoutId = setTimeout(checkForDuplicates, 500);
+    return () => clearTimeout(timeoutId);
+  }, [watchedFields.amount, watchedFields.date, watchedFields.transactionRef, user?.id]);
 
   // Helper function to detect category from extracted text using API categories
   // Returns 'other' if no match is found, which sets AI confidence to 0
@@ -509,12 +599,14 @@ export function SmartClaimForm({ form, onFilesChange, uploadedFiles = [], onMult
       description: string;
       currency: string;
       transaction_ref?: string;
+      category_validated?: boolean;  // Whether category was validated against policy
     }>;
     receipt_count?: number;
   }
 
   // Extract text from document (PDF or Image) using backend OCR API
   // The backend handles PDF-to-image conversion, OCR extraction, and LLM-based receipt parsing
+  // Employee's region is passed to filter applicable expense categories (cached server-side for 24h)
   const extractTextFromDocument = async (file: File): Promise<OcrResponse | null> => {
     console.log('Sending document to backend OCR API:', file.name, file.type);
     
@@ -522,9 +614,12 @@ export function SmartClaimForm({ form, onFilesChange, uploadedFiles = [], onMult
       const formData = new FormData();
       formData.append('file', file);
       
-      // Use absolute URL to backend API
+      // Get employee's region for category filtering
+      const employeeRegion = user?.region || 'INDIA';
+      
+      // Use absolute URL to backend API with region parameter
       const API_BASE_URL = 'http://localhost:8000/api/v1';
-      const response = await fetch(`${API_BASE_URL}/documents/ocr`, {
+      const response = await fetch(`${API_BASE_URL}/documents/ocr?employee_region=${encodeURIComponent(employeeRegion)}`, {
         method: 'POST',
         body: formData,
       });
@@ -575,13 +670,23 @@ export function SmartClaimForm({ form, onFilesChange, uploadedFiles = [], onMult
         }
       }
       
-      // Validate and normalize the category against available policy categories
-      const validatedCategory = validateAndNormalizeCategory(receipt.category);
+      // Trust the backend's validated category - it's already been validated against policy_categories
+      // Only normalize case for consistency with frontend options
+      const backendCategory = receipt.category?.toLowerCase() || 'other';
+      
+      // Check if the backend category exists in our loaded options
+      const categoryOption = categoryOptions.find(opt => 
+        opt.value === backendCategory || 
+        opt.categoryCode.toLowerCase() === backendCategory
+      );
+      
+      // Use the backend category directly - don't override with 'other' if not found in frontend
+      // The backend has already validated against the database
+      const validatedCategory = categoryOption?.value || backendCategory;
       const isOtherCategory = validatedCategory === 'other';
       
       // Get display title based on validated category
-      const categoryOption = categoryOptions.find(opt => opt.value === validatedCategory);
-      const categoryTitle = categoryOption?.label || (receipt.category.charAt(0).toUpperCase() + receipt.category.slice(1).replace(/_/g, ' '));
+      const categoryTitle = categoryOption?.label || (receipt.category?.charAt(0).toUpperCase() + receipt.category?.slice(1).replace(/_/g, ' ') || 'Expense');
       
       // Initialize field sources - mark fields as 'auto' if they have values from extraction
       // For 'other' category, mark as manual since it wasn't matched to policy
@@ -1161,8 +1266,18 @@ export function SmartClaimForm({ form, onFilesChange, uploadedFiles = [], onMult
     {
       id: "duplicate",
       label: "No duplicate claims",
-      status: "pass" as const,
-      message: "AI scanned for duplicates",
+      status: duplicateCheckResult.isChecking 
+        ? "checking" as const
+        : duplicateCheckResult.isDuplicate
+          ? (duplicateCheckResult.matchType === 'exact' ? "fail" as const : "warning" as const)
+          : (watchedFields.amount && watchedFields.date ? "pass" as const : "checking" as const),
+      message: duplicateCheckResult.isChecking 
+        ? "Checking for duplicates..."
+        : duplicateCheckResult.isDuplicate
+          ? `${duplicateCheckResult.matchType === 'exact' ? 'Exact' : 'Potential'} duplicate found: ${duplicateCheckResult.duplicateClaims[0]?.claim_number || 'existing claim'}`
+          : (watchedFields.amount && watchedFields.date 
+              ? `No duplicates found for ₹${watchedFields.amount} on ${watchedFields.date instanceof Date ? watchedFields.date.toLocaleDateString() : watchedFields.date}`
+              : "Enter amount and date to check"),
     },
   ];
 
