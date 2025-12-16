@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { UseFormReturn } from "react-hook-form";
 import { Calendar, CheckCircle2, Circle, FileText, Sparkles, Trash2, Loader2 } from "lucide-react";
 import { format, parse } from "date-fns";
@@ -7,6 +7,7 @@ import { SmartFormField } from "./SmartFormField";
 import { ComplianceScore } from "./ComplianceScore";
 import { DocumentUpload, UploadedFile } from "./DocumentUpload";
 import { PolicyChecks } from "./PolicyChecks";
+import { ReceiptPolicyChecks, ReceiptsPolicySummary, PolicyCheck } from "./ReceiptPolicyChecks";
 import { Category } from "./CategoryGrid";
 import { Button } from "@/components/ui/button";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
@@ -247,6 +248,91 @@ export function SmartClaimForm({ form, onFilesChange, uploadedFiles = [], onMult
     matchType: null,
     duplicateClaims: [],
   });
+  
+  // State for per-receipt duplicate checks (for multi-receipt mode)
+  const [receiptDuplicateChecks, setReceiptDuplicateChecks] = useState<Record<string, {
+    isChecking: boolean;
+    isDuplicate: boolean;
+    matchType: string | null;
+    duplicateClaims: Array<{ claim_number: string; amount: number; claim_date: string }>;
+  }>>({});
+  
+  // Function to check duplicate for a single receipt
+  const checkDuplicateForReceipt = async (receiptId: string, amount: string, date: Date | null, transactionRef?: string) => {
+    if (!amount || !date || !user?.id) {
+      setReceiptDuplicateChecks(prev => ({
+        ...prev,
+        [receiptId]: {
+          isChecking: false,
+          isDuplicate: false,
+          matchType: null,
+          duplicateClaims: [],
+        }
+      }));
+      return;
+    }
+    
+    setReceiptDuplicateChecks(prev => ({
+      ...prev,
+      [receiptId]: { ...prev[receiptId], isChecking: true }
+    }));
+    
+    try {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+      
+      const params = new URLSearchParams({
+        employee_id: user.id,
+        amount: String(parseFloat(amount.replace(/,/g, ''))),
+        claim_date: dateStr,
+      });
+      
+      if (transactionRef) {
+        params.append('transaction_ref', transactionRef);
+      }
+      
+      const response = await fetch(
+        `http://localhost:8000/api/v1/claims/check-duplicate?${params}`,
+        { method: 'POST' }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        setReceiptDuplicateChecks(prev => ({
+          ...prev,
+          [receiptId]: {
+            isChecking: false,
+            isDuplicate: data.is_duplicate,
+            matchType: data.match_type,
+            duplicateClaims: data.duplicate_claims || [],
+          }
+        }));
+      }
+    } catch (error) {
+      console.error('Error checking duplicate for receipt:', receiptId, error);
+      setReceiptDuplicateChecks(prev => ({
+        ...prev,
+        [receiptId]: { ...prev[receiptId], isChecking: false }
+      }));
+    }
+  };
+  
+  // Check duplicates for all receipts when they change
+  useEffect(() => {
+    if (extractedClaims.length > 1 && user?.id) {
+      // Debounce: check all receipts
+      const timeoutId = setTimeout(() => {
+        extractedClaims.forEach(claim => {
+          if (claim.selected) {
+            checkDuplicateForReceipt(claim.id, claim.amount, claim.date, claim.transactionRef);
+          }
+        });
+      }, 500);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [extractedClaims, user?.id]);
   
   // Real-time duplicate check when amount, date, or transactionRef changes
   useEffect(() => {
@@ -1281,6 +1367,111 @@ export function SmartClaimForm({ form, onFilesChange, uploadedFiles = [], onMult
     },
   ];
 
+  // Function to compute policy checks for a single receipt (multi-receipt mode)
+  const getReceiptPolicyChecks = useCallback((claim: ExtractedClaim): PolicyCheck[] => {
+    // Find the policy for this receipt's category
+    const receiptCategoryPolicy = reimbursementCategories.find(cat => 
+      cat.category_code.toLowerCase() === claim.category?.toLowerCase()
+    );
+    
+    const duplicateCheck = receiptDuplicateChecks[claim.id] || {
+      isChecking: false,
+      isDuplicate: false,
+      matchType: null,
+      duplicateClaims: [],
+    };
+    
+    // Amount validation for this receipt
+    const amount = parseFloat(claim.amount || '0');
+    let amountStatus: 'pass' | 'fail' | 'warning' | 'checking' = 'checking';
+    let amountMessage = 'Enter amount to validate';
+    
+    if (amount > 0) {
+      if (receiptCategoryPolicy?.max_amount && amount > receiptCategoryPolicy.max_amount) {
+        amountStatus = 'fail';
+        amountMessage = `Amount ₹${amount} exceeds limit of ₹${receiptCategoryPolicy.max_amount.toLocaleString('en-IN')}`;
+      } else if (receiptCategoryPolicy?.max_amount) {
+        amountStatus = 'pass';
+        amountMessage = `Amount ₹${amount} within policy limit of ₹${receiptCategoryPolicy.max_amount.toLocaleString('en-IN')}`;
+      } else {
+        amountStatus = 'pass';
+        amountMessage = `Amount ₹${amount} (no specific limit)`;
+      }
+    }
+    
+    // Date validation for this receipt
+    let dateStatus: 'pass' | 'fail' | 'warning' | 'checking' = 'checking';
+    let dateMessage = 'Enter date to validate';
+    
+    if (claim.date) {
+      const submissionWindowDays = receiptCategoryPolicy?.submission_window_days || 15;
+      const today = new Date();
+      const claimDate = new Date(claim.date);
+      const daysDiff = Math.floor((today.getTime() - claimDate.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (daysDiff > submissionWindowDays) {
+        dateStatus = 'fail';
+        dateMessage = `Receipt is ${daysDiff} days old, exceeds ${submissionWindowDays}-day window`;
+      } else {
+        dateStatus = 'pass';
+        dateMessage = `Within ${submissionWindowDays}-day window (${daysDiff} days old)`;
+      }
+    }
+    
+    return [
+      {
+        id: 'category',
+        label: 'Category selected',
+        status: !claim.category || claim.category === 'other' ? 'warning' : 'pass',
+        message: !claim.category 
+          ? 'Select a category' 
+          : claim.category === 'other'
+            ? 'Category "Other" - no policy matching'
+            : `Category: ${receiptCategoryPolicy?.category_name || claim.category}`,
+      },
+      {
+        id: 'amount',
+        label: 'Amount within limit',
+        status: amountStatus,
+        message: amountMessage,
+      },
+      {
+        id: 'date',
+        label: 'Within submission window',
+        status: dateStatus,
+        message: dateMessage,
+      },
+      {
+        id: 'duplicate',
+        label: 'No duplicate claims',
+        status: duplicateCheck.isChecking 
+          ? 'checking'
+          : duplicateCheck.isDuplicate
+            ? (duplicateCheck.matchType === 'exact' ? 'fail' : 'warning')
+            : (claim.amount && claim.date ? 'pass' : 'checking'),
+        message: duplicateCheck.isChecking 
+          ? 'Checking for duplicates...'
+          : duplicateCheck.isDuplicate
+            ? `${duplicateCheck.matchType === 'exact' ? 'Exact' : 'Potential'} duplicate found`
+            : (claim.amount && claim.date 
+                ? `No duplicates found for ₹${claim.amount}`
+                : 'Enter amount and date to check'),
+      },
+    ];
+  }, [reimbursementCategories, receiptDuplicateChecks]);
+  
+  // Compute all receipt policy checks for the summary
+  const allReceiptPolicyChecks = useMemo(() => {
+    if (!showMultipleClaims || extractedClaims.length <= 1) return [];
+    
+    return extractedClaims
+      .filter(claim => claim.selected)
+      .map((claim, index) => ({
+        receiptIndex: index,
+        checks: getReceiptPolicyChecks(claim),
+      }));
+  }, [extractedClaims, showMultipleClaims, getReceiptPolicyChecks]);
+
   const getValidationStatus = (field: keyof ClaimFormData) => {
     if (errors[field]) return "invalid";
     if (watchedFields[field]) return "valid";
@@ -1405,7 +1596,13 @@ export function SmartClaimForm({ form, onFilesChange, uploadedFiles = [], onMult
             </div>
             
             <div className="space-y-4">
-              {extractedClaims.map((claim, index) => (
+              {extractedClaims.map((claim, index) => {
+                const receiptChecks = getReceiptPolicyChecks(claim);
+                const passCount = receiptChecks.filter(c => c.status === 'pass').length;
+                const failCount = receiptChecks.filter(c => c.status === 'fail').length;
+                const warningCount = receiptChecks.filter(c => c.status === 'warning').length;
+                
+                return (
                 <Card key={claim.id} className={cn(
                   "transition-all",
                   claim.selected ? "border-accent bg-accent/5" : "opacity-60"
@@ -1422,6 +1619,21 @@ export function SmartClaimForm({ form, onFilesChange, uploadedFiles = [], onMult
                           <CardTitle className="text-base">
                             Receipt #{index + 1}
                           </CardTitle>
+                          {/* Compact Policy Status Badge */}
+                          {claim.selected && (
+                            <div className="flex items-center gap-1.5">
+                              <span className={cn(
+                                "text-xs font-medium px-2 py-0.5 rounded-full",
+                                failCount > 0 
+                                  ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                  : warningCount > 0
+                                    ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                                    : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                              )}>
+                                {passCount}/{receiptChecks.length} ✓
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1587,9 +1799,18 @@ export function SmartClaimForm({ form, onFilesChange, uploadedFiles = [], onMult
                         />
                       </div>
                     </div>
+                    
+                    {/* Per-Receipt Policy Checks */}
+                    {claim.selected && (
+                      <ReceiptPolicyChecks 
+                        checks={getReceiptPolicyChecks(claim)} 
+                        receiptIndex={index}
+                      />
+                    )}
                   </CardContent>
                 </Card>
-              ))}
+              );
+              })}
             </div>
             
             <div className="mt-4 flex items-center justify-between">
@@ -1853,7 +2074,12 @@ export function SmartClaimForm({ form, onFilesChange, uploadedFiles = [], onMult
             </p>
           </div>
 
-          {uploadedFiles.length > 0 && <PolicyChecks checks={policyChecks} />}
+          {/* Policy Checks - Show summary for multi-receipt, details for single */}
+          {uploadedFiles.length > 0 && (
+            showMultipleClaims && extractedClaims.length > 1 
+              ? <ReceiptsPolicySummary allReceiptChecks={allReceiptPolicyChecks} />
+              : <PolicyChecks checks={policyChecks} />
+          )}
         </div>
       </div>
     </div>
