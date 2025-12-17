@@ -71,7 +71,7 @@ celery_app.conf.beat_schedule = {
 @celery_app.task(bind=True)
 def debug_task(self):
     """Debug task to test Celery"""
-    print(f"Request: {self.request!r}")
+    logger.info(f"Debug task request: {self.request!r}")
     return "Celery is working!"
 
 

@@ -451,15 +451,12 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
             onFilesChange={setUploadedFiles}
             uploadedFiles={uploadedFiles}
             onMultipleClaimsExtracted={(claims) => {
-              console.log('Multiple claims extracted in parent:', claims);
               setExtractedMultipleClaims(claims);
             }}
             onClaimsUpdated={(claims) => {
-              console.log('Claims updated in parent (edited by user):', claims);
               setExtractedMultipleClaims(claims);
             }}
             onSingleFormFieldSourcesChange={(sources) => {
-              console.log('Single form field sources changed:', sources);
               setSingleFormFieldSources(sources);
             }}
             lastProcessedFileId={lastProcessedFileId}

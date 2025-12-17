@@ -138,7 +138,6 @@ export default function Settlements() {
 
   const confirmSettle = () => {
     // In real app, this would call an API
-    console.log('Settling claims:', selectedIds, paymentMethod, paymentReference);
     setIsSettleDialogOpen(false);
     setSelectedIds([]);
     setPaymentMethod('');

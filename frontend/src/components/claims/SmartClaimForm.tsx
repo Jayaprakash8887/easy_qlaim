@@ -152,7 +152,6 @@ export function SmartClaimForm({
     }
     
     // No match found - return 'other'
-    console.log(`Category "${category}" not found in available options, defaulting to "other"`);
     return 'other';
   };
   
@@ -240,7 +239,6 @@ export function SmartClaimForm({
   // Default project code to employee's current active project on initial load
   useEffect(() => {
     if (currentActiveProject && !watchedFields.projectCode) {
-      console.log('Defaulting project code to current active project:', currentActiveProject.projectCode);
       setValue('projectCode', currentActiveProject.projectCode);
     }
   }, [currentActiveProject, watchedFields.projectCode, setValue]);
@@ -380,12 +378,6 @@ export function SmartClaimForm({
           dateStr = String(date).split('T')[0];
         }
         
-        // Debug logging
-        console.log('Duplicate check - user.id:', user.id);
-        console.log('Duplicate check - amount:', amount, '-> parsed:', parseFloat(amount.toString().replace(/,/g, '')));
-        console.log('Duplicate check - date:', date, '-> dateStr:', dateStr);
-        console.log('Duplicate check - transactionRef:', transactionRef);
-        
         const params = new URLSearchParams({
           employee_id: user.id,
           amount: String(parseFloat(amount.toString().replace(/,/g, ''))),
@@ -508,9 +500,6 @@ export function SmartClaimForm({
   const extractFieldsFromText = (text: string): { amount?: string; date?: Date; vendor?: string; title?: string } => {
     const result: { amount?: string; date?: Date; vendor?: string; title?: string } = {};
     
-    console.log('extractFieldsFromText called with text length:', text.length);
-    console.log('Text preview for extraction:', text.substring(0, 500));
-    
     // Extract amount - look for currency patterns (₹, Rs, INR, $, %, etc.) or plain numbers with decimals
     // Note: OCR may interpret ₹ as % or other symbols
     const amountPatterns = [
@@ -532,7 +521,6 @@ export function SmartClaimForm({
         const numAmount = parseFloat(amount);
         if (numAmount >= 50 && numAmount <= 100000) {
           result.amount = amount;
-          console.log('Extracted amount:', amount, 'using pattern:', pattern.toString());
           break;
         }
       }
@@ -565,14 +553,11 @@ export function SmartClaimForm({
         try {
           let parsedDate: Date | null = null;
           
-          console.log('Date match found:', dateMatch);
-          
           // Check if it's "Invoice Date DD/MM/YYYY" format (captured as 3 separate groups)
           if (pattern.source.includes('invoice') && dateMatch[1] && dateMatch[2] && dateMatch[3]) {
             const day = parseInt(dateMatch[1]);
             const month = parseInt(dateMatch[2]) - 1;  // Month is 0-indexed
             const year = parseInt(dateMatch[3]);
-            console.log('Parsing Invoice Date DD/MM/YYYY:', day, month + 1, year);
             parsedDate = new Date(year, month, day);
           }
           // Check if it's "DD Mon YYYY" format (e.g., "11 Sep, 2005")
@@ -580,7 +565,6 @@ export function SmartClaimForm({
             const day = parseInt(dateMatch[1]);
             const month = monthMap[dateMatch[2].toLowerCase().substring(0, 3)];
             const year = parseInt(dateMatch[3]);
-            console.log('Parsing DD Mon YYYY:', day, month, year);
             if (month !== undefined) {
               parsedDate = new Date(year, month, day);
             }
@@ -590,7 +574,6 @@ export function SmartClaimForm({
             const month = monthMap[dateMatch[1].toLowerCase().substring(0, 3)];
             const day = parseInt(dateMatch[2]);
             const year = parseInt(dateMatch[3]);
-            console.log('Parsing Mon DD YYYY:', month, day, year);
             if (month !== undefined) {
               parsedDate = new Date(year, month, day);
             }
@@ -599,23 +582,20 @@ export function SmartClaimForm({
           else if (dateMatch[1] && dateMatch[1].match(/^\d{1,2}[-\/]\d{1,2}[-\/]\d{4}$/)) {
             const parts = dateMatch[1].split(/[-\/]/);
             parsedDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-            console.log('Parsing DD/MM/YYYY:', parts);
           }
           // Try DD/MM/YY or DD-MM-YY
           else if (dateMatch[1] && dateMatch[1].match(/^\d{1,2}[-\/]\d{1,2}[-\/]\d{2}$/)) {
             const parts = dateMatch[1].split(/[-\/]/);
             const year = parseInt(parts[2]) + 2000;
             parsedDate = new Date(year, parseInt(parts[1]) - 1, parseInt(parts[0]));
-            console.log('Parsing DD/MM/YY:', parts, year);
           }
           
           if (parsedDate && !isNaN(parsedDate.getTime())) {
             result.date = parsedDate;
-            console.log('Extracted date:', parsedDate);
             break;
           }
         } catch (e) {
-          console.log('Date parsing error:', e);
+          // Date parsing failed, try next pattern
         }
       }
     }
@@ -643,7 +623,6 @@ export function SmartClaimForm({
     for (const vendor of knownVendors) {
       if (vendor.pattern.test(text)) {
         result.vendor = vendor.name;
-        console.log('Extracted known vendor:', vendor.name);
         break;
       }
     }
@@ -706,8 +685,6 @@ export function SmartClaimForm({
   // The backend handles PDF-to-image conversion, OCR extraction, and LLM-based receipt parsing
   // Employee's region is passed to filter applicable expense categories (cached server-side for 24h)
   const extractTextFromDocument = async (file: File): Promise<OcrResponse | null> => {
-    console.log('Sending document to backend OCR API:', file.name, file.type);
-    
     try {
       const formData = new FormData();
       formData.append('file', file);
@@ -724,14 +701,6 @@ export function SmartClaimForm({
       
       if (response.ok) {
         const data: OcrResponse = await response.json();
-        console.log('Backend OCR response:', {
-          method: data.method,
-          confidence: data.confidence,
-          pagesProcessed: data.pages_processed,
-          textLength: data.text?.length || 0,
-          receiptCount: data.receipt_count || 0,
-          receipts: data.receipts
-        });
         return data;
       } else {
         const errorData = await response.json().catch(() => ({}));
@@ -819,8 +788,6 @@ export function SmartClaimForm({
   // This function is designed to detect ACTUAL multiple receipts (e.g., multiple separate invoices in one PDF)
   // NOT multiple line items within a single invoice
   const extractMultipleReceipts = (text: string): ExtractedClaim[] => {
-    console.log('extractMultipleReceipts (fallback) called with text length:', text.length);
-    
     const claims: ExtractedClaim[] = [];
     
     // Get the default project code from the employee's current active project

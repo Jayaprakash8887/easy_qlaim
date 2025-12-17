@@ -123,13 +123,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const switchEmployee = useCallback(async (employeeId: string) => {
     setIsLoading(true);
     try {
-      console.log('Switching to employee:', employeeId);
       const employeeUser = await fetchEmployeeById(employeeId);
       if (employeeUser) {
         setUser(employeeUser);
         // Store in session storage for persistence during page refresh
         sessionStorage.setItem('currentEmployeeId', employeeId);
-        console.log('Switched to employee:', employeeUser.name, 'Role:', employeeUser.role);
       } else {
         console.error('Employee not found:', employeeId);
       }
@@ -154,11 +152,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const savedEmployeeId = sessionStorage.getItem('currentEmployeeId');
     if (savedEmployeeId) {
-      console.log('Restoring session for employee:', savedEmployeeId);
       fetchEmployeeById(savedEmployeeId).then((employeeUser) => {
         if (employeeUser) {
           setUser(employeeUser);
-          console.log('Session restored for:', employeeUser.name);
         }
       });
     }

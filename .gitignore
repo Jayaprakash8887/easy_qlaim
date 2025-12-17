@@ -59,6 +59,10 @@ backend/uploads/
 *.tmp
 *.temp
 
+# Logs and runtime files
+nohup.out
+backend/nohup.out
+
 # Frontend
 frontend/node_modules/
 frontend/dist/
