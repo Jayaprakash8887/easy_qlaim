@@ -29,6 +29,10 @@ const Reports = lazy(() => import('./pages/Reports'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Settings = lazy(() => import('./pages/Settings'));
 const NotFound = lazy(() => import('./pages/NotFound'));
+// System Admin pages
+const Tenants = lazy(() => import('./pages/Tenants'));
+const Designations = lazy(() => import('./pages/Designations'));
+const SystemAdminSettings = lazy(() => import('./pages/SystemAdminSettings'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -223,6 +227,37 @@ const App = () => (
                   <Suspense fallback={<PageLoader />}>
                     <ProtectedRoute allowedRoles={['admin']}>
                       <Settings />
+                    </ProtectedRoute>
+                  </Suspense>
+                }
+              />
+              {/* System Admin Routes */}
+              <Route
+                path="/admin/tenants"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <ProtectedRoute allowedRoles={['system_admin', 'admin']}>
+                      <Tenants />
+                    </ProtectedRoute>
+                  </Suspense>
+                }
+              />
+              <Route
+                path="/admin/designations"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <ProtectedRoute allowedRoles={['system_admin', 'admin']}>
+                      <Designations />
+                    </ProtectedRoute>
+                  </Suspense>
+                }
+              />
+              <Route
+                path="/admin/settings"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <ProtectedRoute allowedRoles={['system_admin']}>
+                      <SystemAdminSettings />
                     </ProtectedRoute>
                   </Suspense>
                 }

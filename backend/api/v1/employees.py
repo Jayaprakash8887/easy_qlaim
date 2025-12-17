@@ -12,6 +12,7 @@ import hashlib
 
 from database import get_sync_db
 from models import User, EmployeeProjectAllocation, Project
+from services.role_service import get_user_roles
 # Employee is now an alias for User in models.py
 Employee = User
 from schemas import (
@@ -39,8 +40,14 @@ async def _invalidate_employee_cache(employee_id: UUID = None, employee_code: st
         logging.getLogger(__name__).warning(f"Failed to invalidate employee cache: {e}")
 
 
-def _user_to_employee_response(user: User) -> dict:
-    """Convert User model to EmployeeResponse format for backward compatibility"""
+def _user_to_employee_response(user: User, db: Session) -> dict:
+    """
+    Convert User model to EmployeeResponse format for backward compatibility.
+    Roles are dynamically resolved from designation-to-role mappings.
+    """
+    # Get roles dynamically from designation mappings
+    roles = get_user_roles(user, db)
+    
     return {
         "id": user.id,
         "employee_id": user.employee_code,
@@ -56,7 +63,7 @@ def _user_to_employee_response(user: User) -> dict:
         "date_of_joining": user.date_of_joining,
         "employment_status": user.employment_status or "ACTIVE",
         "region": user.region,  # Region/location for policy applicability
-        "roles": user.roles or [],  # User roles
+        "roles": roles,  # Dynamically resolved from designation mappings
         "employee_data": user.user_data or {},
         "created_at": user.created_at,
     }
@@ -70,7 +77,7 @@ async def list_employees(
 ):
     """Get list of all employees (users)"""
     users = db.query(User).offset(skip).limit(limit).all()
-    return [_user_to_employee_response(u) for u in users]
+    return [_user_to_employee_response(u, db) for u in users]
 
 
 @router.get("/{employee_id}", response_model=EmployeeResponse)
@@ -85,7 +92,7 @@ async def get_employee(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Employee not found"
         )
-    return _user_to_employee_response(user)
+    return _user_to_employee_response(user, db)
 
 
 @router.post("/", response_model=EmployeeResponse, status_code=status.HTTP_201_CREATED)
@@ -155,7 +162,7 @@ async def create_employee(
     
     # Note: No cache invalidation needed for new employee since it's not in cache yet
     
-    return _user_to_employee_response(user)
+    return _user_to_employee_response(user, db)
 
 
 @router.put("/{employee_id}", response_model=EmployeeResponse)
@@ -205,9 +212,7 @@ async def update_employee(
         user_data.update(employee_data.employee_data)
     user.user_data = user_data
     
-    # Update roles if provided
-    if employee_data.roles is not None:
-        user.roles = employee_data.roles
+    # Note: Roles are NOT updated here - they are derived from designation-to-role mappings
     
     db.commit()
     db.refresh(user)
@@ -219,7 +224,7 @@ async def update_employee(
     if user.email != old_email:
         background_tasks.add_task(_invalidate_employee_cache, email=user.email)
     
-    return _user_to_employee_response(user)
+    return _user_to_employee_response(user, db)
 
 
 @router.delete("/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)

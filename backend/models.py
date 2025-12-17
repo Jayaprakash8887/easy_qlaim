@@ -15,6 +15,113 @@ from datetime import datetime
 Base = declarative_base()
 
 
+# ==================== MULTI-TENANT SAAS MODELS ====================
+
+class Tenant(Base):
+    """
+    Organization/Company entity for multi-tenancy.
+    Each tenant represents a customer organization using the platform.
+    """
+    __tablename__ = "tenants"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Tenant identification
+    name = Column(String(255), nullable=False)  # Full company name
+    code = Column(String(50), unique=True, nullable=False)  # Short code, e.g., "TARENTO"
+    domain = Column(String(255))  # Optional email domain for auto-association
+    
+    # Settings
+    settings = Column(JSONB, default={})  # Tenant-specific configurations
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    designations = relationship("Designation", back_populates="tenant", cascade="all, delete-orphan")
+    
+    __table_args__ = (
+        Index("idx_tenants_code", "code"),
+        Index("idx_tenants_active", "is_active"),
+        Index("idx_tenants_domain", "domain"),
+    )
+
+
+class Designation(Base):
+    """
+    Tenant-specific job titles/designations.
+    Used for mapping to application roles.
+    """
+    __tablename__ = "designations"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    
+    # Designation details
+    name = Column(String(100), nullable=False)  # e.g., "Senior Project Manager"
+    code = Column(String(50), nullable=False)   # e.g., "SR_PM"
+    description = Column(Text)
+    
+    # Hierarchy
+    level = Column(Integer, default=0)  # For organizational hierarchy if needed
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    tenant = relationship("Tenant", back_populates="designations")
+    role_mappings = relationship("DesignationRoleMapping", back_populates="designation", cascade="all, delete-orphan")
+    
+    __table_args__ = (
+        Index("idx_designations_tenant", "tenant_id"),
+        Index("idx_designations_name", "name"),
+        Index("idx_designations_code", "code"),
+        Index("idx_designations_active", "is_active"),
+        Index("idx_designations_tenant_name", "tenant_id", "name"),
+    )
+
+
+class DesignationRoleMapping(Base):
+    """
+    Maps designations to application roles (tenant-specific).
+    A designation can have multiple role mappings.
+    Note: SYSTEM_ADMIN role is excluded - it's platform-level only.
+    """
+    __tablename__ = "designation_role_mappings"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    designation_id = Column(UUID(as_uuid=True), ForeignKey("designations.id"), nullable=False)
+    
+    # Application role (EMPLOYEE, MANAGER, HR, FINANCE, ADMIN)
+    # Note: SYSTEM_ADMIN is NOT allowed here - it's platform-level only
+    role = Column(String(50), nullable=False)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    
+    # Relationships
+    designation = relationship("Designation", back_populates="role_mappings")
+    
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('EMPLOYEE', 'MANAGER', 'HR', 'FINANCE', 'ADMIN')",
+            name="valid_designation_role"
+        ),
+        Index("idx_designation_roles_tenant", "tenant_id"),
+        Index("idx_designation_roles_designation", "designation_id"),
+        Index("idx_designation_roles_role", "role"),
+    )
+
+
 class Claim(Base):
     """Main claims table with OCR tracking, HR corrections, return workflow"""
     __tablename__ = "claims"

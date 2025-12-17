@@ -229,7 +229,10 @@ class EmployeeBase(UserBase):
 
 
 class EmployeeCreate(BaseModel):
-    """Backward compatible employee create schema"""
+    """
+    Employee create/update schema.
+    Note: Roles are NOT accepted here - they are derived from designation-to-role mappings.
+    """
     employee_id: str  # Will be stored as employee_code
     first_name: str
     last_name: str
@@ -244,13 +247,15 @@ class EmployeeCreate(BaseModel):
     manager_id: Optional[str] = None
     project_ids: Optional[List[str]] = []
     employee_data: Dict[str, Any] = {}
-    roles: Optional[List[str]] = None  # User roles: EMPLOYEE, MANAGER, HR, FINANCE, ADMIN
 
 
 
 
 class EmployeeResponse(BaseModel):
-    """Backward compatible employee response schema"""
+    """
+    Employee response schema.
+    Roles are dynamically resolved from designation-to-role mappings.
+    """
     id: UUID
     employee_id: Optional[str] = None  # employee_code
     first_name: Optional[str] = None
@@ -265,7 +270,7 @@ class EmployeeResponse(BaseModel):
     date_of_joining: Optional[date] = None
     employment_status: str = "ACTIVE"
     region: Optional[str] = None  # Region/location for policy applicability
-    roles: List[str] = []  # User roles: EMPLOYEE, MANAGER, HR, FINANCE, ADMIN
+    roles: List[str] = []  # Dynamically resolved from designation-to-role mappings
     employee_data: Dict[str, Any] = {}
     created_at: datetime
     

@@ -3,7 +3,7 @@ import { User, UserRole } from '@/types';
 
 const API_BASE_URL = 'http://localhost:8000/api/v1';
 
-// Map designation to role
+// Map designation to role - fallback only if no roles from backend
 function mapEmployeeRole(designation: string | null): UserRole {
   if (!designation) return 'employee';
   const lower = designation.toLowerCase();
@@ -14,9 +14,27 @@ function mapEmployeeRole(designation: string | null): UserRole {
   return 'employee';
 }
 
+// Map backend roles array to frontend UserRole
+function mapBackendRolesToUserRole(roles: string[] | null): UserRole {
+  if (!roles || roles.length === 0) return 'employee';
+
+  // Priority order: SYSTEM_ADMIN > ADMIN > FINANCE > HR > MANAGER > EMPLOYEE
+  if (roles.includes('SYSTEM_ADMIN')) return 'system_admin';
+  if (roles.includes('ADMIN')) return 'admin';
+  if (roles.includes('FINANCE')) return 'finance';
+  if (roles.includes('HR')) return 'hr';
+  if (roles.includes('MANAGER')) return 'manager';
+  return 'employee';
+}
+
 // Map backend employee to User type
 function mapBackendEmployeeToUser(backendEmployee: any): User {
-  const role = mapEmployeeRole(backendEmployee.designation);
+  // Use roles from backend (dynamically resolved from designation-role mappings)
+  // Fallback to designation-based role mapping if no roles
+  const role = backendEmployee.roles && backendEmployee.roles.length > 0
+    ? mapBackendRolesToUserRole(backendEmployee.roles)
+    : mapEmployeeRole(backendEmployee.designation);
+
   return {
     id: backendEmployee.id,
     email: backendEmployee.email,
@@ -35,8 +53,8 @@ function mapBackendEmployeeToUser(backendEmployee: any): User {
     designation: backendEmployee.designation || '',
     region: backendEmployee.region || '',
     joinDate: backendEmployee.date_of_joining || '',
-    status: backendEmployee.employment_status === 'ACTIVE' ? 'active' : 
-            backendEmployee.employment_status === 'ON_LEAVE' ? 'on_leave' : 'inactive',
+    status: backendEmployee.employment_status === 'ACTIVE' ? 'active' :
+      backendEmployee.employment_status === 'ON_LEAVE' ? 'on_leave' : 'inactive',
     projectIds: backendEmployee.employee_data?.project_ids || [],
   };
 }

@@ -103,7 +103,31 @@ export const adminOnlyNavigation: NavItem[] = [
   },
 ];
 
+// System Admin navigation - platform-level administration only
+export const systemAdminNavigation: NavItem[] = [
+  {
+    label: 'Tenants',
+    href: '/admin/tenants',
+    icon: 'Building2',
+  },
+  {
+    label: 'Designations',
+    href: '/admin/designations',
+    icon: 'Briefcase',
+  },
+  {
+    label: 'Settings',
+    href: '/admin/settings',
+    icon: 'Settings',
+  },
+];
+
 export function getNavigationForRole(role: UserRole): NavItem[] {
+  // System Admin users see platform administration menu only
+  if (role === 'system_admin') {
+    return systemAdminNavigation;
+  }
+
   // Admin users only see Employees, Projects, and Settings
   if (role === 'admin') {
     return adminOnlyNavigation;
@@ -114,3 +138,4 @@ export function getNavigationForRole(role: UserRole): NavItem[] {
 
   return [...filterByRole(mainNavigation), ...filterByRole(adminNavigation)];
 }
+

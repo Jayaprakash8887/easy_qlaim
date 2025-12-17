@@ -29,8 +29,9 @@ function mapBackendEmployee(backendEmployee: any): Employee {
 // Map backend roles array to frontend role
 function mapRolesToFrontend(roles: string[] | null): Employee['role'] {
   if (!roles || roles.length === 0) return 'employee';
-  // Check roles in order of priority (admin > hr > finance > manager > employee)
+  // Check roles in order of priority (system_admin > admin > hr > finance > manager > employee)
   const rolesUpper = roles.map(r => r.toUpperCase());
+  if (rolesUpper.includes('SYSTEM_ADMIN')) return 'system_admin';
   if (rolesUpper.includes('ADMIN')) return 'admin';
   if (rolesUpper.includes('HR')) return 'hr';
   if (rolesUpper.includes('FINANCE')) return 'finance';
@@ -114,6 +115,7 @@ async function createEmployee(employee: Partial<Employee>): Promise<Employee> {
 }
 
 async function updateEmployee(id: string, employee: Partial<Employee>): Promise<Employee> {
+  // Note: roles are NOT sent - they are derived from designation-to-role mappings on backend
   const backendEmployee = {
     employee_id: employee.employeeId,
     first_name: employee.firstName,
@@ -128,7 +130,6 @@ async function updateEmployee(id: string, employee: Partial<Employee>): Promise<
     date_of_joining: employee.joinDate,
     manager_id: employee.managerId || null,
     project_ids: employee.projectIds ? [employee.projectIds] : [],
-    roles: employee.role ? mapFrontendRoleToBackend(employee.role) : undefined,
   };
 
   const response = await fetch(`${API_BASE_URL}/employees/${id}`, {

@@ -153,7 +153,7 @@ async def health_check():
 
 
 # API v1 routes
-from api.v1 import claims, employees, projects, approvals, documents, dashboard, comments, settings as settings_api, policies, custom_claims, cache
+from api.v1 import claims, employees, projects, approvals, documents, dashboard, comments, settings as settings_api, policies, custom_claims, cache, tenants, designations
 
 app.include_router(claims.router, prefix="/api/v1/claims", tags=["Claims"])
 app.include_router(employees.router, prefix="/api/v1/employees", tags=["Employees"])
@@ -166,6 +166,9 @@ app.include_router(settings_api.router, prefix="/api/v1/settings", tags=["Settin
 app.include_router(policies.router, prefix="/api/v1/policies", tags=["Policies"])
 app.include_router(custom_claims.router, prefix="/api/v1/custom-claims", tags=["Custom Claims"])
 app.include_router(cache.router, prefix="/api/v1/cache", tags=["Cache Management"])
+# Multi-tenant SaaS routes
+app.include_router(tenants.router, prefix="/api/v1/tenants", tags=["Tenants (System Admin)"])
+app.include_router(designations.router, prefix="/api/v1/designations", tags=["Designations"])
 
 
 # Root endpoint

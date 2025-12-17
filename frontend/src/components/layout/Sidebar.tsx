@@ -16,6 +16,8 @@ import {
   ChevronDown,
   LucideIcon,
   ListChecks,
+  Building2,
+  Briefcase,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -48,6 +50,8 @@ const iconMap: Record<string, LucideIcon> = {
   FileText,
   Coins: Wallet,
   ListChecks,
+  Building2,
+  Briefcase,
 };
 
 interface SidebarProps {

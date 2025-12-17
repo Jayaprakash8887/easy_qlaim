@@ -53,6 +53,7 @@ export function Header({ onMenuClick }: HeaderProps) {
     hr: 'HR',
     finance: 'Finance',
     admin: 'Admin',
+    system_admin: 'System Admin',
   };
 
   const handleEmployeeSwitch = async (employeeId: string) => {
@@ -61,11 +62,11 @@ export function Header({ onMenuClick }: HeaderProps) {
       setIsEmployeeSwitcherOpen(false);
       return;
     }
-    
+
     // Close dropdown and clear search
     setIsEmployeeSwitcherOpen(false);
     setEmployeeSearchQuery('');
-    
+
     // Fetch full employee details and switch (this is now async)
     await switchEmployee(employeeId);
   };

@@ -1,8 +1,8 @@
 // User roles
-export type UserRole = 'employee' | 'manager' | 'hr' | 'finance' | 'admin';
+export type UserRole = 'employee' | 'manager' | 'hr' | 'finance' | 'admin' | 'system_admin';
 
 // Claim status
-export type ClaimStatus = 
+export type ClaimStatus =
   | 'pending_manager'
   | 'pending_hr'
   | 'pending_finance'
@@ -35,7 +35,7 @@ export interface User {
   address?: string;
   designation?: string;
   region?: string;  // Region/location for policy applicability
-  joinDate?: string;
+  joinDate?: string | Date;
   status?: 'active' | 'inactive' | 'on_leave';
   projectIds?: string[];
 }
