@@ -2,7 +2,7 @@
 Employee management endpoints
 Note: Employee is now an alias for User model (unified model)
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import select, case
 from typing import List
@@ -23,6 +23,22 @@ from schemas import (
 router = APIRouter()
 
 
+async def _invalidate_employee_cache(employee_id: UUID = None, employee_code: str = None, email: str = None):
+    """Background task to invalidate employee cache"""
+    try:
+        from services.redis_cache import redis_cache
+        if employee_id:
+            await redis_cache.delete_async(f"employee:id:{str(employee_id)}")
+            await redis_cache.delete_async(f"employee:with_projects:{str(employee_id)}")
+        if employee_code:
+            await redis_cache.delete_async(f"employee:code:{employee_code}")
+        if email:
+            await redis_cache.delete_async(f"employee:email:{email.lower()}")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to invalidate employee cache: {e}")
+
+
 def _user_to_employee_response(user: User) -> dict:
     """Convert User model to EmployeeResponse format for backward compatibility"""
     return {
@@ -40,6 +56,7 @@ def _user_to_employee_response(user: User) -> dict:
         "date_of_joining": user.date_of_joining,
         "employment_status": user.employment_status or "ACTIVE",
         "region": user.region,  # Region/location for policy applicability
+        "roles": user.roles or [],  # User roles
         "employee_data": user.user_data or {},
         "created_at": user.created_at,
     }
@@ -74,6 +91,7 @@ async def get_employee(
 @router.post("/", response_model=EmployeeResponse, status_code=status.HTTP_201_CREATED)
 async def create_employee(
     employee_data: EmployeeCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_sync_db)
 ):
     """Create a new employee (creates a User with employee data)"""
@@ -135,6 +153,8 @@ async def create_employee(
     db.commit()
     db.refresh(user)
     
+    # Note: No cache invalidation needed for new employee since it's not in cache yet
+    
     return _user_to_employee_response(user)
 
 
@@ -142,6 +162,7 @@ async def create_employee(
 async def update_employee(
     employee_id: UUID,
     employee_data: EmployeeCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_sync_db)
 ):
     """Update an employee"""
@@ -151,6 +172,9 @@ async def update_employee(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Employee not found"
         )
+    
+    old_employee_code = user.employee_code
+    old_email = user.email
     
     # Update fields
     user.employee_code = employee_data.employee_id
@@ -162,6 +186,10 @@ async def update_employee(
     user.address = employee_data.address
     user.department = employee_data.department
     user.designation = employee_data.designation
+    
+    # Update region/location for policy applicability
+    if employee_data.region is not None:
+        user.region = employee_data.region
     
     if employee_data.manager_id:
         user.manager_id = UUID(employee_data.manager_id)
@@ -177,8 +205,19 @@ async def update_employee(
         user_data.update(employee_data.employee_data)
     user.user_data = user_data
     
+    # Update roles if provided
+    if employee_data.roles is not None:
+        user.roles = employee_data.roles
+    
     db.commit()
     db.refresh(user)
+    
+    # Invalidate cache entries
+    background_tasks.add_task(_invalidate_employee_cache, employee_id, old_employee_code, old_email)
+    if user.employee_code != old_employee_code:
+        background_tasks.add_task(_invalidate_employee_cache, employee_code=user.employee_code)
+    if user.email != old_email:
+        background_tasks.add_task(_invalidate_employee_cache, email=user.email)
     
     return _user_to_employee_response(user)
 
@@ -186,6 +225,7 @@ async def update_employee(
 @router.delete("/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_employee(
     employee_id: UUID,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_sync_db)
 ):
     """Delete an employee (soft delete by setting status to INACTIVE)"""
@@ -198,6 +238,10 @@ async def delete_employee(
     
     user.employment_status = "INACTIVE"
     user.is_active = False
+    db.commit()
+    
+    # Invalidate cache
+    background_tasks.add_task(_invalidate_employee_cache, employee_id, user.employee_code, user.email)
     db.commit()
     
     return None

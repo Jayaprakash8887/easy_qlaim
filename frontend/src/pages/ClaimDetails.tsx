@@ -51,46 +51,7 @@ import { useComments, useCreateComment } from '@/hooks/useComments';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { DataSource, Claim, ClaimDocument } from '@/types';
-
-// Helper function to format category for display
-const formatCategory = (category: string): string => {
-  const categoryMap: Record<string, string> = {
-    // Backend uppercase categories
-    'TEAM_LUNCH': 'Team Lunch',
-    'FOOD': 'Food & Meals',
-    'TRAVEL': 'Travel',
-    'CERTIFICATION': 'Certification',
-    'ACCOMMODATION': 'Accommodation',
-    'EQUIPMENT': 'Equipment',
-    'SOFTWARE': 'Software',
-    'OFFICE_SUPPLIES': 'Office Supplies',
-    'MEDICAL': 'Medical',
-    'MOBILE': 'Phone & Internet',
-    'PASSPORT_VISA': 'Passport & Visa',
-    'CONVEYANCE': 'Conveyance',
-    'CLIENT_MEETING': 'Client Meeting',
-    'OTHER': 'Other',
-    // Frontend lowercase categories
-    'team_lunch': 'Team Lunch',
-    'food': 'Food & Meals',
-    'travel': 'Travel',
-    'certification': 'Certification',
-    'accommodation': 'Accommodation',
-    'equipment': 'Equipment',
-    'software': 'Software',
-    'office_supplies': 'Office Supplies',
-    'medical': 'Medical',
-    'phone_internet': 'Phone & Internet',
-    'passport_visa': 'Passport & Visa',
-    'conveyance': 'Conveyance',
-    'client_meeting': 'Client Meeting',
-    'other': 'Other',
-    // Legacy mappings
-    'RELOCATION': 'Other',
-    'INTERNET': 'Software',
-  };
-  return categoryMap[category] || category.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-};
+import { formatCategory } from '@/lib/categoryUtils';
 
 export default function ClaimDetails() {
   const { id } = useParams<{ id: string }>();
@@ -384,9 +345,9 @@ export default function ClaimDetails() {
                       </div>
                     </div>
                     <div>
-                      <p className="text-sm text-muted-foreground">Project Code</p>
+                      <p className="text-sm text-muted-foreground">Project</p>
                       <div className="flex items-center gap-2 mt-1">
-                        <p className="font-medium">{claim.projectCode || 'N/A'}</p>
+                        <p className="font-medium">{claim.projectName || claim.projectCode || 'N/A'}</p>
                         {getDataSourceBadge('manual')}
                       </div>
                     </div>

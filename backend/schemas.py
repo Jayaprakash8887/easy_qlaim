@@ -145,6 +145,8 @@ class ClaimResponse(ClaimBase):
     return_count: int
     can_edit: bool
     settled: bool
+    category_name: Optional[str] = None  # Human-readable category name from policy_categories
+    project_name: Optional[str] = None  # Human-readable project name from projects table
     
     class Config:
         from_attributes = True
@@ -237,10 +239,14 @@ class EmployeeCreate(BaseModel):
     address: Optional[str] = None
     department: Optional[str] = None
     designation: Optional[str] = None
+    region: Optional[str] = None  # Region/location for policy applicability
     date_of_joining: Optional[date] = None
     manager_id: Optional[str] = None
     project_ids: Optional[List[str]] = []
     employee_data: Dict[str, Any] = {}
+    roles: Optional[List[str]] = None  # User roles: EMPLOYEE, MANAGER, HR, FINANCE, ADMIN
+
+
 
 
 class EmployeeResponse(BaseModel):
@@ -259,6 +265,7 @@ class EmployeeResponse(BaseModel):
     date_of_joining: Optional[date] = None
     employment_status: str = "ACTIVE"
     region: Optional[str] = None  # Region/location for policy applicability
+    roles: List[str] = []  # User roles: EMPLOYEE, MANAGER, HR, FINANCE, ADMIN
     employee_data: Dict[str, Any] = {}
     created_at: datetime
     

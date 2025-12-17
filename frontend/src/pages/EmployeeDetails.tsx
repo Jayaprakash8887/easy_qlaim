@@ -55,14 +55,14 @@ export default function EmployeeDetails() {
   const updateEmployee = useUpdateEmployee();
 
   const employeeClaims = allClaims?.filter((claim) => claim.employeeId === id) || [];
-  const employeeProjects = allProjects?.filter((project) => 
+  const employeeProjects = allProjects?.filter((project) =>
     employee?.projectIds?.includes(project.id) || project.managerId === id
   ) || [];
   const manager = allEmployees?.find((emp) => emp.id === employee?.managerId);
 
   const handleUpdateEmployee = async (data: EmployeeFormData) => {
     if (!employee) return;
-    
+
     try {
       await updateEmployee.mutateAsync({
         id: employee.id,
@@ -76,9 +76,11 @@ export default function EmployeeDetails() {
           address: data.address || '',
           department: data.department,
           designation: data.designation || data.role,
+          region: data.region || '',  // Region/location for policy applicability
           joinDate: data.dateOfJoining || employee.joinDate,
           managerId: data.managerId || undefined,
           projectIds: data.projectIds || '',
+          role: data.role,  // Send role to backend for updating
         }
       });
       toast.success('Employee updated successfully');
@@ -154,34 +156,37 @@ export default function EmployeeDetails() {
 
       {/* Edit Employee Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Edit Employee</DialogTitle>
           </DialogHeader>
-          <EmployeeForm
-            departments={departments}
-            managers={managers}
-            projects={allProjects || []}
-            onSubmit={handleUpdateEmployee}
-            onCancel={() => setIsEditDialogOpen(false)}
-            isLoading={updateEmployee.isPending}
-            currentEmployeeId={employee.id}
-            defaultValues={{
-              employeeId: employee.employeeId,
-              firstName: employee.firstName || employee.name?.split(' ')[0] || '',
-              lastName: employee.lastName || employee.name?.split(' ')[1] || '',
-              email: employee.email,
-              phone: employee.phone || '',
-              mobile: employee.mobile || '',
-              address: employee.address || '',
-              department: employee.department,
-              designation: employee.designation || '',
-              role: employee.role,
-              dateOfJoining: employee.joinDate || '',
-              managerId: employee.managerId || '',
-              projectIds: employee.projectIds?.[0] || '',
-            }}
-          />
+          <div className="overflow-y-auto flex-1 pr-2">
+            <EmployeeForm
+              departments={departments}
+              managers={managers}
+              projects={allProjects || []}
+              onSubmit={handleUpdateEmployee}
+              onCancel={() => setIsEditDialogOpen(false)}
+              isLoading={updateEmployee.isPending}
+              currentEmployeeId={employee.id}
+              defaultValues={{
+                employeeId: employee.employeeId,
+                firstName: employee.firstName || employee.name?.split(' ')[0] || '',
+                lastName: employee.lastName || employee.name?.split(' ')[1] || '',
+                email: employee.email,
+                phone: employee.phone || '',
+                mobile: employee.mobile || '',
+                address: employee.address || '',
+                department: employee.department,
+                designation: employee.designation || '',
+                region: employee.region || '',  // Region/location for policy applicability
+                role: employee.role,
+                dateOfJoining: employee.joinDate || '',
+                managerId: employee.managerId || '',
+                projectIds: employee.projectIds?.[0] || '',
+              }}
+            />
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -351,8 +356,8 @@ export default function EmployeeDetails() {
                       project.status === 'active'
                         ? 'bg-green-100 text-green-800'
                         : project.status === 'completed'
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-gray-100 text-gray-800'
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-gray-100 text-gray-800'
                     }
                   >
                     {project.status}

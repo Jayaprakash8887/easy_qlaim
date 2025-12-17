@@ -38,6 +38,7 @@ import {
 import { ClaimStatusBadge } from '@/components/claims/ClaimStatusBadge';
 import { AIConfidenceBadge } from '@/components/claims/AIConfidenceBadge';
 import { useClaims } from '@/hooks/useClaims';
+import { formatCategory } from '@/lib/categoryUtils';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { Claim, ClaimStatus } from '@/types';
@@ -443,8 +444,8 @@ export default function ApprovalQueue() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Category</p>
-                  <Badge variant="outline" className="capitalize">
-                    {typeof currentClaim.category === 'string' ? currentClaim.category : currentClaim.category?.name || 'Other'}
+                  <Badge variant="outline">
+                    {formatCategory(typeof currentClaim.category === 'string' ? currentClaim.category : currentClaim.category?.name)}
                   </Badge>
                 </div>
                 <div>
@@ -458,8 +459,8 @@ export default function ApprovalQueue() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Project Code</p>
-                  <p className="font-medium">{currentClaim.projectCode || 'N/A'}</p>
+                  <p className="text-sm text-muted-foreground">Project</p>
+                  <p className="font-medium">{currentClaim.projectName || currentClaim.projectCode || 'N/A'}</p>
                 </div>
               </div>
 

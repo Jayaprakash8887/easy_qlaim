@@ -18,7 +18,7 @@ function mapBackendEmployee(backendEmployee: any): Employee {
     department: backendEmployee.department,
     designation: backendEmployee.designation || '',
     region: backendEmployee.region || '',
-    role: mapEmployeeRole(backendEmployee.designation),
+    role: mapRolesToFrontend(backendEmployee.roles),
     status: mapEmploymentStatus(backendEmployee.employment_status),
     joinDate: backendEmployee.date_of_joining || '',
     managerId: backendEmployee.manager_id || undefined,
@@ -26,15 +26,24 @@ function mapBackendEmployee(backendEmployee: any): Employee {
   };
 }
 
-// Map designation to role
-function mapEmployeeRole(designation: string | null): Employee['role'] {
-  if (!designation) return 'employee';
-  const lower = designation.toLowerCase();
-  if (lower.includes('manager')) return 'manager';
-  if (lower.includes('hr') || lower.includes('human resource')) return 'hr';
-  if (lower.includes('finance') || lower.includes('accountant')) return 'finance';
-  if (lower.includes('admin')) return 'admin';
+// Map backend roles array to frontend role
+function mapRolesToFrontend(roles: string[] | null): Employee['role'] {
+  if (!roles || roles.length === 0) return 'employee';
+  // Check roles in order of priority (admin > hr > finance > manager > employee)
+  const rolesUpper = roles.map(r => r.toUpperCase());
+  if (rolesUpper.includes('ADMIN')) return 'admin';
+  if (rolesUpper.includes('HR')) return 'hr';
+  if (rolesUpper.includes('FINANCE')) return 'finance';
+  if (rolesUpper.includes('MANAGER')) return 'manager';
   return 'employee';
+}
+
+// Map frontend role to backend roles array
+function mapFrontendRoleToBackend(role: string): string[] {
+  const roleUpper = role.toUpperCase();
+  // Always include EMPLOYEE as base role, plus the specific role
+  if (roleUpper === 'EMPLOYEE') return ['EMPLOYEE'];
+  return ['EMPLOYEE', roleUpper];
 }
 
 // Map employment status
@@ -87,7 +96,7 @@ async function createEmployee(employee: Partial<Employee>): Promise<Employee> {
     manager_id: employee.managerId || null,
     project_ids: employee.projectIds ? [employee.projectIds] : [],
   };
-  
+
   const response = await fetch(`${API_BASE_URL}/employees/`, {
     method: 'POST',
     headers: {
@@ -95,11 +104,11 @@ async function createEmployee(employee: Partial<Employee>): Promise<Employee> {
     },
     body: JSON.stringify(backendEmployee),
   });
-  
+
   if (!response.ok) {
     throw new Error('Failed to create employee');
   }
-  
+
   const data = await response.json();
   return mapBackendEmployee(data);
 }
@@ -119,8 +128,9 @@ async function updateEmployee(id: string, employee: Partial<Employee>): Promise<
     date_of_joining: employee.joinDate,
     manager_id: employee.managerId || null,
     project_ids: employee.projectIds ? [employee.projectIds] : [],
+    roles: employee.role ? mapFrontendRoleToBackend(employee.role) : undefined,
   };
-  
+
   const response = await fetch(`${API_BASE_URL}/employees/${id}`, {
     method: 'PUT',
     headers: {
@@ -128,11 +138,11 @@ async function updateEmployee(id: string, employee: Partial<Employee>): Promise<
     },
     body: JSON.stringify(backendEmployee),
   });
-  
+
   if (!response.ok) {
     throw new Error('Failed to update employee');
   }
-  
+
   const data = await response.json();
   return mapBackendEmployee(data);
 }
@@ -157,17 +167,17 @@ export function useEmployee(id: string) {
 
 export function useEmployeesByDepartment(department: string | 'all') {
   const { data: employees, ...rest } = useEmployees();
-  
+
   const filteredEmployees = department === 'all'
     ? employees
     : employees?.filter(emp => emp.department === department);
-  
+
   return { data: filteredEmployees, ...rest };
 }
 
 export function useCreateEmployee() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: createEmployee,
     onSuccess: () => {
@@ -178,7 +188,7 @@ export function useCreateEmployee() {
 
 export function useUpdateEmployee() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Employee> }) => updateEmployee(id, data),
     onSuccess: () => {
@@ -251,18 +261,18 @@ async function allocateEmployeeToProject(data: AllocateEmployeeData): Promise<Em
       notes: data.notes,
     }),
   });
-  
+
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.detail || 'Failed to allocate employee to project');
   }
-  
+
   return response.json();
 }
 
 export function useAllocateEmployeeToProject() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: allocateEmployeeToProject,
     onSuccess: () => {

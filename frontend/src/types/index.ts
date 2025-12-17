@@ -62,6 +62,7 @@ export interface Claim {
   vendor?: string;
   description?: string;
   projectCode?: string;
+  projectName?: string;  // Human-readable project name
   costCenter?: string;
   transactionRef?: string;
   status: ClaimStatus;

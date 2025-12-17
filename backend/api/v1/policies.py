@@ -31,6 +31,31 @@ POLICY_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname
 os.makedirs(POLICY_UPLOAD_DIR, exist_ok=True)
 
 
+async def _invalidate_policy_cache(policy_id: UUID = None, region: str = None):
+    """Background task to invalidate policy and category cache"""
+    try:
+        from services.redis_cache import redis_cache
+        from services.category_cache import category_cache
+        
+        if policy_id:
+            await redis_cache.delete_async(f"policy:id:{str(policy_id)}")
+        
+        # Invalidate active policies cache
+        if region:
+            await redis_cache.delete_async(f"policy:active:{region.upper()}")
+        await redis_cache.delete_async("policy:active:GLOBAL")
+        
+        # Invalidate category caches
+        await redis_cache.delete_pattern_async("category:*")
+        
+        # Clear in-memory category cache as well
+        category_cache.clear_cache()
+        
+        logger.info(f"Policy cache invalidated (policy_id={policy_id}, region={region})")
+    except Exception as e:
+        logger.warning(f"Failed to invalidate policy cache: {e}")
+
+
 def generate_policy_number(db: Session) -> str:
     """Generate unique policy number like POL-2024-0001"""
     year = datetime.now().year
@@ -623,9 +648,10 @@ def get_policy_categories(policy_id: UUID, db: Session = Depends(get_sync_db)):
 
 
 @router.put("/categories/{category_id}", response_model=PolicyCategoryResponse)
-def update_category(
+async def update_category(
     category_id: UUID,
     updates: PolicyCategoryUpdate,
+    background_tasks: BackgroundTasks,
     updated_by: UUID = None,
     db: Session = Depends(get_sync_db)
 ):
@@ -659,6 +685,12 @@ def update_category(
         )
         db.commit()
     
+    # Invalidate cache in background
+    # Get the policy to find its region
+    policy = db.query(PolicyUpload).filter(PolicyUpload.id == category.policy_upload_id).first()
+    region = policy.region if policy else None
+    background_tasks.add_task(_invalidate_policy_cache, category.policy_upload_id, region)
+    
     return PolicyCategoryResponse(
         id=category.id,
         tenant_id=category.tenant_id,
@@ -689,9 +721,10 @@ def update_category(
 # ==================== APPROVAL ENDPOINTS ====================
 
 @router.post("/{policy_id}/approve", response_model=PolicyUploadResponse)
-def approve_policy(
+async def approve_policy(
     policy_id: UUID,
     approval: PolicyApprovalRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_sync_db)
 ):
     """Approve a policy and make its categories active for claim submission"""
@@ -770,6 +803,9 @@ def approve_policy(
         f"Policy approved and activated: {policy.policy_name}"
     )
     db.commit()
+    
+    # Invalidate cache in background
+    background_tasks.add_task(_invalidate_policy_cache, policy_id, policy.region)
     
     return get_policy(policy_id, db)
 

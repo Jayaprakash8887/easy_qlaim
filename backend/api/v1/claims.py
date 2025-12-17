@@ -602,6 +602,8 @@ async def list_claims(
     db: AsyncSession = Depends(get_async_db),
 ):
     """List claims with pagination and filters"""
+    from services.category_cache import category_cache
+    from services.cached_data import cached_data
     
     query = select(Claim)
     
@@ -620,11 +622,35 @@ async def list_claims(
     result = await db.execute(query)
     claims = result.scalars().all()
     
+    # Collect unique project codes for batch lookup
+    project_codes = set()
+    for claim in claims:
+        payload = claim.claim_payload or {}
+        if payload.get('project_code'):
+            project_codes.add(payload['project_code'])
+    
+    # Batch lookup project names using cached data service
+    project_names = {}
+    if project_codes:
+        project_names = await cached_data.get_project_names_for_codes(db, list(project_codes))
+    
+    # Add category_name and project_name to each claim
+    claims_with_names = []
+    for claim in claims:
+        payload = claim.claim_payload or {}
+        project_code = payload.get('project_code', '')
+        claim_dict = {
+            **{c.name: getattr(claim, c.name) for c in claim.__table__.columns},
+            "category_name": category_cache.get_category_name_by_code(claim.category),
+            "project_name": project_names.get(project_code, '')
+        }
+        claims_with_names.append(claim_dict)
+    
     return {
         "total": total,
         "page": skip // limit + 1,
         "page_size": limit,
-        "claims": claims
+        "claims": claims_with_names
     }
 
 
@@ -634,6 +660,8 @@ async def get_claim(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Get claim by ID"""
+    from services.category_cache import category_cache
+    from services.cached_data import cached_data
     
     result = await db.execute(select(Claim).where(Claim.id == claim_id))
     claim = result.scalar_one_or_none()
@@ -644,7 +672,23 @@ async def get_claim(
             detail="Claim not found"
         )
     
-    return claim
+    # Lookup project name using cached data service
+    payload = claim.claim_payload or {}
+    project_code = payload.get('project_code', '')
+    project_name = ''
+    if project_code:
+        project = await cached_data.get_project_by_code(db, project_code)
+        if project:
+            project_name = project.get('project_name', '')
+    
+    # Add category_name and project_name to the response
+    claim_dict = {
+        **{c.name: getattr(claim, c.name) for c in claim.__table__.columns},
+        "category_name": category_cache.get_category_name_by_code(claim.category),
+        "project_name": project_name
+    }
+    
+    return claim_dict
 
 
 @router.put("/{claim_id}", response_model=ClaimResponse)

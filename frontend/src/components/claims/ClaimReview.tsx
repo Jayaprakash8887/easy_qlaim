@@ -15,6 +15,7 @@ import {
 import { ComplianceScore } from "./ComplianceScore";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { formatCategory } from "@/lib/categoryUtils";
 
 interface ClaimFormData {
   category?: string;
@@ -48,43 +49,10 @@ interface ClaimReviewProps {
   multipleClaims?: ExtractedClaim[];
 }
 
-const categoryLabels: Record<string, string> = {
-  'certification': 'Certification',
-  'professional_certification_reimbursement': 'Professional Certification Reimbursement',
-  'travel': 'Travel',
-  'team-lunch': 'Team Lunch',
-  'team_lunch': 'Team Lunch',
-  'conveyance': 'Conveyance',
-  'local_travel_conveyance_reimbursement_with_bills': 'Local Travel Conveyance',
-  'accommodation': 'Accommodation',
-  'equipment': 'Equipment',
-  'phone-internet': 'Phone & Internet',
-  'medical': 'Medical',
-  'client-meeting': 'Client Meeting',
-  'training_program_reimbursement': 'Training Program Reimbursement',
-  'technical_conferences_and_seminars_reimbursement': 'Technical Conferences and Seminars',
-  'professional_body_membership_reimbursement': 'Professional Body Membership',
-  'toll_and_parking_reimbursement': 'Toll and Parking Reimbursement',
-  'fuel_and_diesel_reimbursement': 'Fuel and Diesel Reimbursement',
-  'other': 'Other',
-};
-
-// Helper to get category label - handles various formats
+// Use imported formatCategory utility
 const getCategoryLabel = (category: string | undefined): string => {
   if (!category) return 'Not selected';
-  const normalized = category.toLowerCase().trim();
-  // Direct match
-  if (categoryLabels[normalized]) return categoryLabels[normalized];
-  // Try replacing underscores with dashes
-  const withDashes = normalized.replace(/_/g, '-');
-  if (categoryLabels[withDashes]) return categoryLabels[withDashes];
-  // Try replacing dashes with underscores
-  const withUnderscores = normalized.replace(/-/g, '_');
-  if (categoryLabels[withUnderscores]) return categoryLabels[withUnderscores];
-  // Title case the category as fallback
-  return category.split(/[-_]/).map(word => 
-    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-  ).join(' ');
+  return formatCategory(category);
 };
 
 export function ClaimReview({ formData, files, multipleClaims }: ClaimReviewProps) {

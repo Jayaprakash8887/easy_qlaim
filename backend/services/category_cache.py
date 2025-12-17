@@ -80,6 +80,23 @@ class CategoryCacheService:
         self._initialized = True
         logger.info("CategoryCacheService initialized with 24-hour TTL")
     
+    def clear_cache(self, region: str = None):
+        """
+        Clear the in-memory category cache.
+        
+        Args:
+            region: Optional specific region to clear. If None, clears all regions.
+        """
+        with self._cache_lock:
+            if region:
+                region_upper = region.upper()
+                if region_upper in self._cache:
+                    del self._cache[region_upper]
+                    logger.info(f"Category cache cleared for region: {region_upper}")
+            else:
+                self._cache.clear()
+                logger.info("Category cache cleared for all regions")
+    
     def get_categories_for_region(
         self,
         region: str,
@@ -190,6 +207,91 @@ class CategoryCacheService:
         # No match found
         logger.info(f"Category '{category}' not found in region '{region}' - defaulting to 'other'")
         return ('other', False)
+    
+    def get_category_name_by_code(self, category_code: str, region: Optional[str] = None) -> str:
+        """
+        Get human-readable category name from category code.
+        Searches through all cached regions if region not specified.
+        
+        Args:
+            category_code: The category code (e.g., 'TRAVEL_WB', 'cc-2025-0001')
+            region: Optional region to search in
+            
+        Returns:
+            Human-readable category name or formatted fallback
+        """
+        if not category_code:
+            return "Other"
+        
+        code_lower = category_code.lower().strip()
+        
+        # Search in specific region or all regions
+        regions_to_search = [region.upper()] if region else list(self._cache.keys())
+        
+        # If no cached regions and no region specified, try GLOBAL
+        if not regions_to_search:
+            regions_to_search = ["GLOBAL", "INDIA"]
+        
+        for reg in regions_to_search:
+            cache_entry = self._get_cache_entry(reg)
+            if not cache_entry:
+                # Try to load from DB
+                cache_entry = self._load_categories_from_db(reg)
+            
+            if cache_entry:
+                for cat in cache_entry.categories:
+                    if cat.code.lower() == code_lower:
+                        return cat.name
+        
+        # Direct DB lookup as last resort for custom claims
+        try:
+            from database import get_sync_db
+            from models import PolicyCategory, CustomClaim
+            from sqlalchemy.orm import Session
+            
+            db: Session = next(get_sync_db())
+            
+            # Try CustomClaim first (for codes like CC-2025-0001)
+            custom_claim = db.query(CustomClaim).filter(
+                CustomClaim.claim_code.ilike(category_code)
+            ).first()
+            if custom_claim:
+                return custom_claim.claim_name
+            
+            # Try PolicyCategory
+            policy_cat = db.query(PolicyCategory).filter(
+                PolicyCategory.category_code.ilike(category_code)
+            ).first()
+            if policy_cat:
+                return policy_cat.category_name
+                
+        except Exception as e:
+            logger.warning(f"DB lookup failed for category {category_code}: {e}")
+        
+        # Fallback: format the code nicely
+        return self._format_category_code(category_code)
+    
+    @staticmethod
+    def _format_category_code(category_code: str) -> str:
+        """Format a category code as a readable name (fallback)"""
+        import re
+        
+        if not category_code:
+            return "Other"
+        
+        # Check for custom claim codes like CC-2025-0001
+        if re.match(r'^[Cc]{1,2}-\d{4}-\d{4,}$', category_code, re.IGNORECASE):
+            return "Custom Claim"
+        
+        # Format standard codes
+        formatted = category_code.lower()
+        formatted = re.sub(r'_wb$', '', formatted, flags=re.IGNORECASE)
+        formatted = re.sub(r'_wob$', '', formatted, flags=re.IGNORECASE)
+        formatted = re.sub(r'_reimbursement$', '', formatted, flags=re.IGNORECASE)
+        formatted = formatted.replace('_', ' ').replace('-', ' ').strip()
+        
+        # Title case
+        return ' '.join(word.capitalize() for word in formatted.split())
     
     def invalidate_cache(self, region: Optional[str] = None):
         """

@@ -15,29 +15,36 @@ async function fetchClaims(): Promise<Claim[]> {
   const claimsList = data.claims || data;
 
   // Transform backend response to frontend format
-  return claimsList.map((claim: any) => ({
-    id: claim.id,
-    claimNumber: claim.claim_number,
-    employeeId: claim.employee_id,
-    employeeName: claim.employee_name,
-    department: claim.department,
-    type: claim.claim_type?.toLowerCase() || 'reimbursement',
-    category: claim.category?.toLowerCase() || 'other',
-    title: claim.title || claim.description?.slice(0, 50) || 'Expense Claim',
-    amount: parseFloat(claim.amount) || 0,
-    currency: claim.currency || 'INR',
-    status: mapBackendStatus(claim.status),
-    submissionDate: claim.submission_date ? new Date(claim.submission_date) : new Date(),
-    claimDate: claim.claim_date ? new Date(claim.claim_date) : new Date(),
-    description: claim.description || '',
-    documents: claim.documents || [],
-    aiProcessed: claim.claim_payload?.ai_analysis?.ai_confidence !== undefined,
-    aiConfidence: claim.claim_payload?.ai_analysis?.ai_confidence || 0,
-    aiRecommendation: claim.claim_payload?.ai_analysis?.ai_recommendation || 'review',
-    aiRecommendationText: claim.claim_payload?.ai_analysis?.recommendation_text || 'Manual review required',
-    complianceScore: claim.claim_payload?.policy_checks?.compliance_score || claim.compliance_score || 0,
-    policyChecks: claim.claim_payload?.policy_checks?.checks || [],
-  }));
+  return claimsList.map((claim: any) => {
+    const payload = claim.claim_payload || {};
+    return {
+      id: claim.id,
+      claimNumber: claim.claim_number,
+      employeeId: claim.employee_id,
+      employeeName: claim.employee_name,
+      department: claim.department,
+      type: claim.claim_type?.toLowerCase() || 'reimbursement',
+      category: claim.category_name || claim.category?.toLowerCase() || 'other',  // Use category_name if available
+      title: payload.title || claim.description?.slice(0, 50) || 'Expense Claim',
+      amount: parseFloat(claim.amount) || 0,
+      currency: claim.currency || 'INR',
+      status: mapBackendStatus(claim.status),
+      submissionDate: claim.submission_date ? new Date(claim.submission_date) : new Date(),
+      claimDate: claim.claim_date ? new Date(claim.claim_date) : new Date(),
+      description: claim.description || '',
+      projectCode: payload.project_code || '',
+      projectName: claim.project_name || payload.project_name || '',  // Use project_name from API
+      vendor: payload.vendor || '',
+      transactionRef: payload.transaction_ref || '',
+      documents: claim.documents || [],
+      aiProcessed: payload.ai_analysis?.ai_confidence !== undefined,
+      aiConfidence: payload.ai_analysis?.ai_confidence || 0,
+      aiRecommendation: payload.ai_analysis?.ai_recommendation || 'review',
+      aiRecommendationText: payload.ai_analysis?.recommendation_text || 'Manual review required',
+      complianceScore: payload.policy_checks?.compliance_score || claim.compliance_score || 0,
+      policyChecks: payload.policy_checks?.checks || [],
+    };
+  });
 }
 
 function mapBackendStatus(backendStatus: string): ClaimStatus {
@@ -72,7 +79,7 @@ async function fetchClaimById(id: string): Promise<Claim | undefined> {
     employeeName: claim.employee_name,
     department: claim.department,
     type: claim.claim_type?.toLowerCase() || 'reimbursement',
-    category: claim.category?.toLowerCase() || 'other',
+    category: claim.category_name || claim.category?.toLowerCase() || 'other',  // Use category_name if available
     amount: parseFloat(claim.amount),
     currency: claim.currency || 'INR',
     status: mapBackendStatus(claim.status),
@@ -81,6 +88,7 @@ async function fetchClaimById(id: string): Promise<Claim | undefined> {
     description: claim.description || '',
     title: payload.title || claim.description || '',
     projectCode: payload.project_code || '',
+    projectName: claim.project_name || payload.project_name || '',  // Use project_name from API
     costCenter: payload.cost_center || '',
     vendor: payload.vendor || '',
     transactionRef: payload.transaction_ref || '',
@@ -356,7 +364,7 @@ async function updateClaim(claimId: string, data: ClaimUpdateData): Promise<Clai
     employeeName: claim.employee_name,
     department: claim.department,
     type: claim.claim_type?.toLowerCase() || 'reimbursement',
-    category: claim.category?.toLowerCase() || 'other',
+    category: claim.category_name || claim.category?.toLowerCase() || 'other',  // Use category_name if available
     amount: parseFloat(claim.amount),
     currency: claim.currency || 'INR',
     status: mapBackendStatus(claim.status),

@@ -51,6 +51,7 @@ import { useClaims, useDeleteClaim } from '@/hooks/useClaims';
 import { toast } from '@/hooks/use-toast';
 import { ClaimStatus } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { formatCategory } from '@/lib/categoryUtils';
 
 const statusOptions: { value: ClaimStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'All Status' },
@@ -62,46 +63,6 @@ const statusOptions: { value: ClaimStatus | 'all'; label: string }[] = [
   { value: 'returned', label: 'Returned' },
   { value: 'settled', label: 'Settled' },
 ];
-
-// Helper function to format category for display
-const formatCategory = (category: string): string => {
-  const categoryMap: Record<string, string> = {
-    // Backend uppercase categories
-    'TEAM_LUNCH': 'Team Lunch',
-    'FOOD': 'Food & Meals',
-    'TRAVEL': 'Travel',
-    'CERTIFICATION': 'Certification',
-    'ACCOMMODATION': 'Accommodation',
-    'EQUIPMENT': 'Equipment',
-    'SOFTWARE': 'Software',
-    'OFFICE_SUPPLIES': 'Office Supplies',
-    'MEDICAL': 'Medical',
-    'MOBILE': 'Phone & Internet',
-    'PASSPORT_VISA': 'Passport & Visa',
-    'CONVEYANCE': 'Conveyance',
-    'CLIENT_MEETING': 'Client Meeting',
-    'OTHER': 'Other',
-    // Frontend lowercase categories
-    'team_lunch': 'Team Lunch',
-    'food': 'Food & Meals',
-    'travel': 'Travel',
-    'certification': 'Certification',
-    'accommodation': 'Accommodation',
-    'equipment': 'Equipment',
-    'software': 'Software',
-    'office_supplies': 'Office Supplies',
-    'medical': 'Medical',
-    'phone_internet': 'Phone & Internet',
-    'passport_visa': 'Passport & Visa',
-    'conveyance': 'Conveyance',
-    'client_meeting': 'Client Meeting',
-    'other': 'Other',
-    // Legacy mappings
-    'RELOCATION': 'Other',
-    'INTERNET': 'Software',
-  };
-  return categoryMap[category] || category.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-};
 
 const ITEMS_PER_PAGE = 10;
 
