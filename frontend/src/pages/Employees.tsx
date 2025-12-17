@@ -110,6 +110,7 @@ export default function Employees() {
   const handleAddEmployee = async (data: EmployeeFormData) => {
     try {
       await createEmployee.mutateAsync({
+        tenantId: tenantId,
         employeeId: data.employeeId || `EMP${Date.now()}`,
         firstName: data.firstName,
         lastName: data.lastName,

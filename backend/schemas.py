@@ -233,6 +233,7 @@ class EmployeeCreate(BaseModel):
     Employee create/update schema.
     Note: Roles are NOT accepted here - they are derived from designation-to-role mappings.
     """
+    tenant_id: Optional[UUID] = None  # Tenant ID for multi-tenant isolation
     employee_id: str  # Will be stored as employee_code
     first_name: str
     last_name: str
@@ -257,6 +258,7 @@ class EmployeeResponse(BaseModel):
     Roles are dynamically resolved from designation-to-role mappings.
     """
     id: UUID
+    tenant_id: Optional[UUID] = None
     employee_id: Optional[str] = None  # employee_code
     first_name: Optional[str] = None
     last_name: Optional[str] = None

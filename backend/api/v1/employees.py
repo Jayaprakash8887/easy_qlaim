@@ -141,9 +141,12 @@ async def create_employee(
     # Generate a default hashed password
     default_password = hashlib.sha256(f"temp_{employee_data.employee_id}".encode()).hexdigest()
     
+    # Use provided tenant_id, fall back to a default if not provided
+    employee_tenant_id = employee_data.tenant_id if employee_data.tenant_id else UUID('00000000-0000-0000-0000-000000000001')
+    
     user = User(
         id=uuid4(),
-        tenant_id=UUID('00000000-0000-0000-0000-000000000001'),  # Default tenant
+        tenant_id=employee_tenant_id,
         username=username,
         email=employee_data.email,
         hashed_password=default_password,

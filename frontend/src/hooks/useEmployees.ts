@@ -87,8 +87,9 @@ async function fetchEmployeeById(id: string): Promise<Employee | undefined> {
   return mapBackendEmployee(data);
 }
 
-async function createEmployee(employee: Partial<Employee>): Promise<Employee> {
+async function createEmployee(employee: Partial<Employee> & { tenantId?: string }): Promise<Employee> {
   const backendEmployee = {
+    tenant_id: employee.tenantId || null,
     employee_id: employee.employeeId,
     first_name: employee.firstName,
     last_name: employee.lastName,
