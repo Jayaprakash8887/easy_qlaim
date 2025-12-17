@@ -10,6 +10,7 @@ import { LoadingSpinner } from '@/components/layout/LoadingSpinner';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 
 // Lazy load pages for better performance
+const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const ClaimsList = lazy(() => import('./pages/ClaimsList'));
 const ClaimDetails = lazy(() => import('./pages/ClaimDetails'));
@@ -60,7 +61,22 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
-            <Route element={<AppLayout />}>
+            {/* Public route - Login page */}
+            <Route
+              path="/login"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <Login />
+                </Suspense>
+              }
+            />
+            
+            {/* Protected routes */}
+            <Route element={
+              <ProtectedRoute>
+                <AppLayout />
+              </ProtectedRoute>
+            }>
               <Route
                 path="/"
                 element={

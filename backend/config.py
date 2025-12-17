@@ -139,13 +139,16 @@ class Settings(BaseSettings):
     OCR_LLM_FALLBACK_THRESHOLD: float = 0.9  # If OCR confidence < this, use LLM Vision API for OCR
     OCR_USE_LLM_FALLBACK: bool = True  # Enable/disable LLM Vision API fallback for low-confidence OCR
     
-    # Authentication
-    KEYCLOAK_SERVER_URL: Optional[str] = None
-    KEYCLOAK_REALM: Optional[str] = None
-    KEYCLOAK_CLIENT_ID: Optional[str] = None
+    # Keycloak Authentication
+    KEYCLOAK_ENABLED: bool = True
+    KEYCLOAK_SERVER_URL: str = "http://localhost:8180"
+    KEYCLOAK_REALM: str = "reimbursement"
+    KEYCLOAK_CLIENT_ID: str = "reimbursement-app"
     KEYCLOAK_CLIENT_SECRET: Optional[str] = None
+    KEYCLOAK_ADMIN_USERNAME: str = "admin"
+    KEYCLOAK_ADMIN_PASSWORD: str = "admin"
     
-    # JWT
+    # JWT (fallback when Keycloak is disabled)
     JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
@@ -233,7 +236,7 @@ class Settings(BaseSettings):
     LOG_FILE: str = "/var/log/reimbursement/app.log"
     
     # CORS - Allow all common development ports
-    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://localhost:8080,http://127.0.0.1:8080,http://localhost:4173"
+    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://localhost:8080,http://127.0.0.1:8080,http://localhost:4173,http://localhost:8081,http://127.0.0.1:8081"
     CORS_ALLOW_CREDENTIALS: bool = True
     
     # Tenant

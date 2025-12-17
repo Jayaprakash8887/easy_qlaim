@@ -9,12 +9,8 @@ import {
   Settings,
   HelpCircle,
   ChevronDown,
-  UserCircle,
-  Users,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
-import { useEmployees } from '@/hooks/useEmployees';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -27,60 +23,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { UserRole } from '@/types';
 
 interface HeaderProps {
   onMenuClick: () => void;
 }
 
 export function Header({ onMenuClick }: HeaderProps) {
-  const { user, logout, switchRole, switchEmployee, isLoading } = useAuth();
-  const tenantId = user?.tenantId;
-  const { data: employees } = useEmployees(tenantId);
+  const { user, logout } = useAuth();
   const [notifications] = useState(3);
-  const [isEmployeeSwitcherOpen, setIsEmployeeSwitcherOpen] = useState(false);
-  const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
-
-  const roleLabels: Record<UserRole, string> = {
-    employee: 'Employee',
-    manager: 'Manager',
-    hr: 'HR',
-    finance: 'Finance',
-    admin: 'Admin',
-    system_admin: 'System Admin',
-  };
-
-  const handleEmployeeSwitch = async (employeeId: string) => {
-    // Don't switch if already this user
-    if (employeeId === user?.id) {
-      setIsEmployeeSwitcherOpen(false);
-      return;
-    }
-
-    // Close dropdown and clear search
-    setIsEmployeeSwitcherOpen(false);
-    setEmployeeSearchQuery('');
-
-    // Fetch full employee details and switch (this is now async)
-    await switchEmployee(employeeId);
-  };
-
-  // Filter employees based on current user's role - show only employees matching the selected role
-  const roleFilteredEmployees = employees?.filter(emp => emp.role === user?.role) || [];
-
-  const filteredEmployees = roleFilteredEmployees.filter(emp =>
-    emp.name.toLowerCase().includes(employeeSearchQuery.toLowerCase()) ||
-    emp.email.toLowerCase().includes(employeeSearchQuery.toLowerCase()) ||
-    emp.department.toLowerCase().includes(employeeSearchQuery.toLowerCase()) ||
-    emp.role.toLowerCase().includes(employeeSearchQuery.toLowerCase())
-  );
 
   return (
     <header className="sticky top-0 z-50 h-16 border-b border-border bg-card/95 backdrop-blur">
@@ -114,88 +64,6 @@ export function Header({ onMenuClick }: HeaderProps) {
 
         {/* Right Section */}
         <div className="flex items-center gap-2">
-          {/* Employee Switcher */}
-          <DropdownMenu open={isEmployeeSwitcherOpen} onOpenChange={setIsEmployeeSwitcherOpen}>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2 hidden sm:flex" disabled={isLoading}>
-                <Users className="h-4 w-4" />
-                <span className="max-w-[120px] truncate">
-                  {isLoading ? 'Loading...' : user?.name}
-                </span>
-                <ChevronDown className="h-3 w-3" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[280px] max-h-[400px] overflow-y-auto">
-              <DropdownMenuLabel>Switch Employee Profile (New Session)</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <div className="p-2">
-                <Input
-                  placeholder="Search employees..."
-                  className="h-8 mb-2"
-                  value={employeeSearchQuery}
-                  onChange={(e) => setEmployeeSearchQuery(e.target.value)}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </div>
-              <div className="max-h-[300px] overflow-y-auto">
-                {filteredEmployees.length === 0 ? (
-                  <div className="text-sm text-muted-foreground text-center py-4">
-                    No employees found
-                  </div>
-                ) : (
-                  filteredEmployees.map((employee) => (
-                    <DropdownMenuItem
-                      key={employee.id}
-                      onClick={() => handleEmployeeSwitch(employee.id)}
-                      className={cn(
-                        "flex items-start gap-3 py-2 cursor-pointer",
-                        employee.id === user?.id && "bg-accent"
-                      )}
-                    >
-                      <Avatar className="h-8 w-8 mt-0.5">
-                        <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${employee.name}`} />
-                        <AvatarFallback className="text-xs">
-                          {employee.name.split(' ').map(n => n[0]).join('')}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium truncate">{employee.name}</p>
-                          {employee.id === user?.id && (
-                            <Badge variant="secondary" className="text-xs">Current</Badge>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate">{employee.email}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Badge variant="outline" className="text-xs capitalize">
-                            {employee.role}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground truncate">
-                            {employee.department}
-                          </span>
-                        </div>
-                      </div>
-                    </DropdownMenuItem>
-                  ))
-                )}
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Role Switcher (Demo Only) */}
-          <Select value={user?.role} onValueChange={(value: UserRole) => switchRole(value)}>
-            <SelectTrigger className="w-[120px] hidden sm:flex">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(roleLabels).map(([role, label]) => (
-                <SelectItem key={role} value={role}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
           {/* Notifications */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
