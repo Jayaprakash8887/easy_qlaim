@@ -456,6 +456,15 @@ class HRCorrection(BaseModel):
     amount_adjustment_reason: Optional[str] = None
 
 
+# HR Edit Schema - for inline claim editing by HR role
+class HREdit(BaseModel):
+    """Schema for HR editing claim fields"""
+    amount: Optional[float] = Field(None, gt=0)
+    description: Optional[str] = None
+    claim_payload: Optional[Dict[str, Any]] = None
+    hr_edited_fields: List[str] = []  # List of field names edited by HR
+
+
 # Agent Execution Schema
 class AgentExecutionCreate(BaseModel):
     claim_id: Optional[UUID] = None

@@ -27,11 +27,14 @@ import {
   X,
   Maximize2,
   Minimize2,
+  Save,
+  UserCog,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -67,7 +70,13 @@ export default function ClaimDetails() {
   }>({ open: false, action: null });
   const [actionComment, setActionComment] = useState('');
 
-  const { data: claim, isLoading, error } = useClaim(id || '');
+  // HR Edit Mode state
+  const [isHrEditing, setIsHrEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [editedFields, setEditedFields] = useState<Record<string, any>>({});
+  const [hrEditedFields, setHrEditedFields] = useState<Set<string>>(new Set());
+
+  const { data: claim, isLoading, error, refetch } = useClaim(id || '');
   const { data: documents = [], isLoading: documentsLoading } = useDocuments(id || '');
   const { data: comments = [], isLoading: commentsLoading } = useComments(id || '');
   const createCommentMutation = useCreateComment();
@@ -187,6 +196,109 @@ export default function ClaimDetails() {
     }
   };
 
+  // HR Edit Mode functions
+  const handleStartHrEdit = () => {
+    if (!claim) return;
+    setIsHrEditing(true);
+    // Initialize edited fields with current claim values
+    setEditedFields({
+      amount: claim.amount,
+      vendor: claim.vendor || '',
+      description: claim.description || '',
+      transactionRef: claim.transactionRef || '',
+    });
+    setHrEditedFields(new Set());
+  };
+
+  const handleCancelHrEdit = () => {
+    setIsHrEditing(false);
+    setEditedFields({});
+    setHrEditedFields(new Set());
+  };
+
+  const handleHrFieldChange = (field: string, value: any) => {
+    setEditedFields(prev => ({ ...prev, [field]: value }));
+    setHrEditedFields(prev => new Set(prev).add(field));
+  };
+
+  const handleSaveHrEdit = async () => {
+    if (!id || !claim) return;
+    setIsSaving(true);
+
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+
+    try {
+      // Build the update payload
+      const hrEditedFieldsArray = Array.from(hrEditedFields);
+      const updatePayload: Record<string, any> = {
+        hr_edited_fields: hrEditedFieldsArray,
+      };
+
+      // Add modified fields to payload
+      if (hrEditedFields.has('amount')) {
+        updatePayload.amount = parseFloat(editedFields.amount);
+      }
+      if (hrEditedFields.has('description')) {
+        updatePayload.description = editedFields.description;
+      }
+
+      // Build claim_payload update for other fields
+      const payloadUpdate: Record<string, any> = {};
+      if (hrEditedFields.has('vendor')) {
+        payloadUpdate.vendor = editedFields.vendor;
+        payloadUpdate.vendor_source = 'hr';
+      }
+      if (hrEditedFields.has('transactionRef')) {
+        payloadUpdate.transaction_ref = editedFields.transactionRef;
+        payloadUpdate.transaction_ref_source = 'hr';
+      }
+      if (hrEditedFields.has('amount')) {
+        payloadUpdate.amount_source = 'hr';
+      }
+      if (hrEditedFields.has('description')) {
+        payloadUpdate.description_source = 'hr';
+      }
+
+      if (Object.keys(payloadUpdate).length > 0) {
+        updatePayload.claim_payload = {
+          ...(claim as any).claim_payload,
+          ...payloadUpdate,
+        };
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/claims/${id}/hr-edit?tenant_id=${user?.tenantId || ''}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatePayload),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to save HR edits');
+      }
+
+      toast({ title: 'Claim updated successfully' });
+      setIsHrEditing(false);
+      setEditedFields({});
+      setHrEditedFields(new Set());
+
+      // Refresh claim data
+      await refetch();
+
+    } catch (error) {
+      toast({
+        title: 'Failed to save',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleAddComment = async () => {
     if (!comment.trim() || !id) return;
 
@@ -212,6 +324,7 @@ export default function ClaimDetails() {
       auto: { label: 'Auto', icon: Zap, className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },  // Support both 'ocr' and 'auto'
       manual: { label: 'Manual', icon: User, className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
       edited: { label: 'Edited', icon: Edit, className: 'bg-warning/10 text-warning' },
+      hr: { label: 'HR', icon: UserCog, className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
     };
     const { label, icon: Icon, className } = config[source] || config.manual;
     return (
@@ -244,33 +357,70 @@ export default function ClaimDetails() {
         {/* Actions */}
         {canApprove && (
           <div className="flex gap-2">
-            {/* Return button visible to managers, HR, and finance */}
-            {(user?.role === 'manager' || user?.role === 'hr' || user?.role === 'finance') && (
-              <Button
-                variant="outline"
-                className="gap-2 text-warning"
-                onClick={() => handleActionClick('return')}
-              >
-                <RotateCcw className="h-4 w-4" />
-                Return
-              </Button>
+            {/* HR Edit Mode: Show Save and Cancel buttons */}
+            {isHrEditing ? (
+              <>
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={handleCancelHrEdit}
+                  disabled={isSaving}
+                >
+                  <X className="h-4 w-4" />
+                  Cancel
+                </Button>
+                <Button
+                  variant="gradient"
+                  className="gap-2"
+                  onClick={handleSaveHrEdit}
+                  disabled={isSaving || hrEditedFields.size === 0}
+                >
+                  <Save className="h-4 w-4" />
+                  {isSaving ? 'Saving...' : 'Save'}
+                </Button>
+              </>
+            ) : (
+              <>
+                {/* Edit button only for HR role */}
+                {user?.role === 'hr' && (
+                  <Button
+                    variant="outline"
+                    className="gap-2 text-purple-600 hover:text-purple-700"
+                    onClick={handleStartHrEdit}
+                  >
+                    <Edit className="h-4 w-4" />
+                    Edit
+                  </Button>
+                )}
+                {/* Return button visible to managers, HR, and finance */}
+                {(user?.role === 'manager' || user?.role === 'hr' || user?.role === 'finance') && (
+                  <Button
+                    variant="outline"
+                    className="gap-2 text-warning"
+                    onClick={() => handleActionClick('return')}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Return
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  className="gap-2 text-destructive"
+                  onClick={() => handleActionClick('reject')}
+                >
+                  <XCircle className="h-4 w-4" />
+                  Reject
+                </Button>
+                <Button
+                  variant="gradient"
+                  className="gap-2"
+                  onClick={() => handleActionClick('approve')}
+                >
+                  <CheckCircle className="h-4 w-4" />
+                  Approve
+                </Button>
+              </>
             )}
-            <Button
-              variant="outline"
-              className="gap-2 text-destructive"
-              onClick={() => handleActionClick('reject')}
-            >
-              <XCircle className="h-4 w-4" />
-              Reject
-            </Button>
-            <Button
-              variant="gradient"
-              className="gap-2"
-              onClick={() => handleActionClick('approve')}
-            >
-              <CheckCircle className="h-4 w-4" />
-              Approve
-            </Button>
           </div>
         )}
       </div>
@@ -298,7 +448,15 @@ export default function ClaimDetails() {
             <TabsContent value="details" className="space-y-6 mt-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Claim Information</CardTitle>
+                  <CardTitle className="flex items-center gap-2">
+                    Claim Information
+                    {isHrEditing && (
+                      <Badge variant="outline" className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                        <Edit className="h-3 w-3 mr-1" />
+                        Editing
+                      </Badge>
+                    )}
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-4">
@@ -308,10 +466,28 @@ export default function ClaimDetails() {
                         Amount
                       </p>
                       <div className="flex items-center gap-2 mt-1">
-                        <p className="text-lg font-semibold">
-                          ₹{claim.amount.toLocaleString()}
-                        </p>
-                        {getDataSourceBadge(claim.dataSource?.amount || 'manual')}
+                        {isHrEditing ? (
+                          <div className={cn(
+                            "flex items-center gap-2 w-full",
+                            hrEditedFields.has('amount') && "bg-purple-50 dark:bg-purple-900/20 rounded-md p-1 -m-1"
+                          )}>
+                            <span className="text-lg font-semibold">₹</span>
+                            <Input
+                              type="number"
+                              value={editedFields.amount || ''}
+                              onChange={(e) => handleHrFieldChange('amount', e.target.value)}
+                              className="max-w-32"
+                            />
+                            {hrEditedFields.has('amount') && getDataSourceBadge('hr')}
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-lg font-semibold">
+                              ₹{claim.amount.toLocaleString()}
+                            </p>
+                            {getDataSourceBadge(claim.dataSource?.amount || 'manual')}
+                          </>
+                        )}
                       </div>
                     </div>
                     <div>
@@ -332,8 +508,25 @@ export default function ClaimDetails() {
                         Vendor
                       </p>
                       <div className="flex items-center gap-2 mt-1">
-                        <p className="font-medium">{claim.vendor || 'N/A'}</p>
-                        {getDataSourceBadge(claim.dataSource?.vendor || 'manual')}
+                        {isHrEditing ? (
+                          <div className={cn(
+                            "flex items-center gap-2 w-full",
+                            hrEditedFields.has('vendor') && "bg-purple-50 dark:bg-purple-900/20 rounded-md p-1 -m-1"
+                          )}>
+                            <Input
+                              type="text"
+                              value={editedFields.vendor || ''}
+                              onChange={(e) => handleHrFieldChange('vendor', e.target.value)}
+                              placeholder="Enter vendor"
+                            />
+                            {hrEditedFields.has('vendor') && getDataSourceBadge('hr')}
+                          </div>
+                        ) : (
+                          <>
+                            <p className="font-medium">{claim.vendor || 'N/A'}</p>
+                            {getDataSourceBadge(claim.dataSource?.vendor || 'manual')}
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -357,18 +550,53 @@ export default function ClaimDetails() {
                     <div>
                       <p className="text-sm text-muted-foreground">Transaction Ref</p>
                       <div className="flex items-center gap-2 mt-1">
-                        <p className="font-medium">{claim.transactionRef || 'N/A'}</p>
-                        {getDataSourceBadge(claim.dataSource?.transactionRef || 'manual')}
+                        {isHrEditing ? (
+                          <div className={cn(
+                            "flex items-center gap-2 w-full",
+                            hrEditedFields.has('transactionRef') && "bg-purple-50 dark:bg-purple-900/20 rounded-md p-1 -m-1"
+                          )}>
+                            <Input
+                              type="text"
+                              value={editedFields.transactionRef || ''}
+                              onChange={(e) => handleHrFieldChange('transactionRef', e.target.value)}
+                              placeholder="Enter transaction ref"
+                            />
+                            {hrEditedFields.has('transactionRef') && getDataSourceBadge('hr')}
+                          </div>
+                        ) : (
+                          <>
+                            <p className="font-medium">{claim.transactionRef || 'N/A'}</p>
+                            {getDataSourceBadge(claim.dataSource?.transactionRef || 'manual')}
+                          </>
+                        )}
                       </div>
                     </div>
 
                   </div>
-                  {claim.description && (
+                  {(claim.description || isHrEditing) && (
                     <div className="sm:col-span-2">
                       <p className="text-sm text-muted-foreground">Description</p>
                       <div className="flex items-center gap-2 mt-1">
-                        <p>{claim.description}</p>
-                        {getDataSourceBadge(claim.dataSource?.description || 'manual')}
+                        {isHrEditing ? (
+                          <div className={cn(
+                            "flex items-center gap-2 w-full",
+                            hrEditedFields.has('description') && "bg-purple-50 dark:bg-purple-900/20 rounded-md p-1 -m-1"
+                          )}>
+                            <Textarea
+                              value={editedFields.description || ''}
+                              onChange={(e) => handleHrFieldChange('description', e.target.value)}
+                              placeholder="Enter description"
+                              rows={2}
+                              className="w-full"
+                            />
+                            {hrEditedFields.has('description') && getDataSourceBadge('hr')}
+                          </div>
+                        ) : (
+                          <>
+                            <p>{claim.description}</p>
+                            {getDataSourceBadge(claim.dataSource?.description || 'manual')}
+                          </>
+                        )}
                       </div>
                     </div>
                   )}

@@ -20,7 +20,7 @@ from models import Claim, Document, User, Comment
 Employee = User
 from schemas import (
     ClaimCreate, ClaimUpdate, ClaimResponse, ClaimListResponse,
-    ReturnToEmployee, SettleClaim, HRCorrection,
+    ReturnToEmployee, SettleClaim, HRCorrection, HREdit,
     BatchClaimCreate, BatchClaimResponse, ApproveRejectClaim
 )
 from agents.orchestrator import process_claim_task
@@ -790,6 +790,94 @@ async def update_claim(
     
     await db.commit()
     await db.refresh(claim)
+    
+    return claim
+
+
+@router.put("/{claim_id}/hr-edit", response_model=ClaimResponse)
+async def hr_edit_claim(
+    claim_id: UUID,
+    hr_edit: HREdit,
+    tenant_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_async_db),
+):
+    """
+    HR Edit endpoint - allows HR role to edit claim fields during review.
+    Fields edited by HR are marked with 'hr' source indicator.
+    """
+    
+    result = await db.execute(select(Claim).where(Claim.id == claim_id))
+    claim = result.scalar_one_or_none()
+    
+    if not claim:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Claim not found"
+        )
+    
+    # Only allow HR edit for claims pending HR approval
+    if claim.status != "PENDING_HR":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only claims pending HR approval can be edited by HR"
+        )
+    
+    # Update direct fields
+    if hr_edit.amount is not None:
+        claim.amount = hr_edit.amount
+    if hr_edit.description is not None:
+        claim.description = hr_edit.description
+    
+    # Update claim_payload with HR edits and source tracking
+    if hr_edit.claim_payload is not None:
+        payload = dict(claim.claim_payload or {})
+        
+        # Merge the new payload data
+        for key, value in hr_edit.claim_payload.items():
+            payload[key] = value
+        
+        # Update source fields for HR-edited fields
+        source_field_map = {
+            'amount': 'amount_source',
+            'date': 'date_source',
+            'description': 'description_source',
+            'vendor': 'vendor_source',
+            'category': 'category_source',
+            'title': 'title_source',
+            'transactionRef': 'transaction_ref_source',
+            'transaction_ref': 'transaction_ref_source',
+            'payment_method': 'payment_method_source',
+        }
+        
+        for field in hr_edit.hr_edited_fields:
+            source_key = source_field_map.get(field)
+            if source_key:
+                payload[source_key] = 'hr'
+        
+        claim.claim_payload = payload
+        flag_modified(claim, 'claim_payload')
+    
+    # Add HR edit comment to claim history
+    if hr_edit.hr_edited_fields:
+        edited_fields_str = ', '.join(hr_edit.hr_edited_fields)
+        payload = dict(claim.claim_payload or {})
+        comments_list = payload.get('comments', [])
+        if isinstance(comments_list, list):
+            comments_list.append({
+                'timestamp': datetime.utcnow().isoformat(),
+                'user': 'HR',
+                'role': 'HR',
+                'comment': f'HR edited the following fields: {edited_fields_str}',
+                'type': 'HR_EDIT'
+            })
+            payload['comments'] = comments_list
+            claim.claim_payload = payload
+            flag_modified(claim, 'claim_payload')
+    
+    await db.commit()
+    await db.refresh(claim)
+    
+    logger.info(f"HR edited claim {claim_id}, fields: {hr_edit.hr_edited_fields}")
     
     return claim
 

@@ -15,8 +15,8 @@ export type ClaimStatus =
 // Claim type
 export type ClaimType = 'reimbursement' | 'allowance';
 
-// Data source tracking - 'auto'/'ocr' for auto-extracted, 'manual' for user-entered, 'edited' for user-modified
-export type DataSource = 'ocr' | 'auto' | 'manual' | 'edited';
+// Data source tracking - 'auto'/'ocr' for auto-extracted, 'manual' for user-entered, 'edited' for user-modified, 'hr' for HR-edited
+export type DataSource = 'ocr' | 'auto' | 'manual' | 'edited' | 'hr';
 
 // User interface (extended with employee details for mock auth)
 export interface User {
