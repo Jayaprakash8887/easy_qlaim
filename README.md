@@ -1,6 +1,6 @@
-# Reimbursement Validation & Disbursement Agent System 🤖
+# Easy Qlaim 🤖
 
-## AI-Powered Claims Automation for Hackathon
+## AI-Powered Expense Reimbursement Platform
 
 An intelligent, multi-agent AI system for automating reimbursement and allowance claim processing using Google Gemini, FastAPI, and React.
 
@@ -382,36 +382,11 @@ npm install
 
 ---
 
-## 🎯 Hackathon Presentation Tips
-
-### Key Selling Points
-1. **90% Time Reduction**: Auto-approval eliminates manual review
-2. **AI-Powered**: Uses latest Gemini 2.0 for intelligent validation
-3. **Complete Transparency**: Full audit trail and edit history
-4. **Cost-Effective**: Hybrid validation (95% cost reduction vs pure LLM)
-5. **Production-Ready**: Multi-agent, async, scalable architecture
-
-### Demo Flow
-1. Show existing UI (already built)
-2. Create new claim with document upload
-3. Watch Flower dashboard (AI processing in real-time)
-4. Show auto-approval or routing decision
-5. Demonstrate return workflow
-6. Show settlement process
-
-### Highlight Innovation
-- Multi-agent AI architecture
-- Hybrid rule-based + AI validation
-- OCR with edit tracking and transparency
-- Non-destructive return workflow
-- Future-ready integration framework
-
----
-
 ## 📞 Support & Contact
 
 For setup issues or questions:
 - Check SETUP_GUIDE.md for detailed instructions
+- Check documentation/ folder for comprehensive guides
 - Review API docs at http://localhost:8000/api/docs
 - Check logs in terminal outputs
 
@@ -419,7 +394,7 @@ For setup issues or questions:
 
 ## 📄 License
 
-MIT License - feel free to use for hackathon and beyond!
+MIT License
 
 ---
 
@@ -428,11 +403,8 @@ MIT License - feel free to use for hackathon and beyond!
 - **Google Gemini**: AI reasoning engine
 - **FastAPI**: Lightning-fast Python framework
 - **shadcn/ui**: Beautiful React components
-- **PaddleOCR**: Open-source OCR engine
-- **DocumentDB.io**: PostgreSQL + MongoDB compatibility
+- **Tesseract OCR**: Open-source OCR engine
 
 ---
 
-**Built for Hackathon | December 2025**
-
-Good luck with your presentation! 🚀
+**Easy Qlaim - AI-Powered Expense Management**
