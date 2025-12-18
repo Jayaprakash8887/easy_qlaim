@@ -12,6 +12,7 @@ from database import get_sync_db as get_db
 from models import User
 from services.keycloak_service import get_keycloak_service, KeycloakService
 from services.role_service import get_user_roles
+from services.security import audit_logger, get_client_ip
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -161,7 +162,8 @@ def require_tenant_id(tenant_id: Optional[str]) -> str:
 
 @router.post("/login", response_model=LoginResponse)
 async def login(
-    request: LoginRequest,
+    login_request: LoginRequest,
+    request: Request,
     db: Session = Depends(get_db),
     keycloak: KeycloakService = Depends(get_keycloak_service)
 ):
@@ -169,17 +171,39 @@ async def login(
     Authenticate user with email and password.
     Returns access token, refresh token, and user info.
     """
+    # Get client info for audit logging
+    client_ip = get_client_ip(request)
+    user_agent = request.headers.get("user-agent", "")
+    
     # First check if user exists in our database
-    user = db.query(User).filter(User.email == request.email).first()
+    user = db.query(User).filter(User.email == login_request.email).first()
     if not user:
+        # Log failed login attempt
+        audit_logger.log_auth_event(
+            event_type=audit_logger.AUTH_FAILED,
+            user_email=login_request.email,
+            success=False,
+            ip_address=client_ip,
+            user_agent=user_agent,
+            error_message="User not found in database"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials"
         )
     
     # Authenticate with Keycloak
-    tokens = await keycloak.authenticate(request.email, request.password)
+    tokens = await keycloak.authenticate(login_request.email, login_request.password)
     if not tokens:
+        # Log failed login attempt
+        audit_logger.log_auth_event(
+            event_type=audit_logger.AUTH_FAILED,
+            user_email=login_request.email,
+            success=False,
+            ip_address=client_ip,
+            user_agent=user_agent,
+            error_message="Invalid credentials (Keycloak rejection)"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials"
@@ -190,6 +214,20 @@ async def login(
     # - All other roles are derived from designation-to-role mappings
     effective_roles = get_user_roles(user, db)
     logger.info(f"User {user.email} with designation '{user.designation}' has roles: {effective_roles}")
+    
+    # Log successful login
+    audit_logger.log_auth_event(
+        event_type=audit_logger.AUTH_LOGIN,
+        user_email=user.email,
+        success=True,
+        ip_address=client_ip,
+        user_agent=user_agent,
+        details={
+            "user_id": str(user.id),
+            "tenant_id": str(user.tenant_id) if user.tenant_id else None,
+            "roles": effective_roles
+        }
+    )
     
     # Build user info response
     user_data = {
@@ -217,16 +255,33 @@ async def login(
 
 @router.post("/refresh", response_model=RefreshResponse)
 async def refresh_token(
-    request: RefreshRequest,
+    refresh_request: RefreshRequest,
+    request: Request,
     keycloak: KeycloakService = Depends(get_keycloak_service)
 ):
     """Refresh access token using refresh token."""
-    tokens = await keycloak.refresh_token(request.refresh_token)
+    client_ip = get_client_ip(request)
+    
+    tokens = await keycloak.refresh_token(refresh_request.refresh_token)
     if not tokens:
+        audit_logger.log_auth_event(
+            event_type=audit_logger.AUTH_TOKEN_REFRESH,
+            user_email="unknown",
+            success=False,
+            ip_address=client_ip,
+            error_message="Invalid refresh token"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token"
         )
+    
+    audit_logger.log_auth_event(
+        event_type=audit_logger.AUTH_TOKEN_REFRESH,
+        user_email="token_refresh",
+        success=True,
+        ip_address=client_ip
+    )
     
     return RefreshResponse(
         access_token=tokens["access_token"],
@@ -238,11 +293,22 @@ async def refresh_token(
 
 @router.post("/logout")
 async def logout(
-    request: LogoutRequest,
+    logout_request: LogoutRequest,
+    request: Request,
     keycloak: KeycloakService = Depends(get_keycloak_service)
 ):
     """Logout user by invalidating refresh token."""
-    success = await keycloak.logout(request.refresh_token)
+    client_ip = get_client_ip(request)
+    
+    success = await keycloak.logout(logout_request.refresh_token)
+    
+    audit_logger.log_auth_event(
+        event_type=audit_logger.AUTH_LOGOUT,
+        user_email="logout",
+        success=success,
+        ip_address=client_ip
+    )
+    
     return {"success": success, "message": "Logged out successfully" if success else "Logout may have failed"}
 
 

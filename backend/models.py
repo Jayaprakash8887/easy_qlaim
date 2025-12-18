@@ -969,3 +969,73 @@ class Region(Base):
         Index("idx_regions_active", "is_active"),
     )
 
+
+# ==================== SECURITY & AUDIT MODELS ====================
+
+class AuditLog(Base):
+    """
+    Tamper-proof audit log for security and compliance.
+    Records all security-relevant events and data access patterns.
+    """
+    __tablename__ = "audit_logs"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Event identification
+    event_type = Column(String(50), nullable=False)  # AUTH_LOGIN, DATA_READ, CLAIM_APPROVED, etc.
+    event_timestamp = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    
+    # Actor information
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    user_email = Column(String(255))  # Denormalized for historical accuracy
+    tenant_id = Column(UUID(as_uuid=True), nullable=True)
+    
+    # Resource being accessed/modified
+    resource_type = Column(String(100))  # claim, employee, document, policy, etc.
+    resource_id = Column(UUID(as_uuid=True))  # ID of the resource
+    
+    # Action details
+    action = Column(String(100))  # create, read, update, delete, login, logout, etc.
+    action_details = Column(JSONB, default={})  # Additional context (fields changed, etc.)
+    
+    # Request context
+    ip_address = Column(String(45))  # IPv4 or IPv6
+    user_agent = Column(String(500))
+    request_method = Column(String(10))  # GET, POST, PUT, DELETE
+    request_path = Column(String(500))
+    
+    # Outcome
+    success = Column(Boolean, default=True)
+    error_message = Column(Text)
+    
+    # Tamper detection - SHA-256 hash of log entry
+    integrity_hash = Column(String(64), nullable=False)
+    previous_hash = Column(String(64))  # Chain hash for sequence verification
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    
+    __table_args__ = (
+        CheckConstraint(
+            """event_type IN (
+                'AUTH_LOGIN', 'AUTH_LOGOUT', 'AUTH_FAILED', 'AUTH_TOKEN_REFRESH',
+                'AUTH_PASSWORD_CHANGE', 'AUTH_PASSWORD_RESET', 'AUTH_MFA_ENABLED', 'AUTH_MFA_DISABLED',
+                'DATA_CREATE', 'DATA_READ', 'DATA_UPDATE', 'DATA_DELETE', 'DATA_EXPORT', 'DATA_BULK_ACCESS',
+                'CLAIM_SUBMITTED', 'CLAIM_APPROVED', 'CLAIM_REJECTED', 'CLAIM_RETURNED', 'CLAIM_SETTLED', 'CLAIM_EDITED',
+                'ADMIN_ACTION', 'CONFIG_CHANGE', 'PERMISSION_CHANGE',
+                'SECURITY_ALERT', 'SUSPICIOUS_ACTIVITY'
+            )""",
+            name="valid_audit_event_type"
+        ),
+        Index("idx_audit_event_type", "event_type"),
+        Index("idx_audit_timestamp", "event_timestamp"),
+        Index("idx_audit_user", "user_id"),
+        Index("idx_audit_tenant", "tenant_id"),
+        Index("idx_audit_resource", "resource_type", "resource_id"),
+        Index("idx_audit_success", "success"),
+        Index("idx_audit_ip", "ip_address"),
+        Index("idx_audit_tenant_timestamp", "tenant_id", "event_timestamp"),
+        Index("idx_audit_user_timestamp", "user_id", "event_timestamp"),
+    )
+
+

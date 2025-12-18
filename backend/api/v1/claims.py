@@ -1,7 +1,7 @@
 """
 Claims API endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm.attributes import flag_modified
@@ -27,6 +27,7 @@ from agents.orchestrator import process_claim_task
 from services.storage import upload_to_gcs
 from services.duplicate_detection import check_duplicate_claim, check_batch_duplicates
 from services.ai_analysis import generate_ai_analysis, generate_policy_checks
+from services.security import audit_logger, get_client_ip
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -798,6 +799,7 @@ async def update_claim(
 async def hr_edit_claim(
     claim_id: UUID,
     hr_edit: HREdit,
+    request: Request,
     tenant_id: Optional[UUID] = None,
     db: AsyncSession = Depends(get_async_db),
 ):
@@ -879,6 +881,20 @@ async def hr_edit_claim(
     
     logger.info(f"HR edited claim {claim_id}, fields: {hr_edit.hr_edited_fields}")
     
+    # Audit log for HR edit
+    audit_logger.log_claim_action(
+        user_id="hr",
+        tenant_id=str(claim.tenant_id),
+        claim_id=str(claim_id),
+        action="edit",
+        details={
+            "edited_by": "HR",
+            "edited_fields": hr_edit.hr_edited_fields,
+            "new_amount": float(hr_edit.amount) if hr_edit.amount else None
+        },
+        ip_address=get_client_ip(request)
+    )
+    
     return claim
 
 
@@ -914,6 +930,7 @@ async def delete_claim(
 async def return_to_employee(
     claim_id: UUID,
     return_data: ReturnToEmployee,
+    request: Request,
     db: AsyncSession = Depends(get_async_db),
 ):
     """Return claim to employee for corrections"""
@@ -977,6 +994,20 @@ async def return_to_employee(
     await db.commit()
     await db.refresh(claim)
     
+    # Audit log for claim return
+    audit_logger.log_claim_action(
+        user_id="approver",
+        tenant_id=str(claim.tenant_id),
+        claim_id=str(claim_id),
+        action="return",
+        details={
+            "previous_status": previous_status,
+            "return_reason": return_data.return_reason,
+            "return_count": claim.return_count
+        },
+        ip_address=get_client_ip(request)
+    )
+    
     # TODO: Send notification to employee
     
     return claim
@@ -985,6 +1016,7 @@ async def return_to_employee(
 @router.post("/{claim_id}/approve", response_model=ClaimResponse)
 async def approve_claim(
     claim_id: UUID,
+    request: Request,
     approve_data: ApproveRejectClaim = None,
     db: AsyncSession = Depends(get_async_db),
 ):
@@ -1015,6 +1047,7 @@ async def approve_claim(
         )
     
     # Get next status
+    previous_status = claim.status
     next_status = status_transitions[claim.status]
     
     # If manager approved, move directly to pending HR
@@ -1046,12 +1079,28 @@ async def approve_claim(
     await db.commit()
     await db.refresh(claim)
     
+    # Audit log for claim approval
+    audit_logger.log_claim_action(
+        user_id=str(approve_data.approver_id) if approve_data and approve_data.approver_id else "system",
+        tenant_id=str(claim.tenant_id),
+        claim_id=str(claim_id),
+        action="approve",
+        details={
+            "previous_status": previous_status,
+            "new_status": claim.status,
+            "amount": float(claim.claimed_amount) if claim.claimed_amount else None,
+            "comment": approve_data.comment if approve_data else None
+        },
+        ip_address=get_client_ip(request)
+    )
+    
     return claim
 
 
 @router.post("/{claim_id}/reject", response_model=ClaimResponse)
 async def reject_claim(
     claim_id: UUID,
+    request: Request,
     reject_data: ApproveRejectClaim = None,
     db: AsyncSession = Depends(get_async_db),
 ):
@@ -1117,6 +1166,20 @@ async def reject_claim(
     await db.commit()
     await db.refresh(claim)
     
+    # Audit log for claim rejection
+    audit_logger.log_claim_action(
+        user_id=str(reject_data.approver_id) if reject_data and reject_data.approver_id else "system",
+        tenant_id=str(claim.tenant_id),
+        claim_id=str(claim_id),
+        action="reject",
+        details={
+            "previous_status": previous_status,
+            "amount": float(claim.claimed_amount) if claim.claimed_amount else None,
+            "comment": reject_data.comment if reject_data else None
+        },
+        ip_address=get_client_ip(request)
+    )
+    
     return claim
 
 
@@ -1124,6 +1187,7 @@ async def reject_claim(
 async def settle_claim(
     claim_id: UUID,
     settlement_data: SettleClaim,
+    request: Request,
     db: AsyncSession = Depends(get_async_db),
 ):
     """Mark claim as settled with payment details"""
@@ -1192,6 +1256,21 @@ async def settle_claim(
     
     await db.commit()
     await db.refresh(claim)
+    
+    # Audit log for claim settlement
+    audit_logger.log_claim_action(
+        user_id="finance",
+        tenant_id=str(claim.tenant_id),
+        claim_id=str(claim_id),
+        action="settle",
+        details={
+            "payment_reference": settlement_data.payment_reference,
+            "payment_method": settlement_data.payment_method,
+            "amount_paid": float(settlement_data.amount_paid),
+            "claimed_amount": float(claim.claimed_amount) if claim.claimed_amount else None
+        },
+        ip_address=get_client_ip(request)
+    )
     
     return claim
 

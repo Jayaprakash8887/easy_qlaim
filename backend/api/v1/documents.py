@@ -1,7 +1,7 @@
 """
 Document management endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
 from fastapi.responses import RedirectResponse, FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
@@ -18,6 +18,7 @@ from models import Document, Claim
 from schemas import DocumentResponse
 from config import settings
 from services.storage import upload_to_gcs, get_signed_url, delete_from_gcs
+from services.security import file_validator, audit_logger, get_client_ip
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -94,6 +95,7 @@ async def get_document(
 @router.post("/upload/{claim_id}", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     claim_id: UUID,
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_sync_db)
 ):
@@ -106,15 +108,49 @@ async def upload_document(
             detail="Claim not found"
         )
     
+    # Read file content for validation
+    file_content = await file.read()
+    await file.seek(0)  # Reset file pointer for later use
+    
+    # Validate file using security service
+    allowed_extensions = settings.allowed_extensions_list
+    is_valid, error_message = file_validator.validate_file(
+        file_content=file_content,
+        filename=file.filename or "document",
+        allowed_extensions=allowed_extensions
+    )
+    
+    if not is_valid:
+        # Log security event for invalid file upload
+        audit_logger.log(
+            event_type="SECURITY_ALERT",
+            tenant_id=str(claim.tenant_id),
+            action="invalid_file_upload",
+            details={
+                "filename": file.filename,
+                "error": error_message,
+                "claim_id": str(claim_id)
+            },
+            ip_address=get_client_ip(request),
+            success=False
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File validation failed: {error_message}"
+        )
+    
+    # Sanitize filename to prevent path traversal attacks
+    safe_filename = file_validator.get_safe_filename(file.filename or "document")
+    
     # Generate unique filename
-    file_extension = Path(file.filename or "document").suffix
+    file_extension = Path(safe_filename).suffix
     unique_filename = f"{uuid4()}{file_extension}"
     file_path = UPLOAD_DIR / unique_filename
     
     # Save file locally first (needed for OCR processing)
     try:
         with file_path.open("wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            buffer.write(file_content)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

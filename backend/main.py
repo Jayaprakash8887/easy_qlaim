@@ -9,12 +9,27 @@ import logging
 from config import settings
 from database import init_db_async
 
+# Import security middleware
+from middleware.security import (
+    SecurityHeadersMiddleware,
+    RequestLoggingMiddleware,
+    RateLimitMiddleware,
+    SQLInjectionProtectionMiddleware,
+)
+
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Configure audit logger
+audit_logger = logging.getLogger('audit')
+audit_handler = logging.FileHandler('audit.log')
+audit_handler.setFormatter(logging.Formatter('%(asctime)s - AUDIT - %(message)s'))
+audit_logger.addHandler(audit_handler)
+audit_logger.setLevel(logging.INFO)
 
 
 async def run_startup_cleanup():
@@ -121,6 +136,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Security middleware stack (order matters - first added is last executed)
+# 1. SQL Injection Protection (defense-in-depth, log-only mode)
+app.add_middleware(SQLInjectionProtectionMiddleware, log_only=True)
+
+# 2. Rate Limiting (60 requests per minute per IP)
+app.add_middleware(
+    RateLimitMiddleware,
+    requests_per_minute=60,
+    burst_limit=100,
+    exclude_paths=["/health", "/metrics", "/api/docs", "/api/redoc", "/api/openapi.json"]
+)
+
+# 3. Request Logging (for security monitoring)
+app.add_middleware(
+    RequestLoggingMiddleware,
+    exclude_paths=["/health", "/metrics", "/favicon.ico"]
+)
+
+# 4. Security Headers (HSTS, CSP, XSS Protection, etc.)
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 # Exception handlers
