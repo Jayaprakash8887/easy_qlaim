@@ -3,7 +3,6 @@ Authentication API endpoints using Keycloak.
 """
 import logging
 from typing import Optional
-from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
@@ -12,6 +11,7 @@ from sqlalchemy.orm import Session
 from database import get_sync_db as get_db
 from models import User
 from services.keycloak_service import get_keycloak_service, KeycloakService
+from services.role_service import get_user_roles
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -163,6 +163,12 @@ async def login(
             detail="Invalid credentials"
         )
     
+    # Derive user roles using role_service:
+    # - SYSTEM_ADMIN role comes from user.roles (platform-level)
+    # - All other roles are derived from designation-to-role mappings
+    effective_roles = get_user_roles(user, db)
+    logger.info(f"User {user.email} with designation '{user.designation}' has roles: {effective_roles}")
+    
     # Build user info response
     user_data = {
         "id": str(user.id),
@@ -173,9 +179,9 @@ async def login(
         "full_name": user.full_name or f"{user.first_name} {user.last_name}",
         "department": user.department,
         "designation": user.designation,
-        "roles": user.roles or ["EMPLOYEE"],
+        "roles": effective_roles,
         "region": user.region,
-        "role": map_backend_roles_to_frontend(user.roles or []),
+        "role": map_backend_roles_to_frontend(effective_roles),
     }
     
     return LoginResponse(
@@ -220,9 +226,13 @@ async def logout(
 
 @router.get("/me", response_model=UserInfoResponse)
 async def get_me(
-    user: User = Depends(require_auth)
+    user: User = Depends(require_auth),
+    db: Session = Depends(get_db)
 ):
     """Get current authenticated user info."""
+    # Derive user roles using role_service (same logic as login)
+    effective_roles = get_user_roles(user, db)
+    
     return UserInfoResponse(
         id=str(user.id),
         tenant_id=str(user.tenant_id) if user.tenant_id else None,
@@ -232,7 +242,7 @@ async def get_me(
         full_name=user.full_name or f"{user.first_name} {user.last_name}",
         department=user.department,
         designation=user.designation,
-        roles=user.roles or ["EMPLOYEE"],
+        roles=effective_roles,
         region=user.region
     )
 

@@ -33,8 +33,8 @@ import { useTenants, useDesignations } from '@/hooks/useSystemAdmin';
 export default function SystemAdminSettings() {
     // Platform settings state
     const [platformSettings, setPlatformSettings] = useState({
-        platformName: 'ReimbursePro',
-        supportEmail: 'support@reimbursepro.com',
+        platformName: 'EasyQlaim',
+        supportEmail: 'support@easyqlaim.com',
         allowSelfRegistration: false,
         requireEmailVerification: true,
         defaultSessionTimeout: 30,
@@ -49,8 +49,8 @@ export default function SystemAdminSettings() {
         smtpPort: 587,
         smtpUser: '',
         smtpPassword: '',
-        senderEmail: 'noreply@reimbursepro.com',
-        senderName: 'ReimbursePro',
+        senderEmail: 'noreply@easyqlaim.com',
+        senderName: 'EasyQlaim',
         enableEmailNotifications: true,
     });
 

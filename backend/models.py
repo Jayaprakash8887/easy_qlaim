@@ -244,7 +244,9 @@ class User(Base):
     region = Column(String(100), nullable=True)
     
     # Roles & Permissions
-    roles = Column(ARRAY(String), default=[])  # EMPLOYEE, MANAGER, HR, FINANCE, ADMIN
+    # All tenant users get EMPLOYEE role by default (except SYSTEM_ADMIN which is platform-level)
+    # Additional roles: MANAGER, HR, FINANCE, ADMIN
+    roles = Column(ARRAY(String), default=['EMPLOYEE'])
     
     # Additional data (JSONB for flexibility)
     user_data = Column(JSONB, default={})

@@ -128,9 +128,15 @@ export function getNavigationForRole(role: UserRole): NavItem[] {
     return systemAdminNavigation;
   }
 
-  // Admin users only see Employees, Projects, and Settings
+  // Admin users see both employee navigation AND admin-only navigation
+  // They are also employees who can raise claims
   if (role === 'admin') {
-    return adminOnlyNavigation;
+    // Get employee-level navigation (Dashboard, My Claims, New Claim)
+    const employeeNav = mainNavigation.filter(
+      (item) => !item.roles || item.roles.includes('employee')
+    );
+    // Combine with admin-only navigation
+    return [...employeeNav, ...adminOnlyNavigation];
   }
 
   const filterByRole = (items: NavItem[]) =>

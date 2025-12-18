@@ -6,11 +6,13 @@ export function DashboardHeader() {
     <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg gradient-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">R</span>
-            </div>
-            <span className="font-semibold text-foreground hidden sm:block">ReimbursePro</span>
+          <div className="flex items-center gap-3">
+            <img 
+              src="/logo-mark.svg" 
+              alt="EasyQlaim" 
+              className="h-9 w-9"
+            />
+            <span className="font-semibold text-foreground hidden sm:block">EasyQlaim</span>
           </div>
         </div>
 

@@ -6,25 +6,28 @@
 
 @layer base {
   :root {
-    --background: 220 20% 97%;
-    --foreground: 222 47% 11%;
+    /* EasyQlaim Brand Colors */
+    --background: 210 20% 98%;
+    --foreground: 212 52% 16%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 212 52% 16%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 212 52% 16%;
 
-    --primary: 217 91% 50%;
+    /* Primary: EasyQlaim Teal #00928F */
+    --primary: 179 100% 29%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 214 32% 91%;
-    --secondary-foreground: 222 47% 11%;
+    --secondary: 210 25% 93%;
+    --secondary-foreground: 212 52% 16%;
 
-    --muted: 214 32% 91%;
+    --muted: 210 25% 93%;
     --muted-foreground: 215 16% 47%;
 
-    --accent: 199 89% 48%;
+    /* Accent: Lighter teal for highlights */
+    --accent: 179 70% 40%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 60%;
@@ -36,54 +39,57 @@
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
 
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 217 91% 50%;
+    --border: 210 25% 90%;
+    --input: 210 25% 90%;
+    --ring: 179 100% 29%;
 
-    --radius: 0.75rem;
+    --radius: 0.5rem;
 
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Sidebar: Dark Navy theme */
+    --sidebar-background: 212 52% 16%;
+    --sidebar-foreground: 210 20% 90%;
+    --sidebar-primary: 179 100% 29%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 212 45% 22%;
+    --sidebar-accent-foreground: 210 20% 95%;
+    --sidebar-border: 212 45% 22%;
+    --sidebar-ring: 179 100% 29%;
 
-    /* Custom gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(217, 91%, 50%) 0%, hsl(199, 89%, 48%) 100%);
-    --gradient-ai: linear-gradient(135deg, hsl(199, 89%, 48%) 0%, hsl(259, 94%, 51%) 100%);
-    --gradient-card: linear-gradient(180deg, hsl(0, 0%, 100%) 0%, hsl(220, 20%, 98%) 100%);
+    /* EasyQlaim Custom gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(179, 100%, 29%) 0%, hsl(179, 70%, 40%) 100%);
+    --gradient-ai: linear-gradient(135deg, hsl(179, 100%, 29%) 0%, hsl(212, 52%, 30%) 100%);
+    --gradient-card: linear-gradient(180deg, hsl(0, 0%, 100%) 0%, hsl(210, 20%, 98%) 100%);
+    --gradient-hero: linear-gradient(135deg, hsl(212, 52%, 16%) 0%, hsl(212, 45%, 25%) 100%);
 
-    /* Shadows */
-    --shadow-sm: 0 1px 2px 0 hsl(217, 91%, 50%, 0.05);
-    --shadow-md: 0 4px 6px -1px hsl(217, 91%, 50%, 0.1), 0 2px 4px -2px hsl(217, 91%, 50%, 0.1);
-    --shadow-lg: 0 10px 15px -3px hsl(217, 91%, 50%, 0.1), 0 4px 6px -4px hsl(217, 91%, 50%, 0.1);
-    --shadow-glow: 0 0 20px hsl(217, 91%, 50%, 0.2);
+    /* Shadows with brand color */
+    --shadow-sm: 0 1px 2px 0 hsl(179, 100%, 29%, 0.05);
+    --shadow-md: 0 4px 6px -1px hsl(179, 100%, 29%, 0.1), 0 2px 4px -2px hsl(179, 100%, 29%, 0.1);
+    --shadow-lg: 0 10px 15px -3px hsl(179, 100%, 29%, 0.1), 0 4px 6px -4px hsl(179, 100%, 29%, 0.1);
+    --shadow-glow: 0 0 20px hsl(179, 100%, 29%, 0.25);
   }
 
   .dark {
-    --background: 222 47% 8%;
+    --background: 212 52% 8%;
     --foreground: 210 40% 98%;
 
-    --card: 222 47% 11%;
+    --card: 212 52% 12%;
     --card-foreground: 210 40% 98%;
 
-    --popover: 222 47% 11%;
+    --popover: 212 52% 12%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 11%;
+    /* Primary: EasyQlaim Teal - lighter for dark mode */
+    --primary: 179 80% 40%;
+    --primary-foreground: 212 52% 8%;
 
-    --secondary: 217 33% 17%;
+    --secondary: 212 40% 20%;
     --secondary-foreground: 210 40% 98%;
 
-    --muted: 217 33% 17%;
+    --muted: 212 40% 20%;
     --muted-foreground: 215 20% 65%;
 
-    --accent: 199 89% 48%;
-    --accent-foreground: 222 47% 11%;
+    --accent: 179 70% 35%;
+    --accent-foreground: 212 52% 8%;
 
     --destructive: 0 63% 31%;
     --destructive-foreground: 210 40% 98%;
@@ -92,20 +98,20 @@
     --success-foreground: 210 40% 98%;
 
     --warning: 38 92% 50%;
-    --warning-foreground: 222 47% 11%;
+    --warning-foreground: 212 52% 8%;
 
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: 217 91% 60%;
+    --border: 212 40% 20%;
+    --input: 212 40% 20%;
+    --ring: 179 80% 40%;
 
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-background: 212 52% 10%;
+    --sidebar-foreground: 210 20% 90%;
+    --sidebar-primary: 179 80% 40%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-accent: 212 45% 18%;
+    --sidebar-accent-foreground: 210 20% 95%;
+    --sidebar-border: 212 45% 18%;
+    --sidebar-ring: 179 80% 40%;
   }
 }
 

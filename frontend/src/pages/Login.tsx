@@ -38,17 +38,19 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
-      <Card className="w-full max-w-md shadow-xl">
-        <CardHeader className="space-y-1 text-center">
-          <div className="flex justify-center mb-4">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
-              <span className="text-2xl font-bold text-white">Q</span>
-            </div>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#f0fafa] via-white to-[#e8f4f8] dark:from-[#13283E] dark:via-[#1a3550] dark:to-[#0d1f2d] p-4">
+      <Card className="w-full max-w-md shadow-xl border-0 bg-white/80 dark:bg-[#13283E]/90 backdrop-blur-sm">
+        <CardHeader className="space-y-1 text-center pb-2">
+          <div className="flex justify-center">
+            <img 
+              src="/logo-vertical.svg" 
+              alt="EasyQlaim" 
+              style={{ width: '280px', height: 'auto' }}
+            />
           </div>
-          <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
-          <CardDescription>
-            Sign in to your QClaims account
+          <CardTitle className="text-2xl font-bold text-[#13283E] dark:text-white pt-4">Welcome Back</CardTitle>
+          <CardDescription className="text-[#1E3754] dark:text-gray-300">
+            Smart Claims Settlement Platform
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -109,16 +111,6 @@ export default function Login() {
               )}
             </Button>
           </form>
-
-          <div className="mt-6 text-center text-sm text-muted-foreground">
-            <p>Demo Credentials:</p>
-            <p className="mt-1">
-              <span className="font-medium">Tarento Users:</span> [email]@tarento.com / Test@123
-            </p>
-            <p className="mt-1">
-              <span className="font-medium">Admin:</span> admin@tarento.com / Admin@123
-            </p>
-          </div>
         </CardContent>
       </Card>
     </div>

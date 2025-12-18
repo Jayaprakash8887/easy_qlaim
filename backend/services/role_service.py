@@ -51,8 +51,9 @@ def get_user_roles(user: User, db: Session) -> List[str]:
             for mapping in mappings:
                 roles.add(mapping.role)
     
-    # Always include EMPLOYEE as base role (unless SYSTEM_ADMIN only)
-    if 'SYSTEM_ADMIN' not in roles or len(roles) > 1:
+    # Always include EMPLOYEE as base role for all non-SYSTEM_ADMIN users
+    # SYSTEM_ADMIN is a platform-level role and doesn't need EMPLOYEE
+    if 'SYSTEM_ADMIN' not in roles:
         roles.add('EMPLOYEE')
     
     return list(roles)
@@ -157,3 +158,64 @@ def get_all_roles_including_system() -> List[str]:
         List of role strings
     """
     return ['SYSTEM_ADMIN', 'EMPLOYEE', 'MANAGER', 'HR', 'FINANCE', 'ADMIN']
+
+
+def ensure_employee_role(roles: List[str]) -> List[str]:
+    """
+    Ensure EMPLOYEE role is present in the roles list for tenant users.
+    SYSTEM_ADMIN users are excluded as they are platform-level only.
+    
+    Args:
+        roles: List of current roles
+        
+    Returns:
+        List of roles with EMPLOYEE included (if not SYSTEM_ADMIN only)
+    """
+    if not roles:
+        return ['EMPLOYEE']
+    
+    roles_set = set(roles)
+    
+    # If user is SYSTEM_ADMIN only, don't add EMPLOYEE
+    if roles_set == {'SYSTEM_ADMIN'}:
+        return list(roles_set)
+    
+    # For all other cases, ensure EMPLOYEE is present
+    roles_set.add('EMPLOYEE')
+    return list(roles_set)
+
+
+def normalize_user_roles(roles: List[str], is_tenant_user: bool = True) -> List[str]:
+    """
+    Normalize user roles to ensure consistency.
+    - All tenant users get EMPLOYEE role by default
+    - SYSTEM_ADMIN is only for platform-level users
+    
+    Args:
+        roles: List of roles to normalize
+        is_tenant_user: Whether this is a tenant user (default True)
+        
+    Returns:
+        Normalized list of roles
+    """
+    if not roles:
+        return ['EMPLOYEE'] if is_tenant_user else []
+    
+    roles_upper = [r.upper() for r in roles]
+    roles_set = set(roles_upper)
+    
+    # If SYSTEM_ADMIN only, don't add EMPLOYEE
+    if roles_set == {'SYSTEM_ADMIN'}:
+        return ['SYSTEM_ADMIN']
+    
+    # Remove SYSTEM_ADMIN from tenant users (shouldn't happen but safety check)
+    if is_tenant_user and 'SYSTEM_ADMIN' in roles_set:
+        roles_set.discard('SYSTEM_ADMIN')
+    
+    # Ensure EMPLOYEE is present for tenant users
+    if is_tenant_user:
+        roles_set.add('EMPLOYEE')
+    
+    # Order roles consistently
+    role_order = ['EMPLOYEE', 'MANAGER', 'HR', 'FINANCE', 'ADMIN', 'SYSTEM_ADMIN']
+    return [r for r in role_order if r in roles_set]

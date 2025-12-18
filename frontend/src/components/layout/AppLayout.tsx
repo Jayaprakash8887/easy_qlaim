@@ -34,7 +34,7 @@ export function AppLayout() {
       {/* Main Content */}
       <main
         className={cn(
-          'min-h-[calc(100vh-4rem)] pt-16 transition-all duration-300',
+          'min-h-[calc(100vh-5rem)] pt-20 transition-all duration-300',
           !isMobile && (sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64')
         )}
       >

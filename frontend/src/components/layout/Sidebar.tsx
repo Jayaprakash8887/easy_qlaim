@@ -142,7 +142,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     <TooltipProvider delayDuration={0}>
       <aside
         className={cn(
-          'fixed left-0 top-16 z-40 h-[calc(100vh-4rem)] border-r border-border bg-card transition-all duration-300',
+          'fixed left-0 top-20 z-40 h-[calc(100vh-5rem)] border-r border-border bg-card transition-all duration-300',
           collapsed ? 'w-16' : 'w-64'
         )}
       >

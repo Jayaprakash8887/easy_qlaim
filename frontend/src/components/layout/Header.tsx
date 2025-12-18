@@ -29,44 +29,43 @@ export function Header({ onMenuClick }: HeaderProps) {
   const { user, logout } = useAuth();
 
   return (
-    <header className="sticky top-0 z-50 h-16 border-b border-border bg-card/95 backdrop-blur">
-      <div className="flex h-full items-center justify-between px-4">
+    <header className="sticky top-0 z-50 h-20 border-b border-border bg-card/95 backdrop-blur">
+      <div className="flex h-full items-center justify-between px-5">
         {/* Left Section */}
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={onMenuClick} className="lg:hidden">
-            <Menu className="h-5 w-5" />
+        <div className="flex items-center gap-5">
+          <Button variant="ghost" size="icon" onClick={onMenuClick} className="lg:hidden h-10 w-10">
+            <Menu className="h-6 w-6" />
           </Button>
 
-          <Link to="/" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg gradient-primary">
-              <span className="text-sm font-bold text-primary-foreground">ER</span>
-            </div>
-            <span className="hidden text-lg font-semibold text-foreground sm:inline">
-              Expense Report
-            </span>
+          <Link to="/" className="flex items-center gap-3">
+            <img 
+              src="/logo-horizontal.svg" 
+              alt="EasyQlaim" 
+              className="h-12"
+            />
           </Link>
         </div>
 
         {/* Center - Global Search */}
-        <div className="hidden flex-1 max-w-md px-8 md:block">
+        <div className="hidden flex-1 max-w-lg px-8 md:block">
           <GlobalSearch />
         </div>
 
         {/* Right Section */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {/* Notifications */}
           <NotificationsBell />
 
           {/* Help */}
-          <Button variant="ghost" size="icon" className="hidden sm:flex">
-            <HelpCircle className="h-5 w-5" />
+          <Button variant="ghost" size="icon" className="hidden sm:flex h-10 w-10">
+            <HelpCircle className="h-6 w-6" />
           </Button>
 
           {/* User Menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="gap-2 px-2">
-                <Avatar className="h-8 w-8">
+              <Button variant="ghost" className="gap-2 px-2 h-auto py-1">
+                <Avatar className="h-10 w-10">
                   <AvatarImage src={user?.avatar} alt={user?.name} />
                   <AvatarFallback>
                     {user?.name
