@@ -8,17 +8,18 @@ Cacheable entities identified:
 4. Policy Categories - read for every claim validation
 5. System Settings - read frequently, rarely changed
 
-Cache Key Patterns:
-- project:{project_code} - Individual project by code
-- project:all - All active projects
-- project:id:{project_id} - Project by ID
-- employee:{employee_id} - Employee/User data
-- employee:code:{employee_code} - Employee by code
-- employee:email:{email} - Employee by email
-- policy:active - All active policies
-- policy:category:{category_code} - Category rules
-- settings:{setting_key} - Individual settings
-- settings:all - All system settings
+Cache Key Patterns (Multi-Tenant):
+- {tenant_id}:project:{project_code} - Individual project by code
+- {tenant_id}:project:all - All active projects
+- {tenant_id}:project:id:{project_id} - Project by ID
+- {tenant_id}:employee:{employee_id} - Employee/User data
+- {tenant_id}:employee:code:{employee_code} - Employee by code
+- {tenant_id}:employee:email:{email} - Employee by email
+- {tenant_id}:policy:active - All active policies
+- {tenant_id}:policy:category:{category_code} - Category rules
+- {tenant_id}:settings:{setting_key} - Individual settings
+- {tenant_id}:settings:all - All system settings
+- global:settings:{key} - Global settings (non-tenant specific)
 
 TTL Strategy:
 - Projects: 1 hour (infrequently updated)
@@ -48,9 +49,10 @@ class RedisCacheService:
     
     Features:
     - Async Redis operations with connection pooling
+    - Multi-tenant key isolation with {tenant_id}: prefix
     - Automatic serialization/deserialization
     - TTL management per entity type
-    - Cache invalidation support
+    - Cache invalidation support (per-tenant and global)
     - Fallback to in-memory cache if Redis unavailable
     """
     
@@ -71,6 +73,7 @@ class RedisCacheService:
     PREFIX_POLICY = "policy"
     PREFIX_CATEGORY = "category"
     PREFIX_SETTINGS = "settings"
+    PREFIX_GLOBAL = "global"  # For non-tenant-specific data
     
     def __new__(cls):
         """Singleton pattern"""
@@ -92,6 +95,18 @@ class RedisCacheService:
         self._cache_lock = Lock()
         self._initialized = True
         logger.info(f"RedisCacheService initialized with URL: {self._redis_url}")
+    
+    # ==================== KEY HELPERS ====================
+    
+    def _tenant_key(self, tenant_id: str, *parts: str) -> str:
+        """Build a tenant-scoped cache key: {tenant_id}:part1:part2:..."""
+        if not tenant_id:
+            raise ValueError("tenant_id is required for cache operations")
+        return f"{tenant_id}:{':'.join(parts)}"
+    
+    def _global_key(self, *parts: str) -> str:
+        """Build a global cache key: global:part1:part2:..."""
+        return f"{self.PREFIX_GLOBAL}:{':'.join(parts)}"
     
     async def _get_async_client(self) -> aioredis.Redis:
         """Get or create async Redis client"""
@@ -287,226 +302,254 @@ class RedisCacheService:
     
     # ==================== PROJECT CACHING ====================
     
-    async def get_project_by_code(self, project_code: str) -> Optional[Dict]:
+    async def get_project_by_code(self, tenant_id: str, project_code: str) -> Optional[Dict]:
         """Get project by code from cache"""
-        key = f"{self.PREFIX_PROJECT}:code:{project_code}"
+        key = self._tenant_key(tenant_id, self.PREFIX_PROJECT, "code", project_code)
         return await self.get_async(key)
     
-    async def set_project_by_code(self, project_code: str, project_data: Dict) -> bool:
+    async def set_project_by_code(self, tenant_id: str, project_code: str, project_data: Dict) -> bool:
         """Cache project by code"""
-        key = f"{self.PREFIX_PROJECT}:code:{project_code}"
+        key = self._tenant_key(tenant_id, self.PREFIX_PROJECT, "code", project_code)
         return await self.set_async(key, project_data, self.TTL_PROJECT)
     
-    async def get_all_projects(self) -> Optional[List[Dict]]:
+    async def get_all_projects(self, tenant_id: str) -> Optional[List[Dict]]:
         """Get all active projects from cache"""
-        key = f"{self.PREFIX_PROJECT}:all:active"
+        key = self._tenant_key(tenant_id, self.PREFIX_PROJECT, "all", "active")
         return await self.get_async(key)
     
-    async def set_all_projects(self, projects: List[Dict]) -> bool:
+    async def set_all_projects(self, tenant_id: str, projects: List[Dict]) -> bool:
         """Cache all active projects"""
-        key = f"{self.PREFIX_PROJECT}:all:active"
+        key = self._tenant_key(tenant_id, self.PREFIX_PROJECT, "all", "active")
         return await self.set_async(key, projects, self.TTL_PROJECT)
     
-    async def get_project_name_map(self) -> Optional[Dict[str, str]]:
+    async def get_project_name_map(self, tenant_id: str) -> Optional[Dict[str, str]]:
         """Get project_code -> project_name mapping from cache"""
-        key = f"{self.PREFIX_PROJECT}:name_map"
+        key = self._tenant_key(tenant_id, self.PREFIX_PROJECT, "name_map")
         return await self.get_async(key)
     
-    async def set_project_name_map(self, name_map: Dict[str, str]) -> bool:
+    async def set_project_name_map(self, tenant_id: str, name_map: Dict[str, str]) -> bool:
         """Cache project_code -> project_name mapping"""
-        key = f"{self.PREFIX_PROJECT}:name_map"
+        key = self._tenant_key(tenant_id, self.PREFIX_PROJECT, "name_map")
         return await self.set_async(key, name_map, self.TTL_PROJECT)
     
-    async def invalidate_projects(self) -> int:
-        """Invalidate all project cache entries"""
-        return await self.delete_pattern_async(f"{self.PREFIX_PROJECT}:*")
+    async def invalidate_projects(self, tenant_id: str) -> int:
+        """Invalidate all project cache entries for a tenant"""
+        pattern = f"{tenant_id}:{self.PREFIX_PROJECT}:*"
+        return await self.delete_pattern_async(pattern)
     
     # ==================== EMPLOYEE/USER CACHING ====================
     
-    async def get_employee_by_id(self, employee_id: str) -> Optional[Dict]:
+    async def get_employee_by_id(self, tenant_id: str, employee_id: str) -> Optional[Dict]:
         """Get employee by ID from cache"""
-        key = f"{self.PREFIX_EMPLOYEE}:id:{employee_id}"
+        key = self._tenant_key(tenant_id, self.PREFIX_EMPLOYEE, "id", employee_id)
         return await self.get_async(key)
     
-    async def set_employee_by_id(self, employee_id: str, employee_data: Dict) -> bool:
+    async def set_employee_by_id(self, tenant_id: str, employee_id: str, employee_data: Dict) -> bool:
         """Cache employee by ID"""
-        key = f"{self.PREFIX_EMPLOYEE}:id:{employee_id}"
+        key = self._tenant_key(tenant_id, self.PREFIX_EMPLOYEE, "id", employee_id)
         return await self.set_async(key, employee_data, self.TTL_EMPLOYEE)
     
-    async def get_employee_by_code(self, employee_code: str) -> Optional[Dict]:
+    async def get_employee_by_code(self, tenant_id: str, employee_code: str) -> Optional[Dict]:
         """Get employee by employee code from cache"""
-        key = f"{self.PREFIX_EMPLOYEE}:code:{employee_code}"
+        key = self._tenant_key(tenant_id, self.PREFIX_EMPLOYEE, "code", employee_code)
         return await self.get_async(key)
     
-    async def set_employee_by_code(self, employee_code: str, employee_data: Dict) -> bool:
+    async def set_employee_by_code(self, tenant_id: str, employee_code: str, employee_data: Dict) -> bool:
         """Cache employee by code"""
-        key = f"{self.PREFIX_EMPLOYEE}:code:{employee_code}"
+        key = self._tenant_key(tenant_id, self.PREFIX_EMPLOYEE, "code", employee_code)
         return await self.set_async(key, employee_data, self.TTL_EMPLOYEE)
     
-    async def get_employee_by_email(self, email: str) -> Optional[Dict]:
+    async def get_employee_by_email(self, tenant_id: str, email: str) -> Optional[Dict]:
         """Get employee by email from cache"""
-        key = f"{self.PREFIX_EMPLOYEE}:email:{email.lower()}"
+        key = self._tenant_key(tenant_id, self.PREFIX_EMPLOYEE, "email", email.lower())
         return await self.get_async(key)
     
-    async def set_employee_by_email(self, email: str, employee_data: Dict) -> bool:
+    async def set_employee_by_email(self, tenant_id: str, email: str, employee_data: Dict) -> bool:
         """Cache employee by email"""
-        key = f"{self.PREFIX_EMPLOYEE}:email:{email.lower()}"
+        key = self._tenant_key(tenant_id, self.PREFIX_EMPLOYEE, "email", email.lower())
         return await self.set_async(key, employee_data, self.TTL_EMPLOYEE)
     
-    async def invalidate_employee(self, employee_id: str = None, employee_code: str = None, email: str = None) -> int:
+    async def invalidate_employee(self, tenant_id: str, employee_id: str = None, employee_code: str = None, email: str = None) -> int:
         """Invalidate specific employee cache entries"""
         deleted = 0
         if employee_id:
-            await self.delete_async(f"{self.PREFIX_EMPLOYEE}:id:{employee_id}")
+            await self.delete_async(self._tenant_key(tenant_id, self.PREFIX_EMPLOYEE, "id", employee_id))
             deleted += 1
         if employee_code:
-            await self.delete_async(f"{self.PREFIX_EMPLOYEE}:code:{employee_code}")
+            await self.delete_async(self._tenant_key(tenant_id, self.PREFIX_EMPLOYEE, "code", employee_code))
             deleted += 1
         if email:
-            await self.delete_async(f"{self.PREFIX_EMPLOYEE}:email:{email.lower()}")
+            await self.delete_async(self._tenant_key(tenant_id, self.PREFIX_EMPLOYEE, "email", email.lower()))
             deleted += 1
         return deleted
     
+    async def invalidate_all_employees(self, tenant_id: str) -> int:
+        """Invalidate all employee cache entries for a tenant"""
+        pattern = f"{tenant_id}:{self.PREFIX_EMPLOYEE}:*"
+        return await self.delete_pattern_async(pattern)
+    
     # ==================== POLICY CACHING ====================
     
-    async def get_active_policies(self, region: str = None) -> Optional[List[Dict]]:
+    async def get_active_policies(self, tenant_id: str, region: str = None) -> Optional[List[Dict]]:
         """Get active policies from cache"""
         region_key = region.upper() if region else "GLOBAL"
-        key = f"{self.PREFIX_POLICY}:active:{region_key}"
+        key = self._tenant_key(tenant_id, self.PREFIX_POLICY, "active", region_key)
         return await self.get_async(key)
     
-    async def set_active_policies(self, policies: List[Dict], region: str = None) -> bool:
+    async def set_active_policies(self, tenant_id: str, policies: List[Dict], region: str = None) -> bool:
         """Cache active policies"""
         region_key = region.upper() if region else "GLOBAL"
-        key = f"{self.PREFIX_POLICY}:active:{region_key}"
+        key = self._tenant_key(tenant_id, self.PREFIX_POLICY, "active", region_key)
         return await self.set_async(key, policies, self.TTL_POLICY)
     
-    async def get_policy_by_id(self, policy_id: str) -> Optional[Dict]:
+    async def get_policy_by_id(self, tenant_id: str, policy_id: str) -> Optional[Dict]:
         """Get policy by ID from cache"""
-        key = f"{self.PREFIX_POLICY}:id:{policy_id}"
+        key = self._tenant_key(tenant_id, self.PREFIX_POLICY, "id", policy_id)
         return await self.get_async(key)
     
-    async def set_policy_by_id(self, policy_id: str, policy_data: Dict) -> bool:
+    async def set_policy_by_id(self, tenant_id: str, policy_id: str, policy_data: Dict) -> bool:
         """Cache policy by ID"""
-        key = f"{self.PREFIX_POLICY}:id:{policy_id}"
+        key = self._tenant_key(tenant_id, self.PREFIX_POLICY, "id", policy_id)
         return await self.set_async(key, policy_data, self.TTL_POLICY)
     
-    async def invalidate_policies(self, region: str = None) -> int:
-        """Invalidate policy cache entries"""
+    async def invalidate_policies(self, tenant_id: str, region: str = None) -> int:
+        """Invalidate policy cache entries for a tenant"""
         if region:
-            return await self.delete_pattern_async(f"{self.PREFIX_POLICY}:*:{region.upper()}*")
-        return await self.delete_pattern_async(f"{self.PREFIX_POLICY}:*")
+            pattern = f"{tenant_id}:{self.PREFIX_POLICY}:*:{region.upper()}*"
+        else:
+            pattern = f"{tenant_id}:{self.PREFIX_POLICY}:*"
+        return await self.delete_pattern_async(pattern)
     
     # ==================== CATEGORY CACHING ====================
     
-    async def get_category_by_code(self, category_code: str, region: str = None) -> Optional[Dict]:
+    async def get_category_by_code(self, tenant_id: str, category_code: str, region: str = None) -> Optional[Dict]:
         """Get category by code from cache"""
         region_key = region.upper() if region else "GLOBAL"
-        key = f"{self.PREFIX_CATEGORY}:code:{category_code}:{region_key}"
+        key = self._tenant_key(tenant_id, self.PREFIX_CATEGORY, "code", category_code, region_key)
         return await self.get_async(key)
     
-    async def set_category_by_code(self, category_code: str, category_data: Dict, region: str = None) -> bool:
+    async def set_category_by_code(self, tenant_id: str, category_code: str, category_data: Dict, region: str = None) -> bool:
         """Cache category by code"""
         region_key = region.upper() if region else "GLOBAL"
-        key = f"{self.PREFIX_CATEGORY}:code:{category_code}:{region_key}"
+        key = self._tenant_key(tenant_id, self.PREFIX_CATEGORY, "code", category_code, region_key)
         return await self.set_async(key, category_data, self.TTL_CATEGORY)
     
-    async def get_all_categories(self, region: str = None, category_type: str = None) -> Optional[List[Dict]]:
+    async def get_all_categories(self, tenant_id: str, region: str = None, category_type: str = None) -> Optional[List[Dict]]:
         """Get all categories from cache"""
         region_key = region.upper() if region else "GLOBAL"
         type_key = category_type.upper() if category_type else "ALL"
-        key = f"{self.PREFIX_CATEGORY}:all:{region_key}:{type_key}"
+        key = self._tenant_key(tenant_id, self.PREFIX_CATEGORY, "all", region_key, type_key)
         return await self.get_async(key)
     
-    async def set_all_categories(self, categories: List[Dict], region: str = None, category_type: str = None) -> bool:
+    async def set_all_categories(self, tenant_id: str, categories: List[Dict], region: str = None, category_type: str = None) -> bool:
         """Cache all categories"""
         region_key = region.upper() if region else "GLOBAL"
         type_key = category_type.upper() if category_type else "ALL"
-        key = f"{self.PREFIX_CATEGORY}:all:{region_key}:{type_key}"
+        key = self._tenant_key(tenant_id, self.PREFIX_CATEGORY, "all", region_key, type_key)
         return await self.set_async(key, categories, self.TTL_CATEGORY)
     
-    async def get_category_name_map(self, region: str = None) -> Optional[Dict[str, str]]:
+    async def get_category_name_map(self, tenant_id: str, region: str = None) -> Optional[Dict[str, str]]:
         """Get category_code -> category_name mapping from cache"""
         region_key = region.upper() if region else "GLOBAL"
-        key = f"{self.PREFIX_CATEGORY}:name_map:{region_key}"
+        key = self._tenant_key(tenant_id, self.PREFIX_CATEGORY, "name_map", region_key)
         return await self.get_async(key)
     
-    async def set_category_name_map(self, name_map: Dict[str, str], region: str = None) -> bool:
+    async def set_category_name_map(self, tenant_id: str, name_map: Dict[str, str], region: str = None) -> bool:
         """Cache category_code -> category_name mapping"""
         region_key = region.upper() if region else "GLOBAL"
-        key = f"{self.PREFIX_CATEGORY}:name_map:{region_key}"
+        key = self._tenant_key(tenant_id, self.PREFIX_CATEGORY, "name_map", region_key)
         return await self.set_async(key, name_map, self.TTL_CATEGORY)
     
-    async def invalidate_categories(self, region: str = None) -> int:
-        """Invalidate category cache entries"""
+    async def invalidate_categories(self, tenant_id: str, region: str = None) -> int:
+        """Invalidate category cache entries for a tenant"""
         if region:
-            return await self.delete_pattern_async(f"{self.PREFIX_CATEGORY}:*:{region.upper()}*")
-        return await self.delete_pattern_async(f"{self.PREFIX_CATEGORY}:*")
+            pattern = f"{tenant_id}:{self.PREFIX_CATEGORY}:*:{region.upper()}*"
+        else:
+            pattern = f"{tenant_id}:{self.PREFIX_CATEGORY}:*"
+        return await self.delete_pattern_async(pattern)
     
     # ==================== SETTINGS CACHING ====================
     
-    async def get_setting(self, setting_key: str) -> Optional[Any]:
-        """Get system setting from cache"""
-        key = f"{self.PREFIX_SETTINGS}:{setting_key}"
+    async def get_setting(self, tenant_id: str, setting_key: str) -> Optional[Any]:
+        """Get tenant-specific setting from cache"""
+        key = self._tenant_key(tenant_id, self.PREFIX_SETTINGS, setting_key)
         return await self.get_async(key)
     
-    async def set_setting(self, setting_key: str, value: Any) -> bool:
-        """Cache system setting"""
-        key = f"{self.PREFIX_SETTINGS}:{setting_key}"
+    async def set_setting(self, tenant_id: str, setting_key: str, value: Any) -> bool:
+        """Cache tenant-specific setting"""
+        key = self._tenant_key(tenant_id, self.PREFIX_SETTINGS, setting_key)
         return await self.set_async(key, value, self.TTL_SETTINGS)
     
-    async def get_all_settings(self) -> Optional[Dict[str, Any]]:
-        """Get all settings from cache"""
-        key = f"{self.PREFIX_SETTINGS}:all"
+    async def get_all_settings(self, tenant_id: str) -> Optional[Dict[str, Any]]:
+        """Get all tenant-specific settings from cache"""
+        key = self._tenant_key(tenant_id, self.PREFIX_SETTINGS, "all")
         return await self.get_async(key)
     
-    async def set_all_settings(self, settings_dict: Dict[str, Any]) -> bool:
-        """Cache all settings"""
-        key = f"{self.PREFIX_SETTINGS}:all"
+    async def set_all_settings(self, tenant_id: str, settings_dict: Dict[str, Any]) -> bool:
+        """Cache all tenant-specific settings"""
+        key = self._tenant_key(tenant_id, self.PREFIX_SETTINGS, "all")
         return await self.set_async(key, settings_dict, self.TTL_SETTINGS)
     
-    async def invalidate_settings(self, setting_key: str = None) -> int:
-        """Invalidate settings cache"""
+    async def invalidate_settings(self, tenant_id: str, setting_key: str = None) -> int:
+        """Invalidate tenant-specific settings cache"""
         if setting_key:
-            await self.delete_async(f"{self.PREFIX_SETTINGS}:{setting_key}")
-            await self.delete_async(f"{self.PREFIX_SETTINGS}:all")
+            await self.delete_async(self._tenant_key(tenant_id, self.PREFIX_SETTINGS, setting_key))
+            await self.delete_async(self._tenant_key(tenant_id, self.PREFIX_SETTINGS, "all"))
             return 2
-        return await self.delete_pattern_async(f"{self.PREFIX_SETTINGS}:*")
+        pattern = f"{tenant_id}:{self.PREFIX_SETTINGS}:*"
+        return await self.delete_pattern_async(pattern)
+    
+    # ==================== GLOBAL SETTINGS (Non-tenant specific) ====================
+    
+    async def get_global_setting(self, setting_key: str) -> Optional[Any]:
+        """Get global setting from cache (non-tenant specific)"""
+        key = self._global_key(self.PREFIX_SETTINGS, setting_key)
+        return await self.get_async(key)
+    
+    async def set_global_setting(self, setting_key: str, value: Any) -> bool:
+        """Cache global setting (non-tenant specific)"""
+        key = self._global_key(self.PREFIX_SETTINGS, setting_key)
+        return await self.set_async(key, value, self.TTL_SETTINGS)
+    
+    async def invalidate_global_settings(self) -> int:
+        """Invalidate all global settings cache"""
+        pattern = f"{self.PREFIX_GLOBAL}:{self.PREFIX_SETTINGS}:*"
+        return await self.delete_pattern_async(pattern)
     
     # ==================== BATCH OPERATIONS ====================
     
-    async def get_projects_by_codes(self, project_codes: List[str]) -> Dict[str, Dict]:
+    async def get_projects_by_codes(self, tenant_id: str, project_codes: List[str]) -> Dict[str, Dict]:
         """Get multiple projects by codes"""
         if not project_codes:
             return {}
-        keys = [f"{self.PREFIX_PROJECT}:code:{code}" for code in project_codes]
+        keys = [self._tenant_key(tenant_id, self.PREFIX_PROJECT, "code", code) for code in project_codes]
         cached = await self.mget_async(keys)
-        return {code: cached.get(f"{self.PREFIX_PROJECT}:code:{code}") 
+        return {code: cached.get(self._tenant_key(tenant_id, self.PREFIX_PROJECT, "code", code)) 
                 for code in project_codes 
-                if f"{self.PREFIX_PROJECT}:code:{code}" in cached}
+                if self._tenant_key(tenant_id, self.PREFIX_PROJECT, "code", code) in cached}
     
-    async def set_projects_by_codes(self, projects: Dict[str, Dict]) -> bool:
+    async def set_projects_by_codes(self, tenant_id: str, projects: Dict[str, Dict]) -> bool:
         """Cache multiple projects by codes"""
         if not projects:
             return True
-        data = {f"{self.PREFIX_PROJECT}:code:{code}": proj for code, proj in projects.items()}
+        data = {self._tenant_key(tenant_id, self.PREFIX_PROJECT, "code", code): proj for code, proj in projects.items()}
         return await self.mset_async(data, self.TTL_PROJECT)
     
-    async def get_employees_by_ids(self, employee_ids: List[str]) -> Dict[str, Dict]:
+    async def get_employees_by_ids(self, tenant_id: str, employee_ids: List[str]) -> Dict[str, Dict]:
         """Get multiple employees by IDs"""
         if not employee_ids:
             return {}
-        keys = [f"{self.PREFIX_EMPLOYEE}:id:{eid}" for eid in employee_ids]
+        keys = [self._tenant_key(tenant_id, self.PREFIX_EMPLOYEE, "id", eid) for eid in employee_ids]
         cached = await self.mget_async(keys)
-        return {eid: cached.get(f"{self.PREFIX_EMPLOYEE}:id:{eid}") 
+        return {eid: cached.get(self._tenant_key(tenant_id, self.PREFIX_EMPLOYEE, "id", eid)) 
                 for eid in employee_ids 
-                if f"{self.PREFIX_EMPLOYEE}:id:{eid}" in cached}
+                if self._tenant_key(tenant_id, self.PREFIX_EMPLOYEE, "id", eid) in cached}
     
-    async def set_employees_by_ids(self, employees: Dict[str, Dict]) -> bool:
+    async def set_employees_by_ids(self, tenant_id: str, employees: Dict[str, Dict]) -> bool:
         """Cache multiple employees by IDs"""
         if not employees:
             return True
-        data = {f"{self.PREFIX_EMPLOYEE}:id:{eid}": emp for eid, emp in employees.items()}
+        data = {self._tenant_key(tenant_id, self.PREFIX_EMPLOYEE, "id", eid): emp for eid, emp in employees.items()}
         return await self.mset_async(data, self.TTL_EMPLOYEE)
     
     # ==================== HEALTH & STATS ====================
@@ -530,6 +573,51 @@ class RedisCacheService:
                 "error": str(e),
                 "in_memory_fallback_size": len(self._in_memory_cache)
             }
+    
+    async def clear_tenant_cache(self, tenant_id: str) -> int:
+        """Clear all cached data for a specific tenant"""
+        try:
+            pattern = f"{tenant_id}:*"
+            deleted = await self.delete_pattern_async(pattern)
+            logger.warning(f"Cleared cache for tenant {tenant_id}: {deleted} keys deleted")
+            return deleted
+        except Exception as e:
+            logger.error(f"Failed to clear tenant cache for {tenant_id}: {e}")
+            return 0
+    
+    async def get_tenant_cache_stats(self, tenant_id: str) -> Dict[str, int]:
+        """Get cache statistics for a specific tenant"""
+        try:
+            client = await self._get_async_client()
+            stats = {
+                "projects": 0,
+                "employees": 0,
+                "policies": 0,
+                "categories": 0,
+                "settings": 0,
+                "total": 0
+            }
+            
+            prefixes = [
+                (self.PREFIX_PROJECT, "projects"),
+                (self.PREFIX_EMPLOYEE, "employees"),
+                (self.PREFIX_POLICY, "policies"),
+                (self.PREFIX_CATEGORY, "categories"),
+                (self.PREFIX_SETTINGS, "settings"),
+            ]
+            
+            for prefix, stat_key in prefixes:
+                pattern = f"{tenant_id}:{prefix}:*"
+                count = 0
+                async for _ in client.scan_iter(match=pattern):
+                    count += 1
+                stats[stat_key] = count
+                stats["total"] += count
+            
+            return stats
+        except Exception as e:
+            logger.error(f"Failed to get tenant cache stats: {e}")
+            return {"error": str(e)}
     
     async def clear_all(self) -> bool:
         """Clear all cached data (use with caution!)"""

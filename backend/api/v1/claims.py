@@ -634,10 +634,10 @@ async def list_claims(
         if payload.get('project_code'):
             project_codes.add(payload['project_code'])
     
-    # Batch lookup project names using cached data service
+    # Batch lookup project names using cached data service (tenant-scoped)
     project_names = {}
-    if project_codes:
-        project_names = await cached_data.get_project_names_for_codes(db, list(project_codes))
+    if project_codes and tenant_id:
+        project_names = await cached_data.get_project_names_for_codes(db, tenant_id, list(project_codes))
     
     # Add category_name and project_name to each claim
     claims_with_names = []
@@ -677,12 +677,12 @@ async def get_claim(
             detail="Claim not found"
         )
     
-    # Lookup project name using cached data service
+    # Lookup project name using cached data service (tenant-scoped)
     payload = claim.claim_payload or {}
     project_code = payload.get('project_code', '')
     project_name = ''
-    if project_code:
-        project = await cached_data.get_project_by_code(db, project_code)
+    if project_code and claim.tenant_id:
+        project = await cached_data.get_project_by_code(db, claim.tenant_id, project_code)
         if project:
             project_name = project.get('project_name', '')
     

@@ -5,21 +5,27 @@ This module wraps database queries with Redis caching to reduce database load.
 Data that changes infrequently (projects, employees, policies, categories) 
 is cached with appropriate TTLs.
 
+Multi-Tenant Support:
+All cache keys are prefixed with tenant_id for proper data isolation:
+- {tenant_id}:project:code:{code}
+- {tenant_id}:employee:id:{id}
+- etc.
+
 Usage:
     from services.cached_data import cached_data
     
-    # Get project by code (cached)
-    project = await cached_data.get_project_by_code(db, "PRJ-001")
+    # Get project by code (cached) - tenant_id required
+    project = await cached_data.get_project_by_code(db, tenant_id, "PRJ-001")
     
-    # Get employee by ID (cached)
-    employee = await cached_data.get_employee_by_id(db, employee_id)
+    # Get employee by ID (cached) - tenant_id required
+    employee = await cached_data.get_employee_by_id(db, tenant_id, employee_id)
     
-    # Get all active projects (cached)
-    projects = await cached_data.get_all_active_projects(db)
+    # Get all active projects (cached) - tenant_id required
+    projects = await cached_data.get_all_active_projects(db, tenant_id)
 """
 
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
@@ -31,6 +37,13 @@ from services.redis_cache import redis_cache
 logger = logging.getLogger(__name__)
 
 
+def _ensure_tenant_id(tenant_id: Union[str, UUID, None]) -> str:
+    """Ensure tenant_id is a valid string."""
+    if tenant_id is None:
+        raise ValueError("tenant_id is required for cached data operations")
+    return str(tenant_id)
+
+
 class CachedDataService:
     """
     Service providing cached access to master data.
@@ -39,16 +52,22 @@ class CachedDataService:
     1. Try to get from cache
     2. If miss, query database
     3. Store in cache for future requests
+    
+    Multi-Tenant Support:
+    All cache operations are scoped by tenant_id for proper data isolation.
     """
     
     # ==================== PROJECT DATA ====================
     
-    async def get_project_by_code(self, db: AsyncSession, project_code: str) -> Optional[Dict]:
+    async def get_project_by_code(
+        self, db: AsyncSession, tenant_id: Union[str, UUID], project_code: str
+    ) -> Optional[Dict]:
         """
         Get project by code with caching.
         
         Args:
             db: Database session
+            tenant_id: Tenant ID for cache key scoping
             project_code: Project code to lookup
             
         Returns:
@@ -57,101 +76,123 @@ class CachedDataService:
         if not project_code:
             return None
         
+        tid = _ensure_tenant_id(tenant_id)
+        
         # Try cache first
-        cached = await redis_cache.get_project_by_code(project_code)
+        cached = await redis_cache.get_project_by_code(tid, project_code)
         if cached:
             return cached
         
-        # Query database
+        # Query database (also filter by tenant)
         result = await db.execute(
-            select(Project).where(Project.project_code == project_code)
+            select(Project).where(
+                and_(Project.project_code == project_code, Project.tenant_id == tenant_id)
+            )
         )
         project = result.scalar_one_or_none()
         
         if project:
             project_data = self._project_to_dict(project)
             # Store in cache
-            await redis_cache.set_project_by_code(project_code, project_data)
+            await redis_cache.set_project_by_code(tid, project_code, project_data)
             return project_data
         
         return None
     
-    async def get_project_by_id(self, db: AsyncSession, project_id: UUID) -> Optional[Dict]:
+    async def get_project_by_id(
+        self, db: AsyncSession, tenant_id: Union[str, UUID], project_id: UUID
+    ) -> Optional[Dict]:
         """Get project by ID with caching"""
+        tid = _ensure_tenant_id(tenant_id)
         str_id = str(project_id)
         
         # Try cache first
-        cached = await redis_cache.get_async(f"project:id:{str_id}")
+        cached = await redis_cache.get_async(f"{tid}:project:id:{str_id}")
         if cached:
             return cached
         
         # Query database
         result = await db.execute(
-            select(Project).where(Project.id == project_id)
+            select(Project).where(
+                and_(Project.id == project_id, Project.tenant_id == tenant_id)
+            )
         )
         project = result.scalar_one_or_none()
         
         if project:
             project_data = self._project_to_dict(project)
             # Store in cache (by both ID and code)
-            await redis_cache.set_async(f"project:id:{str_id}", project_data, redis_cache.TTL_PROJECT)
-            await redis_cache.set_project_by_code(project.project_code, project_data)
+            await redis_cache.set_async(f"{tid}:project:id:{str_id}", project_data, redis_cache.TTL_PROJECT)
+            await redis_cache.set_project_by_code(tid, project.project_code, project_data)
             return project_data
         
         return None
     
-    async def get_all_active_projects(self, db: AsyncSession) -> List[Dict]:
+    async def get_all_active_projects(
+        self, db: AsyncSession, tenant_id: Union[str, UUID]
+    ) -> List[Dict]:
         """Get all active projects with caching"""
+        tid = _ensure_tenant_id(tenant_id)
+        
         # Try cache first
-        cached = await redis_cache.get_all_projects()
+        cached = await redis_cache.get_all_projects(tid)
         if cached:
             return cached
         
         # Query database
         result = await db.execute(
-            select(Project).where(Project.status == "ACTIVE").order_by(Project.project_name)
+            select(Project).where(
+                and_(Project.status == "ACTIVE", Project.tenant_id == tenant_id)
+            ).order_by(Project.project_name)
         )
         projects = result.scalars().all()
         
         project_list = [self._project_to_dict(p) for p in projects]
         
         # Store in cache
-        await redis_cache.set_all_projects(project_list)
+        await redis_cache.set_all_projects(tid, project_list)
         
         # Also build and cache the name map
         name_map = {p["project_code"]: p["project_name"] for p in project_list}
-        await redis_cache.set_project_name_map(name_map)
+        await redis_cache.set_project_name_map(tid, name_map)
         
         return project_list
     
-    async def get_project_name_map(self, db: AsyncSession) -> Dict[str, str]:
+    async def get_project_name_map(
+        self, db: AsyncSession, tenant_id: Union[str, UUID]
+    ) -> Dict[str, str]:
         """Get project_code -> project_name mapping with caching"""
+        tid = _ensure_tenant_id(tenant_id)
+        
         # Try cache first
-        cached = await redis_cache.get_project_name_map()
+        cached = await redis_cache.get_project_name_map(tid)
         if cached:
             return cached
         
         # Query database (lightweight query)
         result = await db.execute(
             select(Project.project_code, Project.project_name)
-            .where(Project.status == "ACTIVE")
+            .where(and_(Project.status == "ACTIVE", Project.tenant_id == tenant_id))
         )
         rows = result.all()
         
         name_map = {row.project_code: row.project_name for row in rows}
         
         # Store in cache
-        await redis_cache.set_project_name_map(name_map)
+        await redis_cache.set_project_name_map(tid, name_map)
         
         return name_map
     
-    async def get_project_names_for_codes(self, db: AsyncSession, project_codes: List[str]) -> Dict[str, str]:
+    async def get_project_names_for_codes(
+        self, db: AsyncSession, tenant_id: Union[str, UUID], project_codes: List[str]
+    ) -> Dict[str, str]:
         """
         Get project names for multiple codes efficiently.
         Uses cached name map or batch query.
         
         Args:
             db: Database session
+            tenant_id: Tenant ID for cache key scoping
             project_codes: List of project codes
             
         Returns:
@@ -160,15 +201,17 @@ class CachedDataService:
         if not project_codes:
             return {}
         
+        tid = _ensure_tenant_id(tenant_id)
+        
         # Try to get from cached name map first
-        name_map = await redis_cache.get_project_name_map()
+        name_map = await redis_cache.get_project_name_map(tid)
         if name_map:
             return {code: name_map.get(code, '') for code in project_codes}
         
-        # Fallback to database query
+        # Fallback to database query (also filter by tenant)
         result = await db.execute(
             select(Project.project_code, Project.project_name)
-            .where(Project.project_code.in_(project_codes))
+            .where(and_(Project.project_code.in_(project_codes), Project.tenant_id == tenant_id))
         )
         rows = result.all()
         
@@ -194,92 +237,106 @@ class CachedDataService:
     
     # ==================== EMPLOYEE/USER DATA ====================
     
-    async def get_employee_by_id(self, db: AsyncSession, employee_id: UUID) -> Optional[Dict]:
+    async def get_employee_by_id(
+        self, db: AsyncSession, tenant_id: Union[str, UUID], employee_id: UUID
+    ) -> Optional[Dict]:
         """Get employee by ID with caching"""
+        tid = _ensure_tenant_id(tenant_id)
         str_id = str(employee_id)
         
         # Try cache first
-        cached = await redis_cache.get_employee_by_id(str_id)
+        cached = await redis_cache.get_employee_by_id(tid, str_id)
         if cached:
             return cached
         
         # Query database
         result = await db.execute(
-            select(User).where(User.id == employee_id)
+            select(User).where(and_(User.id == employee_id, User.tenant_id == tenant_id))
         )
         user = result.scalar_one_or_none()
         
         if user:
             user_data = self._user_to_dict(user)
             # Store in cache (by ID, code, and email)
-            await redis_cache.set_employee_by_id(str_id, user_data)
+            await redis_cache.set_employee_by_id(tid, str_id, user_data)
             if user.employee_code:
-                await redis_cache.set_employee_by_code(user.employee_code, user_data)
+                await redis_cache.set_employee_by_code(tid, user.employee_code, user_data)
             if user.email:
-                await redis_cache.set_employee_by_email(user.email, user_data)
+                await redis_cache.set_employee_by_email(tid, user.email, user_data)
             return user_data
         
         return None
     
-    async def get_employee_by_code(self, db: AsyncSession, employee_code: str) -> Optional[Dict]:
+    async def get_employee_by_code(
+        self, db: AsyncSession, tenant_id: Union[str, UUID], employee_code: str
+    ) -> Optional[Dict]:
         """Get employee by employee code with caching"""
         if not employee_code:
             return None
         
+        tid = _ensure_tenant_id(tenant_id)
+        
         # Try cache first
-        cached = await redis_cache.get_employee_by_code(employee_code)
+        cached = await redis_cache.get_employee_by_code(tid, employee_code)
         if cached:
             return cached
         
         # Query database
         result = await db.execute(
-            select(User).where(User.employee_code == employee_code)
+            select(User).where(and_(User.employee_code == employee_code, User.tenant_id == tenant_id))
         )
         user = result.scalar_one_or_none()
         
         if user:
             user_data = self._user_to_dict(user)
             # Store in cache
-            await redis_cache.set_employee_by_code(employee_code, user_data)
-            await redis_cache.set_employee_by_id(str(user.id), user_data)
+            await redis_cache.set_employee_by_code(tid, employee_code, user_data)
+            await redis_cache.set_employee_by_id(tid, str(user.id), user_data)
             return user_data
         
         return None
     
-    async def get_employee_by_email(self, db: AsyncSession, email: str) -> Optional[Dict]:
+    async def get_employee_by_email(
+        self, db: AsyncSession, tenant_id: Union[str, UUID], email: str
+    ) -> Optional[Dict]:
         """Get employee by email with caching"""
         if not email:
             return None
         
+        tid = _ensure_tenant_id(tenant_id)
+        
         # Try cache first
-        cached = await redis_cache.get_employee_by_email(email)
+        cached = await redis_cache.get_employee_by_email(tid, email)
         if cached:
             return cached
         
         # Query database
         result = await db.execute(
-            select(User).where(User.email == email.lower())
+            select(User).where(and_(User.email == email.lower(), User.tenant_id == tenant_id))
         )
         user = result.scalar_one_or_none()
         
         if user:
             user_data = self._user_to_dict(user)
             # Store in cache
-            await redis_cache.set_employee_by_email(email, user_data)
-            await redis_cache.set_employee_by_id(str(user.id), user_data)
+            await redis_cache.set_employee_by_email(tid, email, user_data)
+            await redis_cache.set_employee_by_id(tid, str(user.id), user_data)
             return user_data
         
         return None
     
-    async def get_employees_by_ids(self, db: AsyncSession, employee_ids: List[UUID]) -> Dict[str, Dict]:
+    async def get_employees_by_ids(
+        self, db: AsyncSession, tenant_id: Union[str, UUID], employee_ids: List[UUID]
+    ) -> Dict[str, Dict]:
         """Get multiple employees by IDs with caching"""
         if not employee_ids:
             return {}
         
+        tid = _ensure_tenant_id(tenant_id)
         str_ids = [str(eid) for eid in employee_ids]
         
         # Try cache first
-        cached = await redis_cache.get_employees_by_ids(str_ids)
+        cached = await redis_cache.get_employees_by_ids(tid, str_ids)
         
         # Find missing IDs
         missing_ids = [eid for eid in employee_ids if str(eid) not in cached]
@@ -287,7 +344,7 @@ class CachedDataService:
         if missing_ids:
             # Query missing from database
             result = await db.execute(
-                select(User).where(User.id.in_(missing_ids))
+                select(User).where(and_(User.id.in_(missing_ids), User.tenant_id == tenant_id))
             )
             users = result.scalars().all()
             
@@ -299,14 +356,17 @@ class CachedDataService:
                 new_data[str(user.id)] = user_data
             
             if new_data:
-                await redis_cache.set_employees_by_ids(new_data)
+                await redis_cache.set_employees_by_ids(tid, new_data)
         
         return cached
     
-    async def get_employee_with_projects(self, db: AsyncSession, employee_id: UUID) -> Optional[Dict]:
+    async def get_employee_with_projects(
+        self, db: AsyncSession, tenant_id: Union[str, UUID], employee_id: UUID
+    ) -> Optional[Dict]:
         """Get employee with their active project allocations"""
+        tid = _ensure_tenant_id(tenant_id)
         str_id = str(employee_id)
-        cache_key = f"employee:with_projects:{str_id}"
+        cache_key = f"{tid}:employee:with_projects:{str_id}"
         
         # Try cache first
         cached = await redis_cache.get_async(cache_key)
@@ -315,7 +375,7 @@ class CachedDataService:
         
         # Query employee with project allocations
         result = await db.execute(
-            select(User).where(User.id == employee_id)
+            select(User).where(and_(User.id == employee_id, User.tenant_id == tenant_id))
         )
         user = result.scalar_one_or_none()
         
@@ -376,10 +436,14 @@ class CachedDataService:
     
     # ==================== POLICY DATA ====================
     
-    async def get_active_policies(self, db: AsyncSession, region: str = None) -> List[Dict]:
+    async def get_active_policies(
+        self, db: AsyncSession, tenant_id: Union[str, UUID], region: str = None
+    ) -> List[Dict]:
         """Get active policies with caching"""
+        tid = _ensure_tenant_id(tenant_id)
+        
         # Try cache first
-        cached = await redis_cache.get_active_policies(region)
+        cached = await redis_cache.get_active_policies(tid, region)
         if cached:
             return cached
         
@@ -387,7 +451,8 @@ class CachedDataService:
         query = select(PolicyUpload).where(
             and_(
                 PolicyUpload.status == "ACTIVE",
-                PolicyUpload.is_active == True
+                PolicyUpload.is_active == True,
+                PolicyUpload.tenant_id == tenant_id
             )
         )
         
@@ -403,16 +468,19 @@ class CachedDataService:
         policy_list = [self._policy_to_dict(p) for p in policies]
         
         # Store in cache
-        await redis_cache.set_active_policies(policy_list, region)
+        await redis_cache.set_active_policies(tid, policy_list, region)
         
         return policy_list
     
-    async def get_policy_by_id(self, db: AsyncSession, policy_id: UUID) -> Optional[Dict]:
+    async def get_policy_by_id(
+        self, db: AsyncSession, tenant_id: Union[str, UUID], policy_id: UUID
+    ) -> Optional[Dict]:
         """Get policy by ID with caching"""
+        tid = _ensure_tenant_id(tenant_id)
         str_id = str(policy_id)
         
         # Try cache first
-        cached = await redis_cache.get_policy_by_id(str_id)
+        cached = await redis_cache.get_policy_by_id(tid, str_id)
         if cached:
             return cached
         
@@ -420,13 +488,13 @@ class CachedDataService:
         result = await db.execute(
             select(PolicyUpload)
             .options(selectinload(PolicyUpload.categories))
-            .where(PolicyUpload.id == policy_id)
+            .where(and_(PolicyUpload.id == policy_id, PolicyUpload.tenant_id == tenant_id))
         )
         policy = result.scalar_one_or_none()
         
         if policy:
             policy_data = self._policy_to_dict(policy, include_categories=True)
-            await redis_cache.set_policy_by_id(str_id, policy_data)
+            await redis_cache.set_policy_by_id(tid, str_id, policy_data)
             return policy_data
         
         return None
@@ -459,13 +527,16 @@ class CachedDataService:
     
     async def get_all_categories(
         self, 
-        db: AsyncSession, 
+        db: AsyncSession,
+        tenant_id: Union[str, UUID],
         region: str = None, 
         category_type: str = None
     ) -> List[Dict]:
         """Get all policy categories with caching"""
+        tid = _ensure_tenant_id(tenant_id)
+        
         # Try cache first
-        cached = await redis_cache.get_all_categories(region, category_type)
+        cached = await redis_cache.get_all_categories(tid, region, category_type)
         if cached:
             return cached
         
@@ -476,7 +547,8 @@ class CachedDataService:
             .where(
                 and_(
                     PolicyUpload.status == "ACTIVE",
-                    PolicyUpload.is_active == True
+                    PolicyUpload.is_active == True,
+                    PolicyUpload.tenant_id == tenant_id
                 )
             )
         )
@@ -495,17 +567,18 @@ class CachedDataService:
         category_list = [self._category_to_dict(c) for c in categories]
         
         # Store in cache
-        await redis_cache.set_all_categories(category_list, region, category_type)
+        await redis_cache.set_all_categories(tid, category_list, region, category_type)
         
         # Also build and cache the name map
         name_map = {c["category_code"]: c["category_name"] for c in category_list}
-        await redis_cache.set_category_name_map(name_map, region)
+        await redis_cache.set_category_name_map(tid, name_map, region)
         
         return category_list
     
     async def get_category_by_code(
         self, 
-        db: AsyncSession, 
+        db: AsyncSession,
+        tenant_id: Union[str, UUID],
         category_code: str, 
         region: str = None
     ) -> Optional[Dict]:
@@ -513,8 +586,10 @@ class CachedDataService:
         if not category_code:
             return None
         
+        tid = _ensure_tenant_id(tenant_id)
+        
         # Try cache first
-        cached = await redis_cache.get_category_by_code(category_code, region)
+        cached = await redis_cache.get_category_by_code(tid, category_code, region)
         if cached:
             return cached
         
@@ -526,7 +601,8 @@ class CachedDataService:
                 and_(
                     PolicyCategory.category_code == category_code,
                     PolicyUpload.status == "ACTIVE",
-                    PolicyUpload.is_active == True
+                    PolicyUpload.is_active == True,
+                    PolicyUpload.tenant_id == tenant_id
                 )
             )
         )
@@ -541,15 +617,19 @@ class CachedDataService:
         
         if category:
             category_data = self._category_to_dict(category)
-            await redis_cache.set_category_by_code(category_code, category_data, region)
+            await redis_cache.set_category_by_code(tid, category_code, category_data, region)
             return category_data
         
         return None
     
-    async def get_category_name_map(self, db: AsyncSession, region: str = None) -> Dict[str, str]:
+    async def get_category_name_map(
+        self, db: AsyncSession, tenant_id: Union[str, UUID], region: str = None
+    ) -> Dict[str, str]:
         """Get category_code -> category_name mapping with caching"""
+        tid = _ensure_tenant_id(tenant_id)
+        
         # Try cache first
-        cached = await redis_cache.get_category_name_map(region)
+        cached = await redis_cache.get_category_name_map(tid, region)
         if cached:
             return cached
         
@@ -560,7 +640,8 @@ class CachedDataService:
             .where(
                 and_(
                     PolicyUpload.status == "ACTIVE",
-                    PolicyUpload.is_active == True
+                    PolicyUpload.is_active == True,
+                    PolicyUpload.tenant_id == tenant_id
                 )
             )
         )
@@ -576,7 +657,7 @@ class CachedDataService:
         name_map = {row.category_code: row.category_name for row in rows}
         
         # Store in cache
-        await redis_cache.set_category_name_map(name_map, region)
+        await redis_cache.set_category_name_map(tid, name_map, region)
         
         return name_map
     
@@ -602,36 +683,51 @@ class CachedDataService:
     
     # ==================== SYSTEM SETTINGS ====================
     
-    async def get_setting(self, db: AsyncSession, setting_key: str) -> Optional[Any]:
+    async def get_setting(
+        self, db: AsyncSession, tenant_id: Union[str, UUID], setting_key: str
+    ) -> Optional[Any]:
         """Get system setting with caching"""
+        tid = _ensure_tenant_id(tenant_id)
+        
         # Try cache first
-        cached = await redis_cache.get_setting(setting_key)
+        cached = await redis_cache.get_setting(tid, setting_key)
         if cached is not None:
             return cached
         
         # Query database
         result = await db.execute(
-            select(SystemSettings).where(SystemSettings.setting_key == setting_key)
+            select(SystemSettings).where(
+                and_(
+                    SystemSettings.setting_key == setting_key,
+                    SystemSettings.tenant_id == tenant_id
+                )
+            )
         )
         setting = result.scalar_one_or_none()
         
         if setting:
             # Parse value based on type
             value = self._parse_setting_value(setting.setting_value, setting.setting_type)
-            await redis_cache.set_setting(setting_key, value)
+            await redis_cache.set_setting(tid, setting_key, value)
             return value
         
         return None
     
-    async def get_all_settings(self, db: AsyncSession) -> Dict[str, Any]:
+    async def get_all_settings(
+        self, db: AsyncSession, tenant_id: Union[str, UUID]
+    ) -> Dict[str, Any]:
         """Get all system settings with caching"""
+        tid = _ensure_tenant_id(tenant_id)
+        
         # Try cache first
-        cached = await redis_cache.get_all_settings()
+        cached = await redis_cache.get_all_settings(tid)
         if cached:
             return cached
         
         # Query database
-        result = await db.execute(select(SystemSettings))
+        result = await db.execute(
+            select(SystemSettings).where(SystemSettings.tenant_id == tenant_id)
+        )
         settings = result.scalars().all()
         
         settings_dict = {
@@ -639,7 +735,7 @@ class CachedDataService:
             for s in settings
         }
         
-        await redis_cache.set_all_settings(settings_dict)
+        await redis_cache.set_all_settings(tid, settings_dict)
         return settings_dict
     
     def _parse_setting_value(self, value: str, value_type: str) -> Any:
@@ -661,37 +757,55 @@ class CachedDataService:
     
     # ==================== CACHE INVALIDATION ====================
     
-    async def invalidate_project(self, project_code: str = None, project_id: UUID = None):
+    async def invalidate_project(
+        self, tenant_id: Union[str, UUID], project_code: str = None, project_id: UUID = None
+    ):
         """Invalidate project cache after update"""
+        tid = _ensure_tenant_id(tenant_id)
+        
         if project_code:
-            await redis_cache.delete_async(f"project:code:{project_code}")
+            await redis_cache.delete_async(f"{tid}:project:code:{project_code}")
         if project_id:
-            await redis_cache.delete_async(f"project:id:{str(project_id)}")
+            await redis_cache.delete_async(f"{tid}:project:id:{str(project_id)}")
         # Also invalidate the all-projects cache and name map
-        await redis_cache.delete_async("project:all:active")
-        await redis_cache.delete_async("project:name_map")
+        await redis_cache.delete_async(f"{tid}:project:all:active")
+        await redis_cache.delete_async(f"{tid}:project:name_map")
     
-    async def invalidate_employee(self, employee_id: UUID = None, employee_code: str = None, email: str = None):
+    async def invalidate_employee(
+        self, 
+        tenant_id: Union[str, UUID],
+        employee_id: UUID = None, 
+        employee_code: str = None, 
+        email: str = None
+    ):
         """Invalidate employee cache after update"""
+        tid = _ensure_tenant_id(tenant_id)
+        
         await redis_cache.invalidate_employee(
+            tenant_id=tid,
             employee_id=str(employee_id) if employee_id else None,
             employee_code=employee_code,
             email=email
         )
         if employee_id:
-            await redis_cache.delete_async(f"employee:with_projects:{str(employee_id)}")
+            await redis_cache.delete_async(f"{tid}:employee:with_projects:{str(employee_id)}")
     
-    async def invalidate_policy(self, policy_id: UUID = None, region: str = None):
+    async def invalidate_policy(
+        self, tenant_id: Union[str, UUID], policy_id: UUID = None, region: str = None
+    ):
         """Invalidate policy cache after update"""
+        tid = _ensure_tenant_id(tenant_id)
+        
         if policy_id:
-            await redis_cache.delete_async(f"policy:id:{str(policy_id)}")
-        await redis_cache.invalidate_policies(region)
+            await redis_cache.delete_async(f"{tid}:policy:id:{str(policy_id)}")
+        await redis_cache.invalidate_policies(tid, region)
         # Also invalidate categories since they're linked to policies
-        await redis_cache.invalidate_categories(region)
+        await redis_cache.invalidate_categories(tid, region)
     
-    async def invalidate_setting(self, setting_key: str):
+    async def invalidate_setting(self, tenant_id: Union[str, UUID], setting_key: str):
         """Invalidate setting cache after update"""
-        await redis_cache.invalidate_settings(setting_key)
+        tid = _ensure_tenant_id(tenant_id)
+        await redis_cache.invalidate_settings(tid, setting_key)
 
 
 # Global singleton instance

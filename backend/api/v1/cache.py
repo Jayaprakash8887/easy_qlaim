@@ -1,13 +1,20 @@
 """
 Cache Management API endpoints.
 Provides health checks and cache management operations.
+
+Multi-Tenant Support:
+All cache operations are scoped by tenant_id for proper data isolation.
+Cache keys follow the pattern: {tenant_id}:{entity}:{identifier}
 """
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict, Any, Optional
+from uuid import UUID
 import logging
 
 from services.redis_cache import redis_cache
 from services.category_cache import category_cache
+from api.v1.auth import get_current_user
+from models import User
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +33,21 @@ async def cache_health_check() -> Dict[str, Any]:
 
 
 @router.get("/stats")
-async def cache_stats() -> Dict[str, Any]:
+async def cache_stats(
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
     """
     Get cache statistics including hit/miss rates.
+    Scoped to the current tenant.
     
     Returns:
         Cache statistics and key counts
     """
     try:
+        tenant_id = str(current_user.tenant_id)
         client = await redis_cache._get_async_client()
         
-        # Get key counts by prefix
+        # Get key counts by prefix (scoped to tenant)
         stats = {
             "projects": 0,
             "employees": 0,
@@ -47,7 +58,7 @@ async def cache_stats() -> Dict[str, Any]:
         
         for prefix in ["project", "employee", "policy", "category", "settings"]:
             count = 0
-            async for _ in client.scan_iter(match=f"{prefix}:*"):
+            async for _ in client.scan_iter(match=f"{tenant_id}:{prefix}:*"):
                 count += 1
             stats[f"{prefix}s" if not prefix.endswith("s") else prefix] = count
         
@@ -56,6 +67,7 @@ async def cache_stats() -> Dict[str, Any]:
         
         return {
             "status": "healthy",
+            "tenant_id": tenant_id,
             "key_counts": stats,
             "memory": {
                 "used": info.get("used_memory_human", "unknown"),
@@ -78,27 +90,38 @@ async def cache_stats() -> Dict[str, Any]:
 
 
 @router.post("/invalidate/projects")
-async def invalidate_project_cache() -> Dict[str, Any]:
-    """Invalidate all project cache entries"""
-    count = await redis_cache.invalidate_projects()
-    return {"status": "success", "keys_deleted": count}
+async def invalidate_project_cache(
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Invalidate all project cache entries for current tenant"""
+    tenant_id = str(current_user.tenant_id)
+    count = await redis_cache.invalidate_projects(tenant_id)
+    return {"status": "success", "tenant_id": tenant_id, "keys_deleted": count}
 
 
 @router.post("/invalidate/employees")
-async def invalidate_employee_cache() -> Dict[str, Any]:
-    """Invalidate all employee cache entries"""
-    count = await redis_cache.delete_pattern_async("employee:*")
-    return {"status": "success", "keys_deleted": count}
+async def invalidate_employee_cache(
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Invalidate all employee cache entries for current tenant"""
+    tenant_id = str(current_user.tenant_id)
+    count = await redis_cache.delete_pattern_async(f"{tenant_id}:employee:*")
+    return {"status": "success", "tenant_id": tenant_id, "keys_deleted": count}
 
 
 @router.post("/invalidate/policies")
-async def invalidate_policy_cache(region: Optional[str] = None) -> Dict[str, Any]:
-    """Invalidate policy and category cache entries"""
-    policy_count = await redis_cache.invalidate_policies(region)
-    category_count = await redis_cache.invalidate_categories(region)
+async def invalidate_policy_cache(
+    region: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Invalidate policy and category cache entries for current tenant"""
+    tenant_id = str(current_user.tenant_id)
+    policy_count = await redis_cache.invalidate_policies(tenant_id, region)
+    category_count = await redis_cache.invalidate_categories(tenant_id, region)
     category_cache.clear_cache(region)
     return {
         "status": "success",
+        "tenant_id": tenant_id,
         "policy_keys_deleted": policy_count,
         "category_keys_deleted": category_count,
         "in_memory_cache_cleared": True
@@ -106,40 +129,55 @@ async def invalidate_policy_cache(region: Optional[str] = None) -> Dict[str, Any
 
 
 @router.post("/invalidate/categories")
-async def invalidate_category_cache(region: Optional[str] = None) -> Dict[str, Any]:
-    """Invalidate category cache entries"""
-    count = await redis_cache.invalidate_categories(region)
+async def invalidate_category_cache(
+    region: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Invalidate category cache entries for current tenant"""
+    tenant_id = str(current_user.tenant_id)
+    count = await redis_cache.invalidate_categories(tenant_id, region)
     category_cache.clear_cache(region)
     return {
         "status": "success",
+        "tenant_id": tenant_id,
         "redis_keys_deleted": count,
         "in_memory_cache_cleared": True
     }
 
 
 @router.post("/invalidate/settings")
-async def invalidate_settings_cache(setting_key: Optional[str] = None) -> Dict[str, Any]:
-    """Invalidate settings cache entries"""
-    count = await redis_cache.invalidate_settings(setting_key)
-    return {"status": "success", "keys_deleted": count}
+async def invalidate_settings_cache(
+    setting_key: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Invalidate settings cache entries for current tenant"""
+    tenant_id = str(current_user.tenant_id)
+    count = await redis_cache.invalidate_settings(tenant_id, setting_key)
+    return {"status": "success", "tenant_id": tenant_id, "keys_deleted": count}
 
 
 @router.post("/invalidate/all")
-async def invalidate_all_cache() -> Dict[str, Any]:
+async def invalidate_all_cache(
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
     """
-    Invalidate ALL cache entries.
+    Invalidate ALL cache entries for current tenant.
     Use with caution - this will cause a spike in database queries.
     """
-    success = await redis_cache.clear_all()
+    tenant_id = str(current_user.tenant_id)
+    success = await redis_cache.clear_tenant_cache(tenant_id)
     category_cache.clear_cache()
     return {
         "status": "success" if success else "partial",
-        "message": "All cache entries cleared" if success else "Redis clear failed, in-memory cleared"
+        "tenant_id": tenant_id,
+        "message": "All tenant cache entries cleared" if success else "Redis clear failed, in-memory cleared"
     }
 
 
 @router.post("/warmup/projects")
-async def warmup_project_cache() -> Dict[str, Any]:
+async def warmup_project_cache(
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
     """
     Pre-warm the project cache by loading all active projects.
     Useful after cache invalidation or server restart.
@@ -147,29 +185,38 @@ async def warmup_project_cache() -> Dict[str, Any]:
     from database import get_async_db
     from services.cached_data import cached_data
     
+    tenant_id = current_user.tenant_id
+    
     async for db in get_async_db():
-        projects = await cached_data.get_all_active_projects(db)
-        name_map = await cached_data.get_project_name_map(db)
+        projects = await cached_data.get_all_active_projects(db, tenant_id)
+        name_map = await cached_data.get_project_name_map(db, tenant_id)
         return {
             "status": "success",
+            "tenant_id": str(tenant_id),
             "projects_cached": len(projects),
             "name_mappings_cached": len(name_map)
         }
 
 
 @router.post("/warmup/categories")
-async def warmup_category_cache(region: str = "INDIA") -> Dict[str, Any]:
+async def warmup_category_cache(
+    region: str = "INDIA",
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
     """
     Pre-warm the category cache for a specific region.
     """
     from database import get_async_db
     from services.cached_data import cached_data
     
+    tenant_id = current_user.tenant_id
+    
     async for db in get_async_db():
-        categories = await cached_data.get_all_categories(db, region)
-        name_map = await cached_data.get_category_name_map(db, region)
+        categories = await cached_data.get_all_categories(db, tenant_id, region)
+        name_map = await cached_data.get_category_name_map(db, tenant_id, region)
         return {
             "status": "success",
+            "tenant_id": str(tenant_id),
             "region": region,
             "categories_cached": len(categories),
             "name_mappings_cached": len(name_map)
