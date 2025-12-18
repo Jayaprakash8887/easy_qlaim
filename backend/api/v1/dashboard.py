@@ -354,3 +354,51 @@ async def get_allowance_summary(
         })
     
     return allowances
+
+@router.get("/admin-stats")
+async def get_admin_stats(
+    tenant_id: Optional[UUID] = None,
+    db: Session = Depends(get_sync_db)
+):
+    """Get admin-specific dashboard statistics"""
+    from models import Project, AgentExecution
+    
+    # 1. Unique claimants (distinct employees who raised claims)
+    unique_claimants_query = db.query(func.count(func.distinct(Claim.employee_id)))
+    if tenant_id:
+        unique_claimants_query = unique_claimants_query.filter(Claim.tenant_id == tenant_id)
+    unique_claimants = unique_claimants_query.scalar() or 0
+    
+    # 2. Active projects count
+    active_projects_query = db.query(func.count(Project.id)).filter(
+        func.lower(Project.status) == 'active'
+    )
+    if tenant_id:
+        active_projects_query = active_projects_query.filter(Project.tenant_id == tenant_id)
+    active_projects = active_projects_query.scalar() or 0
+    
+    # 3. Active employees count
+    active_employees_query = db.query(func.count(User.id)).filter(User.is_active == True)
+    if tenant_id:
+        active_employees_query = active_employees_query.filter(User.tenant_id == tenant_id)
+    active_employees = active_employees_query.scalar() or 0
+    
+    # 4. AI processing rate
+    # Base query for AI executions
+    base_ai_query = db.query(AgentExecution)
+    if tenant_id:
+        base_ai_query = base_ai_query.filter(AgentExecution.tenant_id == tenant_id)
+    
+    total_executions = base_ai_query.count() or 0
+    
+    success_query = base_ai_query.filter(AgentExecution.status == 'COMPLETED')
+    successful_executions = success_query.count() or 0
+    
+    ai_success_rate = (successful_executions / total_executions * 100) if total_executions > 0 else 0
+    
+    return {
+        "unique_claimants": unique_claimants,
+        "active_projects": active_projects,
+        "active_employees": active_employees,
+        "ai_success_rate": round(float(ai_success_rate), 1)
+    }

@@ -288,3 +288,32 @@ export function useAllowanceSummary(employeeId?: string, tenantId?: string) {
     refetchInterval: 30000,
   });
 }
+
+// Admin Stats interface and hooks
+interface AdminStats {
+  unique_claimants: number;
+  active_projects: number;
+  active_employees: number;
+  ai_success_rate: number;
+}
+
+async function fetchAdminStats(tenantId?: string): Promise<AdminStats> {
+  const url = buildUrl(`${API_BASE_URL}/dashboard/admin-stats`, { tenant_id: tenantId });
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to fetch admin stats');
+  }
+  return response.json();
+}
+
+export function useAdminStats(tenantId?: string) {
+  const { user } = useAuth();
+  const effectiveTenantId = tenantId || user?.tenantId;
+
+  return useQuery({
+    queryKey: ['admin-stats', effectiveTenantId],
+    queryFn: () => fetchAdminStats(effectiveTenantId),
+    enabled: !!effectiveTenantId,
+    refetchInterval: 30000,
+  });
+}

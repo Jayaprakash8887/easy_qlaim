@@ -6,7 +6,7 @@ import { RecentActivity } from '@/components/dashboard/RecentActivity';
 import { AISuggestionsCard } from '@/components/dashboard/AISuggestionsCard';
 import { AllowanceOverviewCards, AllowancePolicyAlerts } from '@/components/dashboard/AllowanceWidgets';
 import { useAuth } from '@/contexts/AuthContext';
-import { useDashboardSummary, useClaimsByStatus, useHRMetrics, formatCurrency } from '@/hooks/useDashboard';
+import { useDashboardSummary, useClaimsByStatus, useHRMetrics, useAdminStats, formatCurrency } from '@/hooks/useDashboard';
 import { CardSkeleton } from '@/components/ui/loading-skeleton';
 
 // Employee Dashboard - Personal claims and allowances
@@ -16,7 +16,7 @@ function EmployeeDashboard({ userName, employeeId, tenantId }: { userName: strin
 
   // Pending = any claim that is NOT Approved, Rejected, or Settled
   const excludedFromPending = ['FINANCE_APPROVED', 'REJECTED', 'SETTLED'];
-  const pendingCount = claimsByStatus?.filter(c => 
+  const pendingCount = claimsByStatus?.filter(c =>
     !excludedFromPending.includes(c.status)
   ).reduce((sum, c) => sum + c.count, 0) || summary?.pending_claims || 0;
 
@@ -403,12 +403,13 @@ function FinanceDashboard({ userName, employeeId, tenantId }: { userName: string
 function AdminDashboard({ userName, employeeId, tenantId }: { userName: string; employeeId: string; tenantId?: string }) {
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(undefined, tenantId);
   const { data: claimsByStatus, isLoading: statusLoading } = useClaimsByStatus(undefined, tenantId);
+  const { data: adminStats, isLoading: adminStatsLoading } = useAdminStats(tenantId);
 
   const totalClaims = summary?.total_claims || 0;
   const pendingTotal = summary?.pending_claims || 0;
   const financePending = claimsByStatus?.find(c => c.status === 'PENDING_FINANCE')?.count || 0;
 
-  if (summaryLoading || statusLoading) {
+  if (summaryLoading || statusLoading || adminStatsLoading) {
     return (
       <div className="space-y-8">
         <div>
@@ -442,15 +443,15 @@ function AdminDashboard({ userName, employeeId, tenantId }: { userName: string; 
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard
-          title="Total Users"
-          value="145"
+          title="Unique Claimants"
+          value={adminStats?.unique_claimants || 0}
           trend={{ value: 5, isPositive: true }}
           icon={Users}
           variant="default"
         />
         <SummaryCard
           title="Active Projects"
-          value="8"
+          value={adminStats?.active_projects || 0}
           trend={{ value: 2, isPositive: true }}
           icon={Building2}
           variant="default"
@@ -464,7 +465,7 @@ function AdminDashboard({ userName, employeeId, tenantId }: { userName: string; 
         />
         <SummaryCard
           title="System Processing"
-          value="98%"
+          value={`${adminStats?.ai_success_rate || 0}%`}
           trend={{ value: 3, isPositive: true }}
           icon={TrendingUp}
           variant="total"
@@ -473,7 +474,6 @@ function AdminDashboard({ userName, employeeId, tenantId }: { userName: string; 
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
-          <AISuggestionsCard />
           <div className="rounded-xl border border-border bg-card p-6">
             <h3 className="font-semibold text-foreground mb-4">System Activity</h3>
             <RecentActivity />
@@ -490,10 +490,6 @@ function AdminDashboard({ userName, employeeId, tenantId }: { userName: string; 
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">Pending Payments</span>
                 <span className="text-lg font-semibold text-primary">{financePending}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Active Employees</span>
-                <span className="text-lg font-semibold text-success">142</span>
               </div>
             </div>
             <Link to="/settings" className="inline-flex items-center gap-1 mt-4 text-sm text-primary hover:underline">
