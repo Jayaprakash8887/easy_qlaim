@@ -50,6 +50,18 @@ export const adminNavigation: NavItem[] = [
     href: '/settlements',
     icon: 'Wallet',
     roles: ['finance', 'admin'],
+    children: [
+      {
+        label: 'Finance Approved',
+        href: '/settlements/pending',
+        icon: 'Clock',
+      },
+      {
+        label: 'Settled',
+        href: '/settlements/completed',
+        icon: 'CheckCircle2',
+      },
+    ],
   },
   {
     label: 'Settings',

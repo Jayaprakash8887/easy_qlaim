@@ -58,6 +58,7 @@ const statusOptions: { value: ClaimStatus | 'all'; label: string }[] = [
   { value: 'pending_manager', label: 'Pending Manager' },
   { value: 'pending_hr', label: 'Pending HR' },
   { value: 'pending_finance', label: 'Pending Finance' },
+  { value: 'finance_approved', label: 'Finance Approved' },
   { value: 'approved', label: 'Approved' },
   { value: 'rejected', label: 'Rejected' },
   { value: 'returned', label: 'Returned' },

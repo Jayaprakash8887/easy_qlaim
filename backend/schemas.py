@@ -145,6 +145,11 @@ class ClaimResponse(ClaimBase):
     return_count: int
     can_edit: bool
     settled: bool
+    # Settlement fields
+    settled_date: Optional[datetime] = None
+    payment_reference: Optional[str] = None
+    payment_method: Optional[str] = None
+    amount_paid: Optional[float] = None
     category_name: Optional[str] = None  # Human-readable category name from policy_categories
     project_name: Optional[str] = None  # Human-readable project name from projects table
     

@@ -7,6 +7,7 @@ export type ClaimStatus =
   | 'pending_hr'
   | 'pending_finance'
   | 'approved'
+  | 'finance_approved'
   | 'rejected'
   | 'returned'
   | 'settled';
@@ -92,6 +93,10 @@ export interface Claim {
   returnCount?: number;
   returnedAt?: Date;
   canEdit?: boolean;
+  // Settlement fields
+  settledDate?: Date;
+  paymentReference?: string;
+  paymentMethod?: string;
 }
 
 // Policy Check interface

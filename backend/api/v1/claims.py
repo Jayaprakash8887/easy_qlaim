@@ -1055,9 +1055,11 @@ async def settle_claim(
             detail="Only finance-approved claims can be settled"
         )
     
+    settlement_time = datetime.utcnow()
+    
     # Update settlement details
     claim.settled = True
-    claim.settled_date = datetime.utcnow()
+    claim.settled_date = settlement_time
     # claim.settled_by = current_user.id  # TODO: Add auth
     claim.payment_reference = settlement_data.payment_reference
     claim.payment_method = settlement_data.payment_method
@@ -1068,12 +1070,37 @@ async def settle_claim(
     if not claim.claim_payload:
         claim.claim_payload = {}
     claim.claim_payload["settlement"] = {
-        "settled_date": datetime.utcnow().isoformat(),
+        "settled_date": settlement_time.isoformat(),
         "payment_reference": settlement_data.payment_reference,
         "payment_method": settlement_data.payment_method,
         "amount_paid": float(settlement_data.amount_paid),
         "notes": settlement_data.settlement_notes
     }
+    
+    # Create settlement comment text
+    settlement_comment = f"**Claim Settled**\n\n"
+    settlement_comment += f"• **Transaction ID:** {settlement_data.payment_reference}\n"
+    settlement_comment += f"• **Payment Method:** {settlement_data.payment_method}\n"
+    settlement_comment += f"• **Amount Paid:** ₹{float(settlement_data.amount_paid):,.2f}\n"
+    settlement_comment += f"• **Settlement Date:** {settlement_time.strftime('%B %d, %Y at %I:%M %p')}\n"
+    if settlement_data.settlement_notes:
+        settlement_comment += f"• **Notes:** {settlement_data.settlement_notes}\n"
+    
+    # Create a Comment record in the database
+    comment = Comment(
+        tenant_id=claim.tenant_id,
+        claim_id=claim_id,
+        comment_text=settlement_comment,
+        comment_type="SETTLEMENT",
+        user_id=claim.employee_id,  # Using employee_id as placeholder for now
+        user_name="Finance Team",
+        user_role="FINANCE",
+        visible_to_employee=True,
+    )
+    db.add(comment)
+    
+    # Flag the payload as modified for SQLAlchemy to detect the change
+    flag_modified(claim, "claim_payload")
     
     await db.commit()
     await db.refresh(claim)

@@ -43,6 +43,12 @@ const statusConfig: Record<
     icon: CheckCircle,
     className: 'bg-success/10 text-success border-success/20',
   },
+  finance_approved: {
+    label: 'Finance Approved',
+    variant: 'default',
+    icon: CheckCircle,
+    className: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
+  },
   rejected: {
     label: 'Rejected',
     variant: 'destructive',

@@ -49,6 +49,14 @@ async function fetchClaims(tenantId?: string): Promise<Claim[]> {
       aiRecommendationText: payload.ai_analysis?.recommendation_text || 'Manual review required',
       complianceScore: payload.policy_checks?.compliance_score || claim.compliance_score || 0,
       policyChecks: payload.policy_checks?.checks || [],
+      // Settlement fields - check both direct fields and payload.settlement
+      settledDate: claim.settled_date 
+        ? new Date(claim.settled_date) 
+        : payload.settlement?.settled_date 
+          ? new Date(payload.settlement.settled_date) 
+          : undefined,
+      paymentReference: claim.payment_reference || payload.settlement?.payment_reference || undefined,
+      paymentMethod: claim.payment_method || payload.settlement?.payment_method || undefined,
     };
   });
 }
@@ -62,7 +70,7 @@ function mapBackendStatus(backendStatus: string): ClaimStatus {
     'PENDING_HR': 'pending_hr',
     'HR_APPROVED': 'pending_finance',
     'PENDING_FINANCE': 'pending_finance',
-    'FINANCE_APPROVED': 'approved',
+    'FINANCE_APPROVED': 'finance_approved',
     'SETTLED': 'settled',
     'REJECTED': 'rejected'
   };
@@ -120,6 +128,14 @@ async function fetchClaimById(id: string, tenantId: string): Promise<Claim | und
     returnCount: claim.return_count || 0,
     returnedAt: claim.returned_at ? new Date(claim.returned_at) : undefined,
     canEdit: claim.can_edit || false,
+    // Settlement fields - check both direct fields and payload.settlement
+    settledDate: claim.settled_date 
+      ? new Date(claim.settled_date) 
+      : payload.settlement?.settled_date 
+        ? new Date(payload.settlement.settled_date) 
+        : undefined,
+    paymentReference: claim.payment_reference || payload.settlement?.payment_reference || undefined,
+    paymentMethod: claim.payment_method || payload.settlement?.payment_method || undefined,
   };
 }
 
