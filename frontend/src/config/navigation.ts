@@ -46,6 +46,12 @@ export const adminNavigation: NavItem[] = [
     roles: ['admin'],
   },
   {
+    label: 'IBUs',
+    href: '/ibus',
+    icon: 'Building',
+    roles: ['admin'],
+  },
+  {
     label: 'Settlements',
     href: '/settlements',
     icon: 'Wallet',
@@ -90,6 +96,11 @@ export const adminOnlyNavigation: NavItem[] = [
     label: 'Projects',
     href: '/projects',
     icon: 'FolderKanban',
+  },
+  {
+    label: 'IBUs',
+    href: '/ibus',
+    icon: 'Building',
   },
   {
     label: 'Policies',

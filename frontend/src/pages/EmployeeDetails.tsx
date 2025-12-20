@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getAllDepartments } from '@/config/company';
-import { ArrowLeft, Mail, Phone, Calendar, MapPin, Briefcase, Edit2, UserCheck } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, Calendar, MapPin, Briefcase, Edit2, UserCheck, FolderKanban } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -296,6 +296,21 @@ export default function EmployeeDetails() {
                   <div>
                     <p className="text-sm font-medium">Address</p>
                     <p className="text-sm text-muted-foreground">{employee.address}</p>
+                  </div>
+                </div>
+              )}
+              {employeeProjects.length > 0 && (
+                <div className="flex items-start gap-3 sm:col-span-2">
+                  <FolderKanban className="h-5 w-5 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium">Project Allocations</p>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {employeeProjects.map((project) => (
+                        <Badge key={project.id} variant="outline" className="text-xs">
+                          {project.name} ({project.code})
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}

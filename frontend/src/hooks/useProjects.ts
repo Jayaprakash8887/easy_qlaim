@@ -28,6 +28,7 @@ async function fetchProjects(tenantId?: string): Promise<Project[]> {
     status: proj.status?.toLowerCase() === 'active' ? 'active' : proj.status?.toLowerCase() === 'completed' ? 'completed' : 'on_hold',
     managerId: proj.manager_id || '',
     memberIds: [],
+    ibuId: proj.ibu_id || undefined,
   }));
 }
 
@@ -51,6 +52,7 @@ async function fetchProjectById(id: string): Promise<Project | undefined> {
     status: proj.status?.toLowerCase() === 'active' ? 'active' : proj.status?.toLowerCase() === 'completed' ? 'completed' : 'on_hold',
     managerId: proj.manager_id || '',
     memberIds: [],
+    ibuId: proj.ibu_id || undefined,
   };
 }
 
@@ -67,6 +69,7 @@ async function createProject(project: Omit<Project, 'id'>): Promise<Project> {
       budget_allocated: project.budget,
       start_date: project.startDate.toISOString().split('T')[0],
       end_date: project.endDate?.toISOString().split('T')[0],
+      ibu_id: project.ibuId || null,
     }),
   });
 
@@ -89,6 +92,7 @@ async function createProject(project: Omit<Project, 'id'>): Promise<Project> {
     status: 'active',
     managerId: data.manager_id || '',
     memberIds: [],
+    ibuId: data.ibu_id || undefined,
   };
 }
 
@@ -147,6 +151,7 @@ async function updateProject(id: string, project: Partial<Project>): Promise<Pro
       end_date: project.endDate ? new Date(project.endDate).toISOString().split('T')[0] : undefined,
       status: project.status?.toUpperCase(),
       manager_id: project.managerId,
+      ibu_id: project.ibuId || null,
     }),
   });
 
@@ -169,6 +174,7 @@ async function updateProject(id: string, project: Partial<Project>): Promise<Pro
     status: data.status?.toLowerCase() === 'active' ? 'active' : data.status?.toLowerCase() === 'completed' ? 'completed' : 'on_hold',
     managerId: data.manager_id || '',
     memberIds: [],
+    ibuId: data.ibu_id || undefined,
   };
 }
 

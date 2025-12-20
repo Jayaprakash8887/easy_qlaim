@@ -2,12 +2,13 @@
 Project management endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
 from typing import Dict, List, Optional
 from uuid import UUID, uuid4
 
 from database import get_sync_db
-from models import Project, EmployeeProjectAllocation, User
+from models import Project, EmployeeProjectAllocation, User, IBU, Claim
 
 # Employee is now an alias for User (tables merged)
 Employee = User
@@ -15,6 +16,50 @@ from schemas import ProjectCreate, ProjectResponse, ProjectUpdate
 from api.v1.auth import get_current_user, require_tenant_id
 
 router = APIRouter()
+
+
+def _calculate_project_spent(project: Project, db: Session) -> float:
+    """Calculate budget spent based on settled claims for this project"""
+    # Get all settled claims that belong to this project
+    # Claims store project_code in claim_payload['project_code']
+    settled_claims = db.query(Claim).filter(
+        Claim.tenant_id == project.tenant_id,
+        Claim.status == "SETTLED"
+    ).all()
+    
+    total_spent = 0.0
+    for claim in settled_claims:
+        if claim.claim_payload:
+            claim_project_code = claim.claim_payload.get("project_code")
+            if claim_project_code == project.project_code:
+                total_spent += float(claim.amount) if claim.amount else 0.0
+    
+    return total_spent
+
+
+def _project_to_response(project: Project, db: Session = None) -> dict:
+    """Convert Project model to response dict with IBU details"""
+    # Calculate budget_spent dynamically if db session is provided
+    budget_spent = _calculate_project_spent(project, db) if db else (float(project.budget_spent) if project.budget_spent else 0)
+    
+    response = {
+        "id": project.id,
+        "project_code": project.project_code,
+        "project_name": project.project_name,
+        "description": project.description,
+        "budget_allocated": float(project.budget_allocated) if project.budget_allocated else None,
+        "budget_spent": budget_spent,
+        "budget_available": float(project.budget_available) if project.budget_available else None,
+        "status": project.status,
+        "start_date": project.start_date,
+        "end_date": project.end_date,
+        "manager_id": project.manager_id,
+        "ibu_id": project.ibu_id,
+        "ibu_name": project.ibu.name if project.ibu else None,
+        "ibu_code": project.ibu.code if project.ibu else None,
+        "created_at": project.created_at,
+    }
+    return response
 
 
 async def _invalidate_project_cache(project_code: str = None, project_id: UUID = None):
@@ -69,7 +114,7 @@ async def list_projects(
     db: Session = Depends(get_sync_db)
 ):
     """Get list of projects, optionally filtered by tenant and search query"""
-    query = db.query(Project)
+    query = db.query(Project).options(joinedload(Project.ibu))
     
     # Filter by tenant if provided
     if tenant_id:
@@ -85,7 +130,7 @@ async def list_projects(
         )
     
     projects = query.offset(skip).limit(limit).all()
-    return projects
+    return [_project_to_response(p, db) for p in projects]
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -95,7 +140,7 @@ async def get_project(
     db: Session = Depends(get_sync_db)
 ):
     """Get project by ID"""
-    query = db.query(Project).filter(Project.id == project_id)
+    query = db.query(Project).options(joinedload(Project.ibu)).filter(Project.id == project_id)
     if tenant_id:
         query = query.filter(Project.tenant_id == tenant_id)
     project = query.first()
@@ -104,7 +149,7 @@ async def get_project(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found"
         )
-    return project
+    return _project_to_response(project, db)
 
 
 @router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
@@ -135,6 +180,7 @@ async def create_project(
         budget_allocated=project_data.budget_allocated,
         start_date=project_data.start_date,
         end_date=project_data.end_date,
+        ibu_id=project_data.ibu_id,
         status="ACTIVE"
     )
     
@@ -142,10 +188,13 @@ async def create_project(
     db.commit()
     db.refresh(project)
     
+    # Reload with IBU relationship
+    project = db.query(Project).options(joinedload(Project.ibu)).filter(Project.id == project.id).first()
+    
     # Invalidate cache in background
     background_tasks.add_task(_invalidate_project_cache, project.project_code, project.id)
     
-    return project
+    return _project_to_response(project, db)
 
 
 @router.put("/{project_id}", response_model=ProjectResponse)
@@ -172,12 +221,15 @@ async def update_project(
     db.commit()
     db.refresh(project)
     
+    # Reload with IBU relationship
+    project = db.query(Project).options(joinedload(Project.ibu)).filter(Project.id == project.id).first()
+    
     # Invalidate cache (both old and new code if changed)
     background_tasks.add_task(_invalidate_project_cache, old_project_code, project_id)
     if project.project_code != old_project_code:
         background_tasks.add_task(_invalidate_project_cache, project.project_code)
     
-    return project
+    return _project_to_response(project, db)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)

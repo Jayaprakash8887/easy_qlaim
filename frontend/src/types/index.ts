@@ -187,6 +187,22 @@ export interface Project {
   status: 'active' | 'completed' | 'on_hold';
   managerId: string;
   memberIds: string[];
+  ibuId?: string;
+}
+
+// IBU (Independent Business Unit) interface
+export interface IBU {
+  id: string;
+  tenant_id: string;
+  code: string;
+  name: string;
+  description?: string;
+  head_id?: string;
+  annual_budget?: number;
+  budget_spent?: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 // Region interface

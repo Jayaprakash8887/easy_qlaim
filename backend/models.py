@@ -122,6 +122,47 @@ class DesignationRoleMapping(Base):
     )
 
 
+class IBU(Base):
+    """
+    Independent Business Unit for organizational reporting.
+    Projects can be tagged to IBUs for IBU-level claim reporting.
+    """
+    __tablename__ = "ibus"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    
+    # IBU identification
+    code = Column(String(50), nullable=False)  # Short code, e.g., "IBU-TECH", "IBU-FIN"
+    name = Column(String(255), nullable=False)  # Full name, e.g., "Technology Services"
+    description = Column(Text)
+    
+    # IBU head/manager
+    head_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    
+    # Budget tracking
+    annual_budget = Column(Numeric(14, 2))
+    budget_spent = Column(Numeric(14, 2), default=0)
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    
+    # Additional metadata
+    extra_data = Column(JSONB, default={})
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "code", name="uq_ibu_tenant_code"),
+        Index("idx_ibus_tenant", "tenant_id"),
+        Index("idx_ibus_code", "code"),
+        Index("idx_ibus_active", "is_active"),
+        Index("idx_ibus_head", "head_id"),
+    )
+
+
 class Claim(Base):
     """Main claims table with OCR tracking, HR corrections, return workflow"""
     __tablename__ = "claims"
@@ -406,6 +447,12 @@ class Project(Base):
     description = Column(Text)
     manager_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
+    # IBU association
+    ibu_id = Column(UUID(as_uuid=True), ForeignKey("ibus.id"))
+    
+    # Relationship to IBU
+    ibu = relationship("IBU", foreign_keys=[ibu_id], lazy="joined")
+    
     # Budget
     budget_allocated = Column(Numeric(12, 2))
     budget_spent = Column(Numeric(12, 2), default=0)
@@ -429,6 +476,7 @@ class Project(Base):
         Index("idx_projects_tenant", "tenant_id"),
         Index("idx_projects_code", "project_code"),
         Index("idx_projects_status", "status"),
+        Index("idx_projects_ibu", "ibu_id"),
     )
 
 

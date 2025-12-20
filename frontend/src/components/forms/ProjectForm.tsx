@@ -41,6 +41,7 @@ import { useFormatting } from '@/hooks/useFormatting';
 interface ProjectFormProps {
   managers: { id: string; name: string }[];
   employees?: { id: string; name: string }[];
+  ibus?: { id: string; name: string; code: string }[];
   onSubmit: (data: ProjectFormData) => void;
   onCancel: () => void;
   isLoading?: boolean;
@@ -50,6 +51,7 @@ interface ProjectFormProps {
 export function ProjectForm({
   managers,
   employees = [],
+  ibus = [],
   onSubmit,
   onCancel,
   isLoading = false,
@@ -65,6 +67,7 @@ export function ProjectForm({
       budget: 0,
       managerId: '',
       memberIds: [],
+      ibuId: '',
       startDate: new Date(),
       ...defaultValues,
     },
@@ -169,6 +172,38 @@ export function ProjectForm({
             )}
           />
         </div>
+
+        {/* IBU Selection */}
+        {ibus.length > 0 && (
+          <FormField
+            control={form.control}
+            name="ibuId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Business Unit (Optional)</FormLabel>
+                <Select 
+                  onValueChange={(value) => field.onChange(value === 'none' ? '' : value)} 
+                  defaultValue={field.value || 'none'}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select business unit" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="none">No Business Unit</SelectItem>
+                    {ibus.map((ibu) => (
+                      <SelectItem key={ibu.id} value={ibu.id}>
+                        {ibu.code} - {ibu.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
 
         <div className="grid grid-cols-2 gap-4">
           <FormField

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Search, FolderKanban, Users, Calendar, TrendingUp, Download, Edit } from 'lucide-react';
+import { Plus, Search, FolderKanban, Users, Calendar, TrendingUp, Download, Edit, Building } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select';
 import { useProjects, useProjectStats, useCreateProject, useUpdateProject, useAllProjectMembers } from '@/hooks/useProjects';
 import { useEmployees, useAllocateEmployeeToProject } from '@/hooks/useEmployees';
+import { useIBUs } from '@/hooks/useIBUs';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFormatting } from '@/hooks/useFormatting';
 import { ProjectForm } from '@/components/forms/ProjectForm';
@@ -39,18 +40,21 @@ const statusStyles = {
 function ProjectCard({ 
   project, 
   employees,
+  ibuLookup,
   onEdit,
   formatProjectDate,
   formatProjectCurrency
 }: { 
   project: Project; 
   employees?: { id: string; name: string }[]; 
+  ibuLookup?: Record<string, { id: string; name: string; code: string }>;
   onEdit: (project: Project) => void;
   formatProjectDate: (date: Date | string) => string;
   formatProjectCurrency: (amount: number) => string;
 }) {
   const budgetUsed = (project.spent / project.budget) * 100;
   const manager = employees?.find((e) => e.id === project.managerId);
+  const ibu = project.ibuId && ibuLookup ? ibuLookup[project.ibuId] : null;
   const isOverBudget = budgetUsed > 100;
 
   return (
@@ -124,6 +128,15 @@ function ProjectCard({
             <span className="text-sm font-medium">{manager.name}</span>
           </div>
         )}
+
+        {/* IBU */}
+        {ibu && (
+          <div className="flex items-center gap-2 pt-2 border-t">
+            <Building className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">IBU:</span>
+            <span className="text-sm font-medium">{ibu.code} - {ibu.name}</span>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -143,6 +156,8 @@ export default function Projects() {
   const { data: projects, isLoading, error } = useProjects(tenantId);
   const { data: stats } = useProjectStats(tenantId);
   const { data: employees } = useEmployees(tenantId);
+  const { data: ibusData } = useIBUs();
+  const ibus = ibusData?.items || [];
   const { data: projectMembersMap } = useAllProjectMembers();
   const createProject = useCreateProject();
   const updateProject = useUpdateProject();
@@ -159,6 +174,21 @@ export default function Projects() {
     if (!employees) return [];
     return employees.map((e) => ({ id: e.id, name: e.name }));
   }, [employees]);
+
+  const ibuMap = useMemo(() => {
+    return ibus.filter((ibu) => ibu.is_active).map((ibu) => ({ 
+      id: ibu.id, 
+      name: ibu.name, 
+      code: ibu.code 
+    }));
+  }, [ibus]);
+
+  const ibuLookup = useMemo(() => {
+    return ibus.reduce((acc, ibu) => {
+      acc[ibu.id] = ibu;
+      return acc;
+    }, {} as Record<string, typeof ibus[0]>);
+  }, [ibus]);
 
   const filteredProjects = useMemo(() => {
     if (!projects) return [];
@@ -193,6 +223,7 @@ export default function Projects() {
         spent: 0,
         managerId: data.managerId,
         memberIds: data.memberIds || [],
+        ibuId: data.ibuId || undefined,
         status: 'active',
         startDate: data.startDate,
         endDate: data.endDate,
@@ -232,6 +263,7 @@ export default function Projects() {
           description: data.description || '',
           budget: data.budget,
           managerId: data.managerId,
+          ibuId: data.ibuId || undefined,
           status: data.status || selectedProject.status,
           startDate: data.startDate,
           endDate: data.endDate,
@@ -275,15 +307,19 @@ export default function Projects() {
       return;
     }
     exportToCSV(
-      filteredProjects.map((p) => ({
-        code: p.code,
-        name: p.name,
-        status: p.status,
-        budget: formatCurrency(p.budget),
-        spent: formatCurrency(p.spent),
-        startDate: formatDate(p.startDate),
-        members: p.memberIds.length,
-      })),
+      filteredProjects.map((p) => {
+        const ibu = p.ibuId && ibuLookup ? ibuLookup[p.ibuId] : null;
+        return {
+          code: p.code,
+          name: p.name,
+          status: p.status,
+          budget: formatCurrency(p.budget),
+          spent: formatCurrency(p.spent),
+          startDate: formatDate(p.startDate),
+          ibu: ibu ? `${ibu.code} - ${ibu.name}` : '',
+          members: p.memberIds.length,
+        };
+      }),
       'projects',
       [
         { key: 'code', label: 'Project Code' },
@@ -292,6 +328,7 @@ export default function Projects() {
         { key: 'budget', label: 'Budget' },
         { key: 'spent', label: 'Spent' },
         { key: 'startDate', label: 'Start Date' },
+        { key: 'ibu', label: 'Business Unit' },
         { key: 'members', label: 'Members' },
       ]
     );
@@ -336,6 +373,7 @@ export default function Projects() {
               <ProjectForm
                 managers={managers}
                 employees={employeeMap}
+                ibus={ibuMap}
                 onSubmit={handleAddProject}
                 onCancel={() => setIsAddDialogOpen(false)}
                 isLoading={createProject.isPending}
@@ -350,6 +388,7 @@ export default function Projects() {
               <ProjectForm
                 managers={managers}
                 employees={employeeMap}
+                ibus={ibuMap}
                 onSubmit={handleEditProject}
                 onCancel={() => {
                   setIsEditDialogOpen(false);
@@ -363,6 +402,7 @@ export default function Projects() {
                   budget: selectedProject.budget,
                   managerId: selectedProject.managerId,
                   memberIds: selectedProject.memberIds,
+                  ibuId: selectedProject.ibuId,
                   startDate: selectedProject.startDate,
                   endDate: selectedProject.endDate,
                 } : undefined}
@@ -462,6 +502,7 @@ export default function Projects() {
                 key={project.id} 
                 project={project} 
                 employees={employeeMap}
+                ibuLookup={ibuLookup}
                 onEdit={handleEditClick}
                 formatProjectDate={formatTenantDate}
                 formatProjectCurrency={formatTenantCurrency}

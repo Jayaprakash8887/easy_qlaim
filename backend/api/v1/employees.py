@@ -4,6 +4,7 @@ Note: Employee is now an alias for User model (unified model)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy import select, case
 from typing import List, Optional
 from uuid import UUID, uuid4
@@ -150,9 +151,8 @@ async def create_employee(
         )
     
     # Store project_ids in user_data JSONB field
-    user_data = employee_data.employee_data or {}
-    if employee_data.project_ids:
-        user_data['project_ids'] = employee_data.project_ids
+    user_data = dict(employee_data.employee_data) if employee_data.employee_data else {}
+    user_data['project_ids'] = employee_data.project_ids if employee_data.project_ids else []
     
     # Generate username from email
     username = employee_data.email.split('@')[0]
@@ -245,12 +245,14 @@ async def update_employee(
         user.date_of_joining = employee_data.date_of_joining
     
     # Store project_ids in user_data JSONB field
-    user_data = user.user_data or {}
-    if employee_data.project_ids:
-        user_data['project_ids'] = employee_data.project_ids
+    user_data = dict(user.user_data) if user.user_data else {}
+    # Always store project_ids, even if empty
+    user_data['project_ids'] = employee_data.project_ids if employee_data.project_ids else []
     if employee_data.employee_data:
         user_data.update(employee_data.employee_data)
     user.user_data = user_data
+    # Flag the JSONB field as modified so SQLAlchemy detects the change
+    flag_modified(user, 'user_data')
     
     # Note: Roles are NOT updated here - they are derived from designation-to-role mappings
     

@@ -382,6 +382,52 @@ class ApprovalResponse(ApprovalBase):
         from_attributes = True
 
 
+# IBU (Independent Business Unit) Schemas
+class IBUBase(BaseModel):
+    code: str = Field(..., min_length=2, max_length=50)
+    name: str = Field(..., min_length=2, max_length=255)
+    description: Optional[str] = None
+
+
+class IBUCreate(IBUBase):
+    head_id: Optional[UUID] = None
+    annual_budget: Optional[float] = None
+
+
+class IBUUpdate(BaseModel):
+    code: Optional[str] = Field(None, min_length=2, max_length=50)
+    name: Optional[str] = Field(None, min_length=2, max_length=255)
+    description: Optional[str] = None
+    head_id: Optional[UUID] = None
+    annual_budget: Optional[float] = None
+    is_active: Optional[bool] = None
+
+
+class IBUResponse(IBUBase):
+    id: UUID
+    tenant_id: UUID
+    head_id: Optional[UUID] = None
+    annual_budget: Optional[float] = None
+    budget_spent: float = 0
+    is_active: bool = True
+    created_at: datetime
+    updated_at: datetime
+    
+    # Optional: populated when fetching with details
+    head_name: Optional[str] = None
+    project_count: Optional[int] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class IBUListResponse(BaseModel):
+    items: list[IBUResponse]
+    total: int
+    page: int
+    limit: int
+
+
 # Project Schemas
 class ProjectBase(BaseModel):
     project_code: str
@@ -393,6 +439,7 @@ class ProjectCreate(ProjectBase):
     budget_allocated: Optional[float] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    ibu_id: Optional[UUID] = None
 
 
 class ProjectUpdate(BaseModel):
@@ -405,6 +452,7 @@ class ProjectUpdate(BaseModel):
     status: Optional[str] = None
     is_active: Optional[bool] = None
     manager_id: Optional[UUID] = None
+    ibu_id: Optional[UUID] = None
 
 
 class ProjectResponse(ProjectBase):
@@ -416,6 +464,9 @@ class ProjectResponse(ProjectBase):
     start_date: Optional[date]
     end_date: Optional[date]
     manager_id: Optional[UUID]
+    ibu_id: Optional[UUID] = None
+    ibu_name: Optional[str] = None
+    ibu_code: Optional[str] = None
     created_at: datetime
     
     class Config:
