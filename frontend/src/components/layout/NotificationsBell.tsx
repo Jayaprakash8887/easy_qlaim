@@ -70,8 +70,8 @@ const notificationConfig: Record<string, { types: string[]; fetchEndpoints: stri
     fetchEndpoints: ['pending-finance-approvals'],
   },
   admin: {
-    types: ['pending_approval', 'claim_submitted', 'system'],
-    fetchEndpoints: ['all-pending-approvals'],
+    types: ['claim_submitted', 'system'],
+    fetchEndpoints: [],
   },
   system_admin: {
     types: ['tenant', 'system', 'pending_approval'],
@@ -110,11 +110,13 @@ export function NotificationsBell() {
     try {
       const role = user.role || 'employee';
       const tenantParam = user.tenantId ? `tenant_id=${user.tenantId}` : '';
+      const userIdParam = user.id ? `&user_id=${user.id}` : '';
+      const roleParam = `&role=${role}`;
 
-      // Fetch pending approvals based on role
-      if (['manager', 'hr', 'finance', 'admin'].includes(role)) {
+      // Fetch pending approvals based on role (exclude admin - they don't need approval notifications)
+      if (['manager', 'hr', 'finance'].includes(role)) {
         const pendingResponse = await fetch(
-          `${API_BASE_URL}/dashboard/pending-approvals?${tenantParam}`
+          `${API_BASE_URL}/dashboard/pending-approvals?${tenantParam}${userIdParam}${roleParam}`
         );
         if (pendingResponse.ok) {
           const pendingData = await pendingResponse.json();
@@ -124,7 +126,7 @@ export function NotificationsBell() {
               id: 'pending-manager',
               type: 'pending_approval',
               title: 'Manager Approvals Pending',
-              message: `${pendingData.manager_pending} claim(s) waiting for your approval`,
+              message: `${pendingData.manager_pending} claim(s) from your team waiting for approval`,
               timestamp: new Date(),
               read: false,
               actionUrl: '/approvals',
@@ -155,19 +157,6 @@ export function NotificationsBell() {
               read: false,
               actionUrl: '/approvals',
               priority: 'high',
-            });
-          }
-
-          if (role === 'admin' && pendingData.total_pending > 0) {
-            fetchedNotifications.push({
-              id: 'pending-total',
-              type: 'pending_approval',
-              title: 'Pending Approvals',
-              message: `${pendingData.total_pending} total claim(s) pending across all stages`,
-              timestamp: new Date(),
-              read: false,
-              actionUrl: '/approvals',
-              priority: 'medium',
             });
           }
         }

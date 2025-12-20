@@ -600,9 +600,19 @@ async def list_claims(
     status: Optional[str] = None,
     claim_type: Optional[str] = None,
     tenant_id: Optional[UUID] = None,
+    user_id: Optional[UUID] = None,
+    role: Optional[str] = None,
     db: AsyncSession = Depends(get_async_db),
 ):
-    """List claims with pagination and filters"""
+    """List claims with pagination and filters
+    
+    Role-based filtering:
+    - manager: Only sees claims from direct reports (employees where manager_id = user_id)
+    - hr: Sees claims in PENDING_HR, MANAGER_APPROVED status
+    - finance: Sees claims in PENDING_FINANCE, HR_APPROVED status
+    - admin: Sees all claims
+    - employee: Sees only their own claims
+    """
     from services.category_cache import category_cache
     from services.cached_data import cached_data
     
@@ -611,6 +621,26 @@ async def list_claims(
     # Filter by tenant if provided
     if tenant_id:
         query = query.where(Claim.tenant_id == tenant_id)
+    
+    # Role-based filtering for managers - show claims from direct reports only
+    if role == 'manager' and user_id:
+        # Get direct reports (employees where manager_id = current user)
+        direct_reports_query = select(User.id).where(
+            User.manager_id == user_id,
+            User.is_active == True
+        )
+        direct_reports_result = await db.execute(direct_reports_query)
+        direct_report_ids = [row[0] for row in direct_reports_result.fetchall()]
+        
+        if direct_report_ids:
+            # Filter claims to only those from direct reports
+            query = query.where(Claim.employee_id.in_(direct_report_ids))
+        else:
+            # No direct reports - return empty list by filtering for impossible condition
+            query = query.where(Claim.employee_id == None)
+    elif role == 'employee' and user_id:
+        # Employees only see their own claims
+        query = query.where(Claim.employee_id == user_id)
     
     if status:
         query = query.where(Claim.status == status)

@@ -270,31 +270,76 @@ async def get_ai_metrics(
 @router.get("/pending-approvals")
 async def get_pending_approvals_count(
     tenant_id: Optional[UUID] = None,
+    user_id: Optional[UUID] = None,
+    role: Optional[str] = None,
     db: Session = Depends(get_sync_db)
 ):
-    """Get pending approvals count by level based on claim status"""
+    """Get pending approvals count by level based on claim status.
     
-    # Count claims by pending status
-    manager_query = db.query(func.count(Claim.id)).filter(
-        Claim.status == 'PENDING_MANAGER'
-    )
-    if tenant_id:
-        manager_query = manager_query.filter(Claim.tenant_id == tenant_id)
-    manager_pending = manager_query.scalar() or 0
+    For managers, filters to show only claims from their direct reports.
+    For HR, shows all pending HR claims.
+    For Finance, shows all pending Finance claims.
+    Admin users don't get approval notifications (returns 0s).
+    """
     
-    hr_query = db.query(func.count(Claim.id)).filter(
-        Claim.status == 'PENDING_HR'
-    )
-    if tenant_id:
-        hr_query = hr_query.filter(Claim.tenant_id == tenant_id)
-    hr_pending = hr_query.scalar() or 0
+    manager_pending = 0
+    hr_pending = 0
+    finance_pending = 0
     
-    finance_query = db.query(func.count(Claim.id)).filter(
-        Claim.status == 'PENDING_FINANCE'
-    )
-    if tenant_id:
-        finance_query = finance_query.filter(Claim.tenant_id == tenant_id)
-    finance_pending = finance_query.scalar() or 0
+    # Admin role doesn't need approval notifications - return zeros
+    if role == 'admin':
+        return {
+            "manager_pending": 0,
+            "hr_pending": 0,
+            "finance_pending": 0,
+            "total_pending": 0
+        }
+    
+    # For manager role, only count claims from their direct reports
+    if role == 'manager' and user_id:
+        # Get direct reports (employees where manager_id = user_id)
+        direct_report_ids = db.query(User.id).filter(
+            User.manager_id == user_id,
+            User.is_active == True
+        )
+        if tenant_id:
+            direct_report_ids = direct_report_ids.filter(User.tenant_id == tenant_id)
+        direct_report_ids = [r[0] for r in direct_report_ids.all()]
+        
+        if direct_report_ids:
+            manager_query = db.query(func.count(Claim.id)).filter(
+                Claim.status == 'PENDING_MANAGER',
+                Claim.employee_id.in_(direct_report_ids)
+            )
+            if tenant_id:
+                manager_query = manager_query.filter(Claim.tenant_id == tenant_id)
+            manager_pending = manager_query.scalar() or 0
+    elif not role:
+        # When no role provided (backward compatibility), count all manager pending
+        manager_query = db.query(func.count(Claim.id)).filter(
+            Claim.status == 'PENDING_MANAGER'
+        )
+        if tenant_id:
+            manager_query = manager_query.filter(Claim.tenant_id == tenant_id)
+        manager_pending = manager_query.scalar() or 0
+    
+    # HR pending - only for HR role
+    if role == 'hr' or not role:
+        hr_query = db.query(func.count(Claim.id)).filter(
+            Claim.status == 'PENDING_HR'
+        )
+        if tenant_id:
+            hr_query = hr_query.filter(Claim.tenant_id == tenant_id)
+        hr_pending = hr_query.scalar() or 0
+    
+    # Finance pending - only for Finance role
+    if role == 'finance' or not role:
+        finance_query = db.query(func.count(Claim.id)).filter(
+            Claim.status == 'PENDING_FINANCE'
+        )
+        if tenant_id:
+            finance_query = finance_query.filter(Claim.tenant_id == tenant_id)
+        finance_pending = finance_query.scalar() or 0
     
     total_pending = manager_pending + hr_pending + finance_pending
     

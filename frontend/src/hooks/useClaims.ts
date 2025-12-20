@@ -5,10 +5,15 @@ import { useAuth } from '@/contexts/AuthContext';
 const API_BASE_URL = 'http://localhost:8000/api/v1';
 
 // API functions
-async function fetchClaims(tenantId?: string): Promise<Claim[]> {
+async function fetchClaims(tenantId?: string, userId?: string, role?: string): Promise<Claim[]> {
   const params = new URLSearchParams();
   if (tenantId) {
     params.append('tenant_id', tenantId);
+  }
+  // For manager role, pass user_id and role for filtering to direct reports only
+  if (userId && role) {
+    params.append('user_id', userId);
+    params.append('role', role);
   }
   const url = `${API_BASE_URL}/claims/${params.toString() ? '?' + params.toString() : ''}`;
   const response = await fetch(url);
@@ -184,8 +189,8 @@ async function updateClaimStatus(id: string, status: ClaimStatus, tenantId: stri
 export function useClaims() {
   const { user } = useAuth();
   return useQuery({
-    queryKey: ['claims', user?.tenantId],
-    queryFn: () => fetchClaims(user?.tenantId),
+    queryKey: ['claims', user?.tenantId, user?.id, user?.role],
+    queryFn: () => fetchClaims(user?.tenantId, user?.id, user?.role),
     enabled: !!user?.tenantId,
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
