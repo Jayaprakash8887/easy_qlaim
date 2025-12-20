@@ -333,3 +333,244 @@ export function useAdminStats(tenantId?: string) {
     staleTime: 120000,
   });
 }
+
+// ==================== FINANCE REPORTS ====================
+
+// Finance Metrics interface
+interface FinanceMetrics {
+  pending_finance: { count: number; amount: number };
+  ready_for_settlement: { count: number; amount: number };
+  settled_this_period: { count: number; amount: number };
+  total_this_period: { count: number; amount: number };
+  avg_settlement_time_days: number;
+  rejection_rate_percentage: number;
+  period: string;
+}
+
+async function fetchFinanceMetrics(tenantId?: string, period: string = 'month'): Promise<FinanceMetrics> {
+  const url = buildUrl(`${API_BASE_URL}/dashboard/finance-metrics`, { tenant_id: tenantId, period });
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to fetch finance metrics');
+  }
+  return response.json();
+}
+
+export function useFinanceMetrics(tenantId?: string, period: string = 'month') {
+  const { user } = useAuth();
+  const effectiveTenantId = tenantId || user?.tenantId;
+
+  return useQuery({
+    queryKey: ['finance-metrics', effectiveTenantId, period],
+    queryFn: () => fetchFinanceMetrics(effectiveTenantId, period),
+    enabled: !!effectiveTenantId,
+    refetchInterval: 120000,
+    staleTime: 60000,
+  });
+}
+
+// Claims by Project interface
+interface ClaimsByProject {
+  project_code: string;
+  project_name: string;
+  budget_total: number;
+  budget_utilized: number;
+  budget_percentage: number;
+  claims_count: number;
+  claims_amount: number;
+  settled_amount: number;
+}
+
+async function fetchClaimsByProject(tenantId?: string, period: string = 'month'): Promise<ClaimsByProject[]> {
+  const url = buildUrl(`${API_BASE_URL}/dashboard/claims-by-project`, { tenant_id: tenantId, period });
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to fetch claims by project');
+  }
+  return response.json();
+}
+
+export function useClaimsByProject(tenantId?: string, period: string = 'month') {
+  const { user } = useAuth();
+  const effectiveTenantId = tenantId || user?.tenantId;
+
+  return useQuery({
+    queryKey: ['claims-by-project', effectiveTenantId, period],
+    queryFn: () => fetchClaimsByProject(effectiveTenantId, period),
+    enabled: !!effectiveTenantId,
+    refetchInterval: 180000,
+    staleTime: 120000,
+  });
+}
+
+// Settlement Analytics interface
+interface SettlementAnalytics {
+  payment_methods: { method: string; count: number; amount: number }[];
+  monthly_trend: { month: string; count: number; amount: number }[];
+  by_category: { category: string; count: number; amount: number }[];
+  period: string;
+}
+
+async function fetchSettlementAnalytics(tenantId?: string, period: string = '6m'): Promise<SettlementAnalytics> {
+  const url = buildUrl(`${API_BASE_URL}/dashboard/settlement-analytics`, { tenant_id: tenantId, period });
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to fetch settlement analytics');
+  }
+  return response.json();
+}
+
+export function useSettlementAnalytics(tenantId?: string, period: string = '6m') {
+  const { user } = useAuth();
+  const effectiveTenantId = tenantId || user?.tenantId;
+
+  return useQuery({
+    queryKey: ['settlement-analytics', effectiveTenantId, period],
+    queryFn: () => fetchSettlementAnalytics(effectiveTenantId, period),
+    enabled: !!effectiveTenantId,
+    refetchInterval: 180000,
+    staleTime: 120000,
+  });
+}
+
+// Pending Settlements interface
+interface PendingSettlement {
+  id: string;
+  claim_number: string;
+  employee_name: string;
+  employee_id: string;
+  category: string;
+  amount: number;
+  currency: string;
+  approved_date: string | null;
+  days_pending: number;
+  description: string;
+}
+
+interface PendingSettlementsResponse {
+  claims: PendingSettlement[];
+  total_count: number;
+  total_amount: number;
+  aging_summary: {
+    '0-7_days': number;
+    '8-14_days': number;
+    '15-30_days': number;
+    'over_30_days': number;
+  };
+}
+
+async function fetchPendingSettlements(tenantId?: string): Promise<PendingSettlementsResponse> {
+  const url = buildUrl(`${API_BASE_URL}/dashboard/pending-settlements`, { tenant_id: tenantId });
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to fetch pending settlements');
+  }
+  return response.json();
+}
+
+export function usePendingSettlements(tenantId?: string) {
+  const { user } = useAuth();
+  const effectiveTenantId = tenantId || user?.tenantId;
+
+  return useQuery({
+    queryKey: ['pending-settlements', effectiveTenantId],
+    queryFn: () => fetchPendingSettlements(effectiveTenantId),
+    enabled: !!effectiveTenantId,
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+}
+
+// Claims Trend interface
+interface ClaimsTrendData {
+  month: string;
+  month_year: string;
+  submitted: number;
+  approved: number;
+  settled: number;
+  amount: number;
+}
+
+async function fetchClaimsTrend(tenantId?: string, period: string = '6m'): Promise<ClaimsTrendData[]> {
+  const url = buildUrl(`${API_BASE_URL}/dashboard/claims-trend`, { tenant_id: tenantId, period });
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to fetch claims trend');
+  }
+  return response.json();
+}
+
+export function useClaimsTrend(tenantId?: string, period: string = '6m') {
+  const { user } = useAuth();
+  const effectiveTenantId = tenantId || user?.tenantId;
+
+  return useQuery({
+    queryKey: ['claims-trend', effectiveTenantId, period],
+    queryFn: () => fetchClaimsTrend(effectiveTenantId, period),
+    enabled: !!effectiveTenantId,
+    refetchInterval: 180000,
+    staleTime: 120000,
+  });
+}
+
+// Expense Breakdown interface
+interface ExpenseBreakdown {
+  by_category: { category: string; count: number; amount: number; percentage: number }[];
+  by_claim_type: { type: string; count: number; amount: number }[];
+  by_department: { department: string; count: number; amount: number }[];
+  total_amount: number;
+  period: string;
+}
+
+async function fetchExpenseBreakdown(tenantId?: string, period: string = 'month'): Promise<ExpenseBreakdown> {
+  const url = buildUrl(`${API_BASE_URL}/dashboard/expense-breakdown`, { tenant_id: tenantId, period });
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to fetch expense breakdown');
+  }
+  return response.json();
+}
+
+export function useExpenseBreakdown(tenantId?: string, period: string = 'month') {
+  const { user } = useAuth();
+  const effectiveTenantId = tenantId || user?.tenantId;
+
+  return useQuery({
+    queryKey: ['expense-breakdown', effectiveTenantId, period],
+    queryFn: () => fetchExpenseBreakdown(effectiveTenantId, period),
+    enabled: !!effectiveTenantId,
+    refetchInterval: 180000,
+    staleTime: 120000,
+  });
+}
+
+// Top Claimants interface
+interface TopClaimant {
+  employee_id: string;
+  employee_name: string;
+  department: string;
+  claim_count: number;
+  total_amount: number;
+}
+
+async function fetchTopClaimants(tenantId?: string, limit: number = 10, period: string = 'month'): Promise<TopClaimant[]> {
+  const url = buildUrl(`${API_BASE_URL}/dashboard/top-claimants`, { tenant_id: tenantId, limit, period });
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to fetch top claimants');
+  }
+  return response.json();
+}
+
+export function useTopClaimants(tenantId?: string, limit: number = 10, period: string = 'month') {
+  const { user } = useAuth();
+  const effectiveTenantId = tenantId || user?.tenantId;
+
+  return useQuery({
+    queryKey: ['top-claimants', effectiveTenantId, limit, period],
+    queryFn: () => fetchTopClaimants(effectiveTenantId, limit, period),
+    enabled: !!effectiveTenantId,
+    refetchInterval: 180000,
+    staleTime: 120000,
+  });
+}

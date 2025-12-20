@@ -4,7 +4,7 @@ Dashboard and analytics endpoints with caching for performance
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, case
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any, Optional
 from uuid import UUID
 
@@ -505,3 +505,544 @@ async def get_admin_stats(
         "active_employees": active_employees,
         "ai_success_rate": round(float(ai_success_rate), 1)
     }
+
+
+# ==================== FINANCE REPORTS ====================
+
+@router.get("/finance-metrics")
+async def get_finance_metrics(
+    tenant_id: Optional[UUID] = None,
+    period: str = "month",  # month, quarter, year
+    db: Session = Depends(get_sync_db)
+):
+    """Get Finance-specific metrics for reports dashboard"""
+    from models import Project
+    from datetime import date
+    
+    # Determine period start date
+    today = date.today()
+    if period == "month":
+        period_start = today.replace(day=1)
+    elif period == "quarter":
+        quarter_month = ((today.month - 1) // 3) * 3 + 1
+        period_start = today.replace(month=quarter_month, day=1)
+    else:  # year
+        period_start = today.replace(month=1, day=1)
+    
+    # Base conditions
+    base_conditions = []
+    if tenant_id:
+        base_conditions.append(Claim.tenant_id == tenant_id)
+    
+    # 1. Pending Finance Approval
+    pending_conditions = base_conditions + [Claim.status == 'PENDING_FINANCE']
+    pending_finance = db.query(func.count(Claim.id)).filter(
+        and_(*pending_conditions)
+    ).scalar() or 0
+    
+    pending_amount = db.query(func.sum(Claim.amount)).filter(
+        and_(*pending_conditions)
+    ).scalar() or 0
+    
+    # 2. Finance Approved (ready for settlement)
+    approved_conditions = base_conditions + [Claim.status == 'FINANCE_APPROVED']
+    approved_count = db.query(func.count(Claim.id)).filter(
+        and_(*approved_conditions)
+    ).scalar() or 0
+    
+    approved_amount = db.query(func.sum(Claim.amount)).filter(
+        and_(*approved_conditions)
+    ).scalar() or 0
+    
+    # 3. Settled this period
+    settled_conditions = base_conditions + [
+        Claim.status == 'SETTLED',
+        Claim.settled_date >= period_start
+    ]
+    settled_count = db.query(func.count(Claim.id)).filter(
+        and_(*settled_conditions)
+    ).scalar() or 0
+    
+    settled_amount = db.query(func.sum(Claim.amount_paid)).filter(
+        and_(*settled_conditions)
+    ).scalar() or 0
+    
+    # 4. Total this period (all submitted)
+    period_conditions = base_conditions + [Claim.submission_date >= period_start]
+    total_period_count = db.query(func.count(Claim.id)).filter(
+        and_(*period_conditions)
+    ).scalar() or 0
+    
+    total_period_amount = db.query(func.sum(Claim.amount)).filter(
+        and_(*period_conditions)
+    ).scalar() or 0
+    
+    # 5. Average settlement time (days from finance approval to settlement)
+    avg_settlement_time = 2.5  # TODO: Calculate actual average
+    
+    # 6. Rejection rate this period
+    rejected_conditions = base_conditions + [
+        Claim.status == 'REJECTED',
+        Claim.updated_at >= period_start
+    ]
+    rejected_count = db.query(func.count(Claim.id)).filter(
+        and_(*rejected_conditions)
+    ).scalar() or 0
+    
+    rejection_rate = (rejected_count / total_period_count * 100) if total_period_count > 0 else 0
+    
+    return {
+        "pending_finance": {
+            "count": pending_finance,
+            "amount": float(pending_amount)
+        },
+        "ready_for_settlement": {
+            "count": approved_count,
+            "amount": float(approved_amount)
+        },
+        "settled_this_period": {
+            "count": settled_count,
+            "amount": float(settled_amount or 0)
+        },
+        "total_this_period": {
+            "count": total_period_count,
+            "amount": float(total_period_amount)
+        },
+        "avg_settlement_time_days": avg_settlement_time,
+        "rejection_rate_percentage": round(rejection_rate, 1),
+        "period": period
+    }
+
+
+@router.get("/claims-by-project")
+async def get_claims_by_project(
+    tenant_id: Optional[UUID] = None,
+    period: str = "month",
+    db: Session = Depends(get_sync_db)
+):
+    """Get claims summary by project for budget vs actual analysis"""
+    from models import Project
+    from datetime import date
+    
+    # Determine period start date
+    today = date.today()
+    if period == "month":
+        period_start = today.replace(day=1)
+    elif period == "quarter":
+        quarter_month = ((today.month - 1) // 3) * 3 + 1
+        period_start = today.replace(month=quarter_month, day=1)
+    else:  # year
+        period_start = today.replace(month=1, day=1)
+    
+    # Get projects with claims summary
+    project_query = db.query(Project)
+    if tenant_id:
+        project_query = project_query.filter(Project.tenant_id == tenant_id)
+    
+    projects = project_query.all()
+    
+    result = []
+    for project in projects:
+        # Claims for this project
+        claims_query = db.query(
+            func.count(Claim.id).label('claim_count'),
+            func.sum(Claim.amount).label('total_amount'),
+            func.sum(case(
+                (Claim.status == 'SETTLED', Claim.amount_paid),
+                else_=0
+            )).label('settled_amount')
+        ).filter(
+            Claim.claim_payload['project_code'].astext == project.code
+        )
+        
+        if tenant_id:
+            claims_query = claims_query.filter(Claim.tenant_id == tenant_id)
+        
+        claims_data = claims_query.first()
+        
+        budget_utilized = float(project.budget_spent or 0)
+        budget_total = float(project.budget or 0)
+        budget_percentage = (budget_utilized / budget_total * 100) if budget_total > 0 else 0
+        
+        result.append({
+            "project_code": project.code,
+            "project_name": project.name,
+            "budget_total": budget_total,
+            "budget_utilized": budget_utilized,
+            "budget_percentage": round(budget_percentage, 1),
+            "claims_count": claims_data.claim_count or 0,
+            "claims_amount": float(claims_data.total_amount or 0),
+            "settled_amount": float(claims_data.settled_amount or 0)
+        })
+    
+    return sorted(result, key=lambda x: x['claims_amount'], reverse=True)
+
+
+@router.get("/settlement-analytics")
+async def get_settlement_analytics(
+    tenant_id: Optional[UUID] = None,
+    period: str = "6m",  # 1m, 3m, 6m, 1y
+    db: Session = Depends(get_sync_db)
+):
+    """Get settlement analytics by payment method and time period"""
+    from datetime import date, timedelta
+    
+    # Determine period start date
+    today = date.today()
+    period_days = {"1m": 30, "3m": 90, "6m": 180, "1y": 365}
+    days_back = period_days.get(period, 180)
+    period_start = today - timedelta(days=days_back)
+    
+    base_conditions = [Claim.status == 'SETTLED', Claim.settled_date >= period_start]
+    if tenant_id:
+        base_conditions.append(Claim.tenant_id == tenant_id)
+    
+    # 1. By payment method
+    by_method = db.query(
+        Claim.payment_method,
+        func.count(Claim.id).label('count'),
+        func.sum(Claim.amount_paid).label('amount')
+    ).filter(
+        and_(*base_conditions)
+    ).group_by(Claim.payment_method).all()
+    
+    payment_methods = [
+        {
+            "method": method or "Unknown",
+            "count": count,
+            "amount": float(amount or 0)
+        }
+        for method, count, amount in by_method
+    ]
+    
+    # 2. Monthly trend (last 6 months)
+    monthly_trend = []
+    for i in range(6):
+        month_end = today.replace(day=1) - timedelta(days=1) if i == 0 else (today.replace(day=1) - timedelta(days=i*30)).replace(day=1) - timedelta(days=1)
+        month_start = month_end.replace(day=1)
+        
+        if i > 0:
+            month_start = (today.replace(day=1) - timedelta(days=i*30)).replace(day=1)
+            next_month = month_start.replace(day=28) + timedelta(days=4)
+            month_end = next_month - timedelta(days=next_month.day)
+        else:
+            month_start = today.replace(day=1)
+            month_end = today
+        
+        month_conditions = base_conditions + [
+            Claim.settled_date >= month_start,
+            Claim.settled_date <= month_end
+        ]
+        
+        month_data = db.query(
+            func.count(Claim.id),
+            func.sum(Claim.amount_paid)
+        ).filter(and_(*month_conditions)).first()
+        
+        monthly_trend.append({
+            "month": month_start.strftime("%b %Y"),
+            "count": month_data[0] or 0,
+            "amount": float(month_data[1] or 0)
+        })
+    
+    monthly_trend.reverse()  # Oldest first
+    
+    # 3. By category
+    by_category = db.query(
+        Claim.category,
+        func.count(Claim.id).label('count'),
+        func.sum(Claim.amount_paid).label('amount')
+    ).filter(
+        and_(*base_conditions)
+    ).group_by(Claim.category).all()
+    
+    categories = [
+        {
+            "category": category,
+            "count": count,
+            "amount": float(amount or 0)
+        }
+        for category, count, amount in by_category
+    ]
+    
+    return {
+        "payment_methods": payment_methods,
+        "monthly_trend": monthly_trend,
+        "by_category": categories,
+        "period": period
+    }
+
+
+@router.get("/pending-settlements")
+async def get_pending_settlements(
+    tenant_id: Optional[UUID] = None,
+    db: Session = Depends(get_sync_db)
+):
+    """Get claims pending settlement (Finance Approved)"""
+    
+    query = db.query(Claim).filter(Claim.status == 'FINANCE_APPROVED')
+    
+    if tenant_id:
+        query = query.filter(Claim.tenant_id == tenant_id)
+    
+    claims = query.order_by(Claim.updated_at.asc()).all()
+    
+    result = []
+    now = datetime.now(timezone.utc)
+    for claim in claims:
+        if claim.updated_at:
+            # Handle both timezone-aware and naive datetimes
+            updated_at = claim.updated_at
+            if updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            days_pending = (now - updated_at).days
+        else:
+            days_pending = 0
+        
+        result.append({
+            "id": str(claim.id),
+            "claim_number": claim.claim_number,
+            "employee_name": claim.employee_name,
+            "employee_id": str(claim.employee_id),
+            "category": claim.category,
+            "amount": float(claim.amount),
+            "currency": claim.currency or "INR",
+            "approved_date": claim.updated_at.isoformat() if claim.updated_at else None,
+            "days_pending": days_pending,
+            "description": claim.description
+        })
+    
+    # Group by aging
+    aging_summary = {
+        "0-7_days": sum(1 for c in result if c['days_pending'] <= 7),
+        "8-14_days": sum(1 for c in result if 7 < c['days_pending'] <= 14),
+        "15-30_days": sum(1 for c in result if 14 < c['days_pending'] <= 30),
+        "over_30_days": sum(1 for c in result if c['days_pending'] > 30)
+    }
+    
+    total_amount = sum(c['amount'] for c in result)
+    
+    return {
+        "claims": result,
+        "total_count": len(result),
+        "total_amount": total_amount,
+        "aging_summary": aging_summary
+    }
+
+
+@router.get("/claims-trend")
+async def get_claims_trend(
+    tenant_id: Optional[UUID] = None,
+    period: str = "6m",
+    db: Session = Depends(get_sync_db)
+):
+    """Get claims trend data for charts (submitted, approved, settled over time)"""
+    from datetime import date, timedelta
+    
+    # Determine period
+    today = date.today()
+    period_days = {"1m": 30, "3m": 90, "6m": 180, "1y": 365}
+    days_back = period_days.get(period, 180)
+    
+    # Build monthly data
+    monthly_data = []
+    for i in range(6):
+        if i == 0:
+            month_start = today.replace(day=1)
+            month_end = today
+        else:
+            # Go back i months
+            month_start = (today.replace(day=1) - timedelta(days=i*30)).replace(day=1)
+            next_month = month_start.replace(day=28) + timedelta(days=4)
+            month_end = next_month - timedelta(days=next_month.day)
+        
+        base_conditions = []
+        if tenant_id:
+            base_conditions.append(Claim.tenant_id == tenant_id)
+        
+        # Submitted this month
+        submitted_query = db.query(func.count(Claim.id)).filter(
+            and_(*base_conditions),
+            Claim.submission_date >= month_start,
+            Claim.submission_date <= month_end
+        )
+        submitted = submitted_query.scalar() or 0
+        
+        # Approved (Finance approved)
+        approved_query = db.query(func.count(Claim.id)).filter(
+            and_(*base_conditions),
+            Claim.status.in_(['FINANCE_APPROVED', 'SETTLED']),
+            Claim.updated_at >= month_start,
+            Claim.updated_at <= month_end
+        )
+        approved = approved_query.scalar() or 0
+        
+        # Settled
+        settled_query = db.query(func.count(Claim.id)).filter(
+            and_(*base_conditions),
+            Claim.status == 'SETTLED',
+            Claim.settled_date >= month_start,
+            Claim.settled_date <= month_end
+        )
+        settled = settled_query.scalar() or 0
+        
+        # Total amount
+        amount_query = db.query(func.sum(Claim.amount)).filter(
+            and_(*base_conditions),
+            Claim.submission_date >= month_start,
+            Claim.submission_date <= month_end
+        )
+        total_amount = amount_query.scalar() or 0
+        
+        monthly_data.append({
+            "month": month_start.strftime("%b"),
+            "month_year": month_start.strftime("%b %Y"),
+            "submitted": submitted,
+            "approved": approved,
+            "settled": settled,
+            "amount": float(total_amount)
+        })
+    
+    monthly_data.reverse()  # Oldest first
+    
+    return monthly_data
+
+
+@router.get("/expense-breakdown")
+async def get_expense_breakdown(
+    tenant_id: Optional[UUID] = None,
+    period: str = "month",
+    db: Session = Depends(get_sync_db)
+):
+    """Get expense breakdown by category for pie charts"""
+    from datetime import date
+    
+    # Determine period start date
+    today = date.today()
+    if period == "month":
+        period_start = today.replace(day=1)
+    elif period == "quarter":
+        quarter_month = ((today.month - 1) // 3) * 3 + 1
+        period_start = today.replace(month=quarter_month, day=1)
+    else:  # year
+        period_start = today.replace(month=1, day=1)
+    
+    base_conditions = [Claim.submission_date >= period_start]
+    if tenant_id:
+        base_conditions.append(Claim.tenant_id == tenant_id)
+    
+    # By category
+    by_category = db.query(
+        Claim.category,
+        func.count(Claim.id).label('count'),
+        func.sum(Claim.amount).label('amount')
+    ).filter(
+        and_(*base_conditions)
+    ).group_by(Claim.category).all()
+    
+    total_amount = sum(float(amount or 0) for _, _, amount in by_category)
+    
+    categories = []
+    for category, count, amount in by_category:
+        percentage = (float(amount or 0) / total_amount * 100) if total_amount > 0 else 0
+        categories.append({
+            "category": category,
+            "count": count,
+            "amount": float(amount or 0),
+            "percentage": round(percentage, 1)
+        })
+    
+    # By claim type
+    by_type = db.query(
+        Claim.claim_type,
+        func.count(Claim.id).label('count'),
+        func.sum(Claim.amount).label('amount')
+    ).filter(
+        and_(*base_conditions)
+    ).group_by(Claim.claim_type).all()
+    
+    claim_types = [
+        {
+            "type": claim_type,
+            "count": count,
+            "amount": float(amount or 0)
+        }
+        for claim_type, count, amount in by_type
+    ]
+    
+    # By department
+    by_department = db.query(
+        Claim.department,
+        func.count(Claim.id).label('count'),
+        func.sum(Claim.amount).label('amount')
+    ).filter(
+        and_(*base_conditions)
+    ).group_by(Claim.department).all()
+    
+    departments = [
+        {
+            "department": dept or "Unknown",
+            "count": count,
+            "amount": float(amount or 0)
+        }
+        for dept, count, amount in by_department
+    ]
+    
+    return {
+        "by_category": sorted(categories, key=lambda x: x['amount'], reverse=True),
+        "by_claim_type": claim_types,
+        "by_department": sorted(departments, key=lambda x: x['amount'], reverse=True),
+        "total_amount": total_amount,
+        "period": period
+    }
+
+
+@router.get("/top-claimants")
+async def get_top_claimants(
+    tenant_id: Optional[UUID] = None,
+    limit: int = 10,
+    period: str = "month",
+    db: Session = Depends(get_sync_db)
+):
+    """Get top claimants by amount"""
+    from datetime import date
+    
+    # Determine period start date
+    today = date.today()
+    if period == "month":
+        period_start = today.replace(day=1)
+    elif period == "quarter":
+        quarter_month = ((today.month - 1) // 3) * 3 + 1
+        period_start = today.replace(month=quarter_month, day=1)
+    else:  # year
+        period_start = today.replace(month=1, day=1)
+    
+    base_conditions = [Claim.submission_date >= period_start]
+    if tenant_id:
+        base_conditions.append(Claim.tenant_id == tenant_id)
+    
+    top_claimants = db.query(
+        Claim.employee_id,
+        Claim.employee_name,
+        Claim.department,
+        func.count(Claim.id).label('claim_count'),
+        func.sum(Claim.amount).label('total_amount')
+    ).filter(
+        and_(*base_conditions)
+    ).group_by(
+        Claim.employee_id, Claim.employee_name, Claim.department
+    ).order_by(
+        func.sum(Claim.amount).desc()
+    ).limit(limit).all()
+    
+    return [
+        {
+            "employee_id": str(emp_id),
+            "employee_name": name,
+            "department": dept,
+            "claim_count": count,
+            "total_amount": float(amount or 0)
+        }
+        for emp_id, name, dept, count, amount in top_claimants
+    ]
+

@@ -49,9 +49,6 @@ export default function Login() {
             />
           </div>
           <CardTitle className="text-2xl font-bold text-[#13283E] dark:text-white pt-4">Welcome Back</CardTitle>
-          <CardDescription className="text-[#1E3754] dark:text-gray-300">
-            Smart Claims Settlement Platform
-          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
