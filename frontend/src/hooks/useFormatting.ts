@@ -5,6 +5,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { format as dateFnsFormat, parse } from 'date-fns';
+import { useCallback, useMemo } from 'react';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
@@ -82,7 +83,7 @@ export function useFormatting() {
   /**
    * Format a date according to tenant settings
    */
-  const formatDate = (date: Date | string | null | undefined): string => {
+  const formatDate = useCallback((date: Date | string | null | undefined): string => {
     if (!date) return '-';
     
     try {
@@ -94,12 +95,12 @@ export function useFormatting() {
     } catch {
       return '-';
     }
-  };
+  }, [currentSettings.date_format]);
 
   /**
    * Format a date with time according to tenant settings
    */
-  const formatDateTime = (date: Date | string | null | undefined): string => {
+  const formatDateTime = useCallback((date: Date | string | null | undefined): string => {
     if (!date) return '-';
     
     try {
@@ -111,22 +112,22 @@ export function useFormatting() {
     } catch {
       return '-';
     }
-  };
+  }, [currentSettings.date_format]);
 
   /**
    * Format a number according to tenant settings
    */
-  const formatNumber = (value: number | null | undefined): string => {
+  const formatNumber = useCallback((value: number | null | undefined): string => {
     if (value === null || value === undefined) return '-';
     
     const locale = NUMBER_FORMAT_LOCALES[currentSettings.number_format] || 'en-IN';
     return new Intl.NumberFormat(locale).format(value);
-  };
+  }, [currentSettings.number_format]);
 
   /**
    * Format currency amount according to tenant settings
    */
-  const formatCurrency = (
+  const formatCurrency = useCallback((
     amount: number | null | undefined, 
     currency?: string
   ): string => {
@@ -143,13 +144,13 @@ export function useFormatting() {
     }).format(amount);
     
     return `${symbol}${formattedNumber}`;
-  };
+  }, [currentSettings.default_currency, currentSettings.number_format]);
 
   /**
    * Format currency amount with full Intl.NumberFormat
    * (includes proper currency symbol placement for the locale)
    */
-  const formatCurrencyFull = (
+  const formatCurrencyFull = useCallback((
     amount: number | null | undefined,
     currency?: string
   ): string => {
@@ -167,29 +168,29 @@ export function useFormatting() {
       // Fallback if currency code is not valid
       return formatCurrency(amount, currency);
     }
-  };
+  }, [currentSettings.default_currency, currentSettings.number_format, formatCurrency]);
 
   /**
    * Get the currency symbol for current tenant
    */
-  const getCurrencySymbol = (currency?: string): string => {
+  const getCurrencySymbol = useCallback((currency?: string): string => {
     const currencyCode = currency || currentSettings.default_currency;
     return CURRENCY_SYMBOLS[currencyCode.toLowerCase()] || currencyCode.toUpperCase();
-  };
+  }, [currentSettings.default_currency]);
 
   /**
    * Get the current date format string (for display)
    */
-  const getDateFormatDisplay = (): string => {
+  const getDateFormatDisplay = useCallback((): string => {
     return currentSettings.date_format;
-  };
+  }, [currentSettings.date_format]);
 
   /**
    * Get date-fns format string for use in date pickers
    */
-  const getDateFnsFormat = (): string => {
+  const getDateFnsFormat = useCallback((): string => {
     return DATE_FORMAT_MAP[currentSettings.date_format] || 'dd/MM/yyyy';
-  };
+  }, [currentSettings.date_format]);
 
   return {
     formatDate,

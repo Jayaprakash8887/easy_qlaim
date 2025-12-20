@@ -171,11 +171,11 @@ class ApprovalAgent(BaseAgent):
         Determine next status based on confidence, recommendation, and tenant settings.
         
         Routing Logic:
-        1. If auto-approval enabled + confidence >= threshold + amount <= max + APPROVE recommendation → FINANCE_APPROVED
+        1. If auto-approval enabled AND confidence >= AI threshold AND confidence >= Policy threshold 
+           AND amount <= max AND APPROVE recommendation → FINANCE_APPROVED
         2. If policy exceptions exist → PENDING_HR
-        3. If confidence >= policy_compliance_threshold → PENDING_MANAGER
-        4. If confidence < 60% → REJECTED
-        5. Default → PENDING_MANAGER
+        3. If confidence < 60% → REJECTED
+        4. Default → PENDING_MANAGER
         """
         
         enable_auto_approval = tenant_settings.get("enable_auto_approval", DEFAULT_ENABLE_AUTO_APPROVAL)
@@ -184,19 +184,38 @@ class ApprovalAgent(BaseAgent):
         policy_compliance_threshold = tenant_settings.get("policy_compliance_threshold", DEFAULT_POLICY_COMPLIANCE_THRESHOLD) / 100.0
         
         self.logger.info(f"Routing claim {claim.id} - confidence: {confidence}, amount: {claim_amount}")
-        self.logger.info(f"Settings - auto_approval: {enable_auto_approval}, threshold: {auto_approval_threshold}, max_amount: {max_auto_approval_amount}")
+        self.logger.info(f"Settings - auto_approval: {enable_auto_approval}, ai_threshold: {auto_approval_threshold}, policy_threshold: {policy_compliance_threshold}, max_amount: {max_auto_approval_amount}")
         
-        # Auto-approve if enabled and all conditions met
+        # Auto-approve if enabled and ALL conditions met:
+        # - confidence >= AI Confidence Threshold
+        # - confidence >= Policy Compliance Threshold  
+        # - amount <= Max Amount
+        # - recommendation is APPROVE
         if enable_auto_approval:
-            if confidence >= auto_approval_threshold:
-                if claim_amount <= max_auto_approval_amount:
-                    if recommendation in ("AUTO_APPROVE", "APPROVE"):
-                        self.logger.info(f"Auto-approving claim {claim.id} - high confidence ({confidence*100:.1f}%) and amount (${claim_amount}) within limits")
-                        return "FINANCE_APPROVED"  # Skip to finance for settlement
-                    else:
-                        self.logger.info(f"High confidence but recommendation is {recommendation}, routing to manager")
-                else:
-                    self.logger.info(f"Amount ${claim_amount} exceeds max auto-approval ${max_auto_approval_amount}, routing to manager")
+            meets_ai_threshold = confidence >= auto_approval_threshold
+            meets_policy_threshold = confidence >= policy_compliance_threshold
+            meets_amount_limit = claim_amount <= max_auto_approval_amount
+            has_approve_recommendation = recommendation in ("AUTO_APPROVE", "APPROVE")
+            
+            if meets_ai_threshold and meets_policy_threshold and meets_amount_limit and has_approve_recommendation:
+                self.logger.info(
+                    f"Auto-approving claim {claim.id} - confidence ({confidence*100:.1f}%) meets both "
+                    f"AI threshold ({auto_approval_threshold*100:.1f}%) and policy threshold ({policy_compliance_threshold*100:.1f}%), "
+                    f"amount (${claim_amount}) within limit (${max_auto_approval_amount})"
+                )
+                return "FINANCE_APPROVED"  # Skip to finance for settlement
+            else:
+                # Log why auto-approval failed
+                reasons = []
+                if not meets_ai_threshold:
+                    reasons.append(f"confidence {confidence*100:.1f}% < AI threshold {auto_approval_threshold*100:.1f}%")
+                if not meets_policy_threshold:
+                    reasons.append(f"confidence {confidence*100:.1f}% < policy threshold {policy_compliance_threshold*100:.1f}%")
+                if not meets_amount_limit:
+                    reasons.append(f"amount ${claim_amount} > max ${max_auto_approval_amount}")
+                if not has_approve_recommendation:
+                    reasons.append(f"recommendation is {recommendation}, not APPROVE")
+                self.logger.info(f"Auto-approval not eligible for claim {claim.id}: {', '.join(reasons)}")
         
         # Check for policy exceptions
         validation = claim.claim_payload.get("validation", {})
@@ -207,18 +226,13 @@ class ApprovalAgent(BaseAgent):
             self.logger.info(f"Claim {claim.id} has {len(failed_rules)} failed policy rules, routing to HR")
             return "PENDING_HR"
         
-        # Medium-high confidence - manager review
-        if confidence >= policy_compliance_threshold:
-            self.logger.info(f"Claim {claim.id} has good confidence ({confidence*100:.1f}%), routing to manager")
-            return "PENDING_MANAGER"
-        
         # Low confidence - reject
         if confidence < 0.60:
             self.logger.info(f"Claim {claim.id} has low confidence ({confidence*100:.1f}%), rejecting")
             return "REJECTED"
         
         # Default - manager review
-        self.logger.info(f"Default routing claim {claim.id} to manager")
+        self.logger.info(f"Routing claim {claim.id} to manager for review")
         return "PENDING_MANAGER"
     
     def process_manager_approval(self, claim_id: str, approved: bool) -> str:

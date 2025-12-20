@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Settings as SettingsIcon,
   Save,
@@ -8,6 +8,11 @@ import {
   Clock,
   Calendar,
   Shield,
+  Palette,
+  Image,
+  Upload,
+  Trash2,
+  Info,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,9 +28,43 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
+import { toast as sonnerToast } from 'sonner';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
+import {
+  useTenantBranding,
+  useUploadBrandingFile,
+  useDeleteBrandingFile,
+  useUpdateBrandingColors,
+  useUpdateBrandingSettings,
+  BrandingFileSpec,
+} from '@/hooks/useSystemAdmin';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
@@ -65,6 +104,164 @@ interface AllSettingsOptions {
   session_timeouts: { options: SettingOption[]; default: string };
 }
 
+// Branding file specs
+const BRANDING_FILE_SPECS: Record<string, BrandingFileSpec> = {
+  logo: {
+    name: "Full Logo",
+    description: "Primary logo with company name, used in headers and login pages",
+    formats: ["svg", "png"],
+    max_size_mb: 2,
+    recommended_dimensions: "400x200 pixels (for PNG) or scalable (for SVG)",
+    notes: "SVG is preferred for crisp rendering at all sizes. PNG should be at least 400px wide."
+  },
+  logo_mark: {
+    name: "Logo Mark",
+    description: "Icon or symbol only, used in sidebars and compact spaces",
+    formats: ["svg", "png"],
+    max_size_mb: 1,
+    recommended_dimensions: "72x72 pixels minimum (for PNG) or scalable (for SVG)",
+    notes: "Square format recommended. Used when space is limited."
+  },
+  favicon: {
+    name: "Favicon",
+    description: "Browser tab icon",
+    formats: ["ico", "png"],
+    max_size_mb: 0.5,
+    recommended_dimensions: "32x32 or 16x16 pixels",
+    notes: "ICO format supports multiple sizes. PNG should be 32x32 or 16x16."
+  },
+  login_background: {
+    name: "Login Background",
+    description: "Background image for the login page",
+    formats: ["jpg", "jpeg", "png", "webp"],
+    max_size_mb: 5,
+    recommended_dimensions: "1920x1080 pixels",
+    notes: "High resolution image recommended. Will be cropped/scaled to fit."
+  }
+};
+
+// Branding File Upload Component
+interface BrandingFileUploadProps {
+  fileType: string;
+  spec: BrandingFileSpec;
+  currentUrl: string | null;
+  tenantId: string;
+  onUploadSuccess: () => void;
+}
+
+function BrandingFileUpload({ fileType, spec, currentUrl, tenantId, onUploadSuccess }: BrandingFileUploadProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadMutation = useUploadBrandingFile();
+  const deleteMutation = useDeleteBrandingFile();
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.toLowerCase().split('.').pop();
+    if (!ext || !spec.formats.includes(ext)) {
+      sonnerToast.error(`Invalid file format. Allowed: ${spec.formats.join(', ').toUpperCase()}`);
+      return;
+    }
+
+    const maxBytes = spec.max_size_mb * 1024 * 1024;
+    if (file.size > maxBytes) {
+      sonnerToast.error(`File too large. Maximum size: ${spec.max_size_mb}MB`);
+      return;
+    }
+
+    try {
+      await uploadMutation.mutateAsync({ tenantId, fileType, file });
+      sonnerToast.success(`${spec.name} uploaded successfully`);
+      onUploadSuccess();
+    } catch (error: any) {
+      sonnerToast.error(error.message || 'Failed to upload file');
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm(`Delete ${spec.name}?`)) return;
+    try {
+      await deleteMutation.mutateAsync({ tenantId, fileType });
+      sonnerToast.success(`${spec.name} deleted`);
+      onUploadSuccess();
+    } catch (error: any) {
+      sonnerToast.error(error.message || 'Failed to delete file');
+    }
+  };
+
+  const acceptedFormats = spec.formats.map(f => `.${f}`).join(',');
+
+  return (
+    <div className="border rounded-lg p-4 space-y-3">
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h4 className="font-medium">{spec.name}</h4>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger>
+                  <Info className="h-4 w-4 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p>{spec.notes}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+          <p className="text-sm text-muted-foreground">{spec.description}</p>
+        </div>
+        {currentUrl && (
+          <Button variant="ghost" size="sm" onClick={handleDelete} disabled={deleteMutation.isPending}>
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        )}
+      </div>
+
+      <div className="text-xs text-muted-foreground space-y-1">
+        <p><strong>Formats:</strong> {spec.formats.join(', ').toUpperCase()}</p>
+        <p><strong>Max size:</strong> {spec.max_size_mb}MB</p>
+        <p><strong>Recommended:</strong> {spec.recommended_dimensions}</p>
+      </div>
+
+      {currentUrl ? (
+        <div className="flex items-center gap-4 p-3 bg-muted/50 rounded-lg">
+          <img src={currentUrl} alt={spec.name} className="h-16 w-auto max-w-[200px] object-contain" />
+          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploadMutation.isPending}>
+            {uploadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Replace'}
+          </Button>
+        </div>
+      ) : (
+        <div
+          className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {uploadMutation.isPending ? (
+            <Loader2 className="h-8 w-8 mx-auto animate-spin text-muted-foreground" />
+          ) : (
+            <>
+              <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+              <p className="text-sm text-muted-foreground">Click to upload</p>
+            </>
+          )}
+        </div>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={acceptedFormats}
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+    </div>
+  );
+}
+
 // API functions
 async function fetchGeneralSettings(tenantId?: string): Promise<GeneralSettings> {
   const params = tenantId ? `?tenant_id=${tenantId}` : '';
@@ -101,6 +298,7 @@ async function updateGeneralSettings(settings: Partial<GeneralSettings>, tenantI
 export default function Settings() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState('general');
 
   // Fetch settings from backend
   const { data: savedSettings, isLoading, error } = useQuery({
@@ -114,6 +312,46 @@ export default function Settings() {
     queryKey: ['allSettingsOptions'],
     queryFn: fetchAllSettingsOptions,
   });
+
+  // Fetch branding data
+  const { data: brandingData, isLoading: brandingLoading, refetch: refetchBranding } = useTenantBranding(user?.tenantId || '');
+  const updateColorsMutation = useUpdateBrandingColors();
+  const updateSettingsMutation = useUpdateBrandingSettings();
+
+  // Branding local state
+  const [brandingColors, setBrandingColors] = useState({
+    primary_color: '#3B82F6',
+    secondary_color: '#10B981',
+    accent_color: '#F59E0B',
+  });
+  const [brandingTagline, setBrandingTagline] = useState('');
+  const [hasBrandingChanges, setHasBrandingChanges] = useState(false);
+
+  // Update branding state when data loads
+  useEffect(() => {
+    if (brandingData?.colors) {
+      setBrandingColors({
+        primary_color: brandingData.colors.primary_color || '#3B82F6',
+        secondary_color: brandingData.colors.secondary_color || '#10B981',
+        accent_color: brandingData.colors.accent_color || '#F59E0B',
+      });
+    }
+    if (brandingData?.settings) {
+      setBrandingTagline(brandingData.settings.tagline || '');
+    }
+  }, [brandingData]);
+
+  // Check for branding changes
+  useEffect(() => {
+    if (brandingData) {
+      const colorsChanged = 
+        brandingColors.primary_color !== (brandingData.colors?.primary_color || '#3B82F6') ||
+        brandingColors.secondary_color !== (brandingData.colors?.secondary_color || '#10B981') ||
+        brandingColors.accent_color !== (brandingData.colors?.accent_color || '#F59E0B');
+      const taglineChanged = brandingTagline !== (brandingData.settings?.tagline || '');
+      setHasBrandingChanges(colorsChanged || taglineChanged);
+    }
+  }, [brandingColors, brandingTagline, brandingData]);
 
   // Local state for form
   const [formData, setFormData] = useState<GeneralSettings>({
@@ -211,6 +449,45 @@ export default function Settings() {
     'es-ES': { label: 'Spanish (100.000,00)' },
   };
 
+  // Handle branding colors save
+  const handleSaveBrandingColors = async () => {
+    if (!user?.tenantId) return;
+    try {
+      await updateColorsMutation.mutateAsync({ tenantId: user.tenantId, colors: brandingColors });
+      sonnerToast.success('Brand colors updated successfully');
+      refetchBranding();
+    } catch (error: any) {
+      sonnerToast.error(error.message || 'Failed to update colors');
+    }
+  };
+
+  // Handle branding settings save
+  const handleSaveBrandingSettings = async () => {
+    if (!user?.tenantId) return;
+    try {
+      await updateSettingsMutation.mutateAsync({ tenantId: user.tenantId, settings: { tagline: brandingTagline } });
+      sonnerToast.success('Branding settings updated successfully');
+      refetchBranding();
+    } catch (error: any) {
+      sonnerToast.error(error.message || 'Failed to update settings');
+    }
+  };
+
+  // Handle cancel branding changes
+  const handleCancelBranding = () => {
+    if (brandingData?.colors) {
+      setBrandingColors({
+        primary_color: brandingData.colors.primary_color || '#3B82F6',
+        secondary_color: brandingData.colors.secondary_color || '#10B981',
+        accent_color: brandingData.colors.accent_color || '#F59E0B',
+      });
+    }
+    if (brandingData?.settings) {
+      setBrandingTagline(brandingData.settings.tagline || '');
+    }
+    setHasBrandingChanges(false);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -231,43 +508,61 @@ export default function Settings() {
     );
   }
 
+  const isAdmin = user?.role === 'admin';
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">System Settings</h1>
-          <p className="text-muted-foreground">
-            Configure system-wide settings and integrations
-          </p>
-        </div>
-
-        {/* Save/Cancel buttons - shown when there are changes */}
-        {hasChanges && (
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={handleCancel}
-              disabled={saveMutation.isPending}
-            >
-              <X className="h-4 w-4 mr-2" />
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={saveMutation.isPending}
-            >
-              {saveMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4 mr-2" />
-              )}
-              Save Changes
-            </Button>
+      {!isAdmin && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">System Settings</h1>
+            <p className="text-muted-foreground">
+              Configure system-wide settings and integrations
+            </p>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      <div className={`space-y-4 ${hasChanges ? 'pb-24' : ''}`}>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="general" className="flex items-center gap-2">
+            <SettingsIcon className="h-4 w-4" />
+            General Settings
+          </TabsTrigger>
+          <TabsTrigger value="branding" className="flex items-center gap-2">
+            <Palette className="h-4 w-4" />
+            Branding
+          </TabsTrigger>
+        </TabsList>
+
+        {/* General Settings Tab */}
+        <TabsContent value="general" className="space-y-4 mt-6">
+          {/* Save/Cancel buttons - shown when there are changes */}
+          {hasChanges && (
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={handleCancel}
+                disabled={saveMutation.isPending}
+              >
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={saveMutation.isPending}
+              >
+                {saveMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                Save Changes
+              </Button>
+            </div>
+          )}
+
+          <div className={`space-y-4 ${hasChanges ? 'pb-24' : ''}`}>
         {/* General Settings Card */}
         <Card>
           <CardHeader>
@@ -361,6 +656,29 @@ export default function Settings() {
                         />
                       </div>
                       <Separator />
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label>Policy Compliance Threshold</Label>
+                          <span className="text-sm font-medium">{formData.policy_compliance_threshold}%</span>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          Minimum AI confidence score for policy compliance. Claims must meet both this AND the AI Confidence Threshold for auto-approval.
+                        </p>
+                        <Slider
+                          value={[formData.policy_compliance_threshold]}
+                          onValueChange={(value) => handleChange('policy_compliance_threshold', value[0])}
+                          min={50}
+                          max={100}
+                          step={5}
+                          className="w-full"
+                        />
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>50%</span>
+                          <span>75%</span>
+                          <span>100%</span>
+                        </div>
+                      </div>
+                      <Separator />
                       {/* Auto-Skip HR/Finance Toggle */}
                       <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
                         <div className="space-y-0.5">
@@ -379,29 +697,6 @@ export default function Settings() {
                 </div>
               </>
             )}
-            <Separator />
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label>Policy Compliance Threshold</Label>
-                <span className="text-sm font-medium">{formData.policy_compliance_threshold}%</span>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Minimum AI confidence score for a claim to be considered policy-compliant. Claims below this threshold are flagged for review.
-              </p>
-              <Slider
-                value={[formData.policy_compliance_threshold]}
-                onValueChange={(value) => handleChange('policy_compliance_threshold', value[0])}
-                min={50}
-                max={100}
-                step={5}
-                className="w-full"
-              />
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>50%</span>
-                <span>75%</span>
-                <span>100%</span>
-              </div>
-            </div>
             <Separator />
             <div className="space-y-2">
               <Label>Default Currency</Label>
@@ -726,7 +1021,234 @@ export default function Settings() {
             </div>
           </div>
         )}
-      </div>
+          </div>
+        </TabsContent>
+
+        {/* Branding Settings Tab */}
+        <TabsContent value="branding" className="space-y-4 mt-6">
+          {/* Save/Cancel buttons for branding */}
+          {hasBrandingChanges && (
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={handleCancelBranding}
+                disabled={updateColorsMutation.isPending || updateSettingsMutation.isPending}
+              >
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  handleSaveBrandingColors();
+                  handleSaveBrandingSettings();
+                }}
+                disabled={updateColorsMutation.isPending || updateSettingsMutation.isPending}
+              >
+                {(updateColorsMutation.isPending || updateSettingsMutation.isPending) ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                Save Changes
+              </Button>
+            </div>
+          )}
+
+          {brandingLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <span className="ml-2">Loading branding settings...</span>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Logo Files Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Image className="h-5 w-5" />
+                    Logo Files
+                  </CardTitle>
+                  <CardDescription>
+                    Upload your organization's logos and branding images
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-6 md:grid-cols-2">
+                    {Object.entries(BRANDING_FILE_SPECS).map(([fileType, spec]) => (
+                      <BrandingFileUpload
+                        key={fileType}
+                        fileType={fileType}
+                        spec={spec}
+                        currentUrl={brandingData?.files?.[fileType as keyof typeof brandingData.files] || null}
+                        tenantId={user?.tenantId || ''}
+                        onUploadSuccess={() => refetchBranding()}
+                      />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Brand Colors Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Palette className="h-5 w-5" />
+                    Brand Colors
+                  </CardTitle>
+                  <CardDescription>
+                    Customize your organization's color scheme
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="grid gap-6 md:grid-cols-3">
+                    <div className="space-y-3">
+                      <Label>Primary Color</Label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={brandingColors.primary_color}
+                          onChange={(e) => setBrandingColors(prev => ({ ...prev, primary_color: e.target.value }))}
+                          className="h-10 w-14 cursor-pointer rounded border"
+                        />
+                        <Input
+                          value={brandingColors.primary_color}
+                          onChange={(e) => setBrandingColors(prev => ({ ...prev, primary_color: e.target.value }))}
+                          className="font-mono"
+                          placeholder="#3B82F6"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Used for primary buttons and key actions</p>
+                    </div>
+                    <div className="space-y-3">
+                      <Label>Secondary Color</Label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={brandingColors.secondary_color}
+                          onChange={(e) => setBrandingColors(prev => ({ ...prev, secondary_color: e.target.value }))}
+                          className="h-10 w-14 cursor-pointer rounded border"
+                        />
+                        <Input
+                          value={brandingColors.secondary_color}
+                          onChange={(e) => setBrandingColors(prev => ({ ...prev, secondary_color: e.target.value }))}
+                          className="font-mono"
+                          placeholder="#10B981"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Used for secondary elements and success states</p>
+                    </div>
+                    <div className="space-y-3">
+                      <Label>Accent Color</Label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={brandingColors.accent_color}
+                          onChange={(e) => setBrandingColors(prev => ({ ...prev, accent_color: e.target.value }))}
+                          className="h-10 w-14 cursor-pointer rounded border"
+                        />
+                        <Input
+                          value={brandingColors.accent_color}
+                          onChange={(e) => setBrandingColors(prev => ({ ...prev, accent_color: e.target.value }))}
+                          className="font-mono"
+                          placeholder="#F59E0B"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Used for highlights and warnings</p>
+                    </div>
+                  </div>
+
+                  {/* Color Preview */}
+                  <div className="pt-4 border-t">
+                    <Label className="mb-3 block">Color Preview</Label>
+                    <div className="flex gap-4 items-center">
+                      <div
+                        className="h-12 w-24 rounded-lg flex items-center justify-center text-white text-sm font-medium"
+                        style={{ backgroundColor: brandingColors.primary_color }}
+                      >
+                        Primary
+                      </div>
+                      <div
+                        className="h-12 w-24 rounded-lg flex items-center justify-center text-white text-sm font-medium"
+                        style={{ backgroundColor: brandingColors.secondary_color }}
+                      >
+                        Secondary
+                      </div>
+                      <div
+                        className="h-12 w-24 rounded-lg flex items-center justify-center text-white text-sm font-medium"
+                        style={{ backgroundColor: brandingColors.accent_color }}
+                      >
+                        Accent
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Other Branding Settings */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <SettingsIcon className="h-5 w-5" />
+                    Other Settings
+                  </CardTitle>
+                  <CardDescription>
+                    Additional branding customizations
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Company Tagline</Label>
+                    <Input
+                      placeholder="e.g., Simplifying expense management"
+                      value={brandingTagline}
+                      onChange={(e) => setBrandingTagline(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Displayed on the login page below your logo
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Floating save bar for branding */}
+              {hasBrandingChanges && <div className="h-20" />}
+              {hasBrandingChanges && (
+                <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur border-t p-4 flex justify-end gap-2 z-50">
+                  <div className="container mx-auto flex justify-between items-center">
+                    <p className="text-sm text-muted-foreground">
+                      You have unsaved branding changes
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={handleCancelBranding}
+                        disabled={updateColorsMutation.isPending || updateSettingsMutation.isPending}
+                      >
+                        <X className="h-4 w-4 mr-2" />
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          handleSaveBrandingColors();
+                          handleSaveBrandingSettings();
+                        }}
+                        disabled={updateColorsMutation.isPending || updateSettingsMutation.isPending}
+                      >
+                        {(updateColorsMutation.isPending || updateSettingsMutation.isPending) ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Save className="h-4 w-4 mr-2" />
+                        )}
+                        Save Changes
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

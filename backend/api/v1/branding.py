@@ -1,11 +1,14 @@
 """
 Tenant Branding Management API
 
-Allows System Admin to configure tenant-specific branding including:
+Allows System Admin and Admin to configure tenant-specific branding including:
 - Logo (Full logo with text)
 - Logo Mark (Icon/symbol only)
 - Favicon (Browser tab icon)
 - Primary and secondary colors
+
+Note: Admin users can only modify their own tenant's branding.
+      System Admin can modify any tenant's branding.
 """
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.responses import FileResponse
@@ -20,8 +23,9 @@ import shutil
 import uuid as uuid_module
 
 from database import get_sync_db
-from models import Tenant
+from models import Tenant, User
 from config import settings
+from api.v1.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +233,42 @@ def update_tenant_branding(db: Session, tenant: Tenant, updates: dict) -> None:
     db.commit()
 
 
+def check_branding_access(current_user: Optional[User], tenant_id: UUID) -> None:
+    """
+    Check if the current user has access to modify branding for the given tenant.
+    
+    - System Admin: Can modify any tenant's branding
+    - Admin: Can only modify their own tenant's branding
+    - Other roles: No access
+    
+    Raises HTTPException if access is denied.
+    """
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required"
+        )
+    
+    # System Admin can modify any tenant
+    if current_user.role == 'system_admin':
+        return
+    
+    # Admin can only modify their own tenant
+    if current_user.role == 'admin':
+        if current_user.tenant_id != tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only modify branding for your own tenant"
+            )
+        return
+    
+    # Other roles cannot modify branding
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You do not have permission to modify branding settings"
+    )
+
+
 # ==================== ENDPOINTS ====================
 
 @router.get("/specs", response_model=dict)
@@ -281,10 +321,15 @@ async def upload_branding_file(
     tenant_id: UUID,
     file_type: str,
     file: UploadFile = File(...),
-    db: Session = Depends(get_sync_db)
+    db: Session = Depends(get_sync_db),
+    current_user: Optional[User] = Depends(get_current_user)
 ):
     """
     Upload a branding file for a tenant.
+    
+    Authorization:
+    - System Admin: Can upload for any tenant
+    - Admin: Can only upload for their own tenant
     
     File types:
     - logo: Full logo with company name (SVG or PNG, max 2MB, 400x200px recommended)
@@ -292,6 +337,9 @@ async def upload_branding_file(
     - favicon: Browser tab icon (ICO or PNG, max 0.5MB, 32x32px)
     - login_background: Login page background (JPG/PNG/WebP, max 5MB, 1920x1080px)
     """
+    # Check authorization
+    check_branding_access(current_user, tenant_id)
+    
     # Validate file type
     if file_type not in BRANDING_FILE_SPECS:
         raise HTTPException(
@@ -353,11 +401,19 @@ async def upload_branding_file(
 async def delete_branding_file_endpoint(
     tenant_id: UUID,
     file_type: str,
-    db: Session = Depends(get_sync_db)
+    db: Session = Depends(get_sync_db),
+    current_user: Optional[User] = Depends(get_current_user)
 ):
     """
     Delete a branding file for a tenant.
+    
+    Authorization:
+    - System Admin: Can delete for any tenant
+    - Admin: Can only delete for their own tenant
     """
+    # Check authorization
+    check_branding_access(current_user, tenant_id)
+    
     if file_type not in BRANDING_FILE_SPECS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -395,13 +451,21 @@ async def delete_branding_file_endpoint(
 async def update_branding_colors(
     tenant_id: UUID,
     colors: BrandingColors,
-    db: Session = Depends(get_sync_db)
+    db: Session = Depends(get_sync_db),
+    current_user: Optional[User] = Depends(get_current_user)
 ):
     """
     Update branding colors for a tenant.
     
+    Authorization:
+    - System Admin: Can update for any tenant
+    - Admin: Can only update for their own tenant
+    
     Colors should be in hex format (e.g., #00928F).
     """
+    # Check authorization
+    check_branding_access(current_user, tenant_id)
+    
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(
@@ -431,12 +495,20 @@ async def update_branding_colors(
 async def update_branding_settings(
     tenant_id: UUID,
     branding: BrandingSettings,
-    db: Session = Depends(get_sync_db)
+    db: Session = Depends(get_sync_db),
+    current_user: Optional[User] = Depends(get_current_user)
 ):
     """
     Update all branding settings for a tenant.
     Note: File URLs should be set via the upload endpoint, not directly.
+    
+    Authorization:
+    - System Admin: Can update for any tenant
+    - Admin: Can only update for their own tenant
     """
+    # Check authorization
+    check_branding_access(current_user, tenant_id)
+    
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(
