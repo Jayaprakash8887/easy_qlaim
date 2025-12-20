@@ -123,6 +123,11 @@ export const adminOnlyNavigation: NavItem[] = [
 // System Admin navigation - platform-level administration only
 export const systemAdminNavigation: NavItem[] = [
   {
+    label: 'Dashboard',
+    href: '/',
+    icon: 'LayoutDashboard',
+  },
+  {
     label: 'Tenants',
     href: '/admin/tenants',
     icon: 'Building2',

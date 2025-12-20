@@ -101,7 +101,7 @@ interface AllSettingsOptions {
   number_formats: { options: SettingOption[]; default: string };
   working_days: { options: SettingOption[]; default: string };
   week_start: { options: SettingOption[]; default: string };
-  session_timeouts: { options: SettingOption[]; default: string };
+  session_timeouts: { options: SettingOption[]; default: string; platform_max_minutes?: number };
 }
 
 // Branding file specs
@@ -943,11 +943,15 @@ export default function Settings() {
                       <SelectItem value="120">2 hours</SelectItem>
                       <SelectItem value="240">4 hours</SelectItem>
                       <SelectItem value="480">8 hours</SelectItem>
-                      <SelectItem value="1440">24 hours</SelectItem>
                     </>
                   )}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                Maximum allowed by platform policy: {optionsData?.session_timeouts?.platform_max_minutes 
+                  ? `${Math.floor(optionsData.session_timeouts.platform_max_minutes / 60)} hours` 
+                  : '8 hours'}
+              </p>
             </div>
           </CardContent>
         </Card>

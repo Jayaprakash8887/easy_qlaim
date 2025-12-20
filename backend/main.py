@@ -226,6 +226,87 @@ async def health_check():
     }
 
 
+# System info endpoint for admin dashboard
+@app.get("/api/v1/system/info")
+async def system_info():
+    """Get system information including database and cache status"""
+    import re
+    from urllib.parse import urlparse
+    from sqlalchemy import text
+    
+    # Parse database URL
+    db_url = settings.DATABASE_URL
+    db_info = {
+        "type": "Unknown",
+        "host": "Unknown",
+        "port": "Unknown",
+        "name": "Unknown",
+        "connected": False
+    }
+    
+    try:
+        # Handle different database URL formats
+        if db_url.startswith("postgresql"):
+            db_info["type"] = "PostgreSQL"
+            # Parse URL: postgresql://user:pass@host:port/dbname
+            parsed = urlparse(db_url)
+            db_info["host"] = parsed.hostname or "localhost"
+            db_info["port"] = str(parsed.port or 5432)
+            db_info["name"] = parsed.path.lstrip("/") if parsed.path else "Unknown"
+        
+        # Check database connection
+        from database import SyncSessionLocal
+        db = SyncSessionLocal()
+        try:
+            db.execute(text("SELECT 1"))
+            db_info["connected"] = True
+            # Try to get PostgreSQL version
+            result = db.execute(text("SELECT version()")).fetchone()
+            if result:
+                version_str = result[0]
+                # Extract version number (e.g., "PostgreSQL 15.2" from full string)
+                match = re.search(r'PostgreSQL (\d+(?:\.\d+)?)', version_str)
+                if match:
+                    db_info["type"] = f"PostgreSQL {match.group(1)}"
+        except Exception:
+            db_info["connected"] = False
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Failed to get database info: {e}")
+    
+    # Parse Redis URL
+    redis_url = settings.REDIS_URL
+    redis_info = {
+        "host": "Unknown",
+        "port": "Unknown",
+        "connected": False
+    }
+    
+    try:
+        parsed = urlparse(redis_url)
+        redis_info["host"] = parsed.hostname or "localhost"
+        redis_info["port"] = str(parsed.port or 6379)
+        
+        # Check Redis connection
+        from services.redis_cache import redis_cache
+        health = await redis_cache.health_check()
+        redis_info["connected"] = health.get("status") == "healthy"
+        redis_info["memory_used"] = health.get("memory", {}).get("used", "Unknown")
+    except Exception as e:
+        logger.error(f"Failed to get Redis info: {e}")
+    
+    return {
+        "database": db_info,
+        "cache": redis_info,
+        "app": {
+            "name": settings.APP_NAME,
+            "environment": settings.APP_ENV,
+            "version": "1.0.0"
+        }
+    }
+
+
 # API v1 routes
 from api.v1 import claims, employees, projects, approvals, documents, dashboard, comments, settings as settings_api, policies, custom_claims, cache, tenants, designations, auth, notifications, branding, regions
 

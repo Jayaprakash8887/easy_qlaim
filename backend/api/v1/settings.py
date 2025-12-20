@@ -441,6 +441,10 @@ def get_available_session_timeouts():
 @router.get("/options/all")
 def get_all_settings_options():
     """Get all available setting options in a single call"""
+    # Platform max session timeout (in minutes) - tenants can only set up to this value
+    # TODO: In future, this should be fetched from platform settings table
+    PLATFORM_MAX_SESSION_TIMEOUT = 480  # 8 hours - platform default
+    
     return {
         "timezones": {
             "options": [
@@ -486,7 +490,9 @@ def get_all_settings_options():
             "options": [
                 {"code": code, "minutes": info["minutes"], "label": info["label"]}
                 for code, info in SESSION_TIMEOUT_CHOICES.items()
+                if info["minutes"] <= PLATFORM_MAX_SESSION_TIMEOUT  # Filter based on platform max
             ],
-            "default": DEFAULT_SESSION_TIMEOUT
+            "default": DEFAULT_SESSION_TIMEOUT,
+            "platform_max_minutes": PLATFORM_MAX_SESSION_TIMEOUT
         }
     }

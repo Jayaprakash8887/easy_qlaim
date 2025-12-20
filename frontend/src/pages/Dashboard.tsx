@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Clock, CheckCircle, XCircle, Wallet, Users, TrendingUp, AlertCircle, DollarSign, FileText, Building2 } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, Wallet, Users, TrendingUp, AlertCircle, DollarSign, FileText, Building2, Settings, Shield, Activity, Server } from 'lucide-react';
 import { SummaryCard } from '@/components/dashboard/SummaryCard';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { RecentActivity } from '@/components/dashboard/RecentActivity';
@@ -7,7 +7,9 @@ import { AISuggestionsCard } from '@/components/dashboard/AISuggestionsCard';
 import { AllowanceOverviewCards, AllowancePolicyAlerts } from '@/components/dashboard/AllowanceWidgets';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDashboardSummary, useClaimsByStatus, useHRMetrics, useAdminStats, formatCurrency } from '@/hooks/useDashboard';
+import { useTenants, useDesignations } from '@/hooks/useSystemAdmin';
 import { CardSkeleton } from '@/components/ui/loading-skeleton';
+import { Badge } from '@/components/ui/badge';
 
 // Employee Dashboard - Personal claims and allowances
 function EmployeeDashboard({ userName, employeeId, tenantId }: { userName: string; employeeId: string; tenantId?: string }) {
@@ -503,6 +505,187 @@ function AdminDashboard({ userName, employeeId, tenantId }: { userName: string; 
   );
 }
 
+// System Admin Dashboard - Platform-wide administration
+function SystemAdminDashboard({ userName }: { userName: string }) {
+  const { data: tenants, isLoading: tenantsLoading } = useTenants();
+  const { data: designations, isLoading: designationsLoading } = useDesignations();
+
+  const activeTenants = tenants?.filter((t: any) => t.is_active)?.length || 0;
+  const totalTenants = tenants?.length || 0;
+  const totalDesignations = designations?.length || 0;
+  const adminDesignations = designations?.filter((d: any) => d.roles?.includes('ADMIN'))?.length || 0;
+
+  // Calculate total users across all tenants
+  const totalUsers = tenants?.reduce((sum: number, t: any) => sum + (t.user_count || 0), 0) || 0;
+
+  if (tenantsLoading || designationsLoading) {
+    return (
+      <div className="space-y-8">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">
+            Welcome, {userName}! 🛡️
+          </h1>
+          <p className="text-muted-foreground">
+            Platform administration overview
+          </p>
+        </div>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2 space-y-6">
+            <CardSkeleton className="h-64" />
+            <CardSkeleton className="h-48" />
+          </div>
+          <div className="space-y-6">
+            <CardSkeleton className="h-48" />
+            <CardSkeleton className="h-48" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">
+          Welcome, {userName}! 🛡️
+        </h1>
+        <p className="text-muted-foreground">
+          Platform administration overview
+        </p>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Tenant Overview */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="rounded-xl border border-border bg-card p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-foreground">Tenant Organizations</h3>
+              <Link to="/admin/tenants" className="text-sm text-primary hover:underline">
+                View All →
+              </Link>
+            </div>
+            {tenants && tenants.length > 0 ? (
+              <div className="space-y-3">
+                {tenants.slice(0, 5).map((tenant: any) => (
+                  <div key={tenant.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <Building2 className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-foreground">{tenant.name}</p>
+                        <p className="text-sm text-muted-foreground">{tenant.code}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-sm font-medium">{tenant.user_count || 0} users</p>
+                      </div>
+                      <Badge variant={tenant.is_active ? "default" : "secondary"} className={tenant.is_active ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100" : ""}>
+                        {tenant.is_active ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+                {tenants.length > 5 && (
+                  <p className="text-sm text-muted-foreground text-center pt-2">
+                    + {tenants.length - 5} more tenants
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <Building2 className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>No tenants configured</p>
+                <Link to="/admin/tenants" className="text-primary hover:underline text-sm">
+                  Add your first tenant →
+                </Link>
+              </div>
+            )}
+          </div>
+
+          {/* System Health */}
+          <div className="rounded-xl border border-border bg-card p-6">
+            <h3 className="font-semibold text-foreground mb-4">System Health</h3>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/20">
+                <div className="flex items-center gap-2 mb-2">
+                  <Activity className="h-4 w-4 text-green-600" />
+                  <span className="text-sm font-medium text-green-700 dark:text-green-400">API Status</span>
+                </div>
+                <p className="text-2xl font-bold text-green-600">Healthy</p>
+              </div>
+              <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/20">
+                <div className="flex items-center gap-2 mb-2">
+                  <Server className="h-4 w-4 text-green-600" />
+                  <span className="text-sm font-medium text-green-700 dark:text-green-400">Database</span>
+                </div>
+                <p className="text-2xl font-bold text-green-600">Connected</p>
+              </div>
+              <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/20">
+                <div className="flex items-center gap-2 mb-2">
+                  <Shield className="h-4 w-4 text-green-600" />
+                  <span className="text-sm font-medium text-green-700 dark:text-green-400">Security</span>
+                </div>
+                <p className="text-2xl font-bold text-green-600">Secure</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Actions for System Admin */}
+        <div className="space-y-6">
+          <div className="rounded-xl border border-border bg-card p-6">
+            <h3 className="font-semibold text-foreground mb-4">Quick Actions</h3>
+            <div className="space-y-3">
+              <Link
+                to="/admin/tenants"
+                className="flex items-center gap-3 p-3 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                <Building2 className="h-5 w-5" />
+                <span className="font-medium">Manage Tenants</span>
+              </Link>
+              <Link
+                to="/admin/designations"
+                className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted transition-colors"
+              >
+                <Shield className="h-5 w-5 text-muted-foreground" />
+                <span>Manage Designations</span>
+              </Link>
+              <Link
+                to="/admin/settings"
+                className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted transition-colors"
+              >
+                <Settings className="h-5 w-5 text-muted-foreground" />
+                <span>Platform Settings</span>
+              </Link>
+            </div>
+          </div>
+
+          {/* Platform Stats */}
+          <div className="rounded-xl border border-border bg-card p-6">
+            <h3 className="font-semibold text-foreground mb-4">Platform Summary</h3>
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Active Tenants</span>
+                <span className="text-lg font-semibold text-green-600">{activeTenants}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Inactive Tenants</span>
+                <span className="text-lg font-semibold text-muted-foreground">{totalTenants - activeTenants}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Admin Designations</span>
+                <span className="text-lg font-semibold text-primary">{adminDesignations}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
   const userName = user?.name?.split(' ')[0] || 'User';
@@ -511,6 +694,8 @@ export default function Dashboard() {
 
   // Route to appropriate dashboard based on role
   switch (user?.role) {
+    case 'system_admin':
+      return <SystemAdminDashboard userName={userName} />;
     case 'manager':
       return <ManagerDashboard userName={userName} employeeId={employeeId} tenantId={tenantId} />;
     case 'hr':

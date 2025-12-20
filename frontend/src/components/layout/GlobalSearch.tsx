@@ -42,7 +42,7 @@ const placeholderByRole: Record<string, string> = {
   hr: 'Search claims, employees...',
   finance: 'Search claims, payments...',
   admin: 'Search claims, employees, projects...',
-  system_admin: 'Search tenants, employees, claims...',
+  system_admin: 'Search tenants...',
 };
 
 export function GlobalSearch({ className }: GlobalSearchProps) {
