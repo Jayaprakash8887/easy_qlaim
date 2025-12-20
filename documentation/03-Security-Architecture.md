@@ -521,7 +521,65 @@ async def create_settlement():
     pass
 ```
 
-### 6.3 Keycloak SSO Integration
+### 6.3 Resource-Level Access Control
+
+Beyond role-based access, certain resources require tenant-scoped authorization where users can only access resources belonging to their own tenant.
+
+**Tenant-Scoped Authorization Pattern:**
+```python
+def check_resource_access(current_user: User, resource_tenant_id: UUID):
+    """
+    Verify user has access to a tenant-scoped resource.
+    - System Admin: Can access any tenant's resources
+    - Admin: Can only access their own tenant's resources
+    - Other roles: Can only access their own tenant's resources
+    """
+    if "system_admin" in (current_user.roles or []):
+        return  # System Admin has full access
+    
+    if str(current_user.tenant_id) != str(resource_tenant_id):
+        raise HTTPException(
+            status_code=403,
+            detail="You don't have permission to access this tenant's resources"
+        )
+```
+
+**Example: Branding Settings Authorization:**
+```python
+def check_branding_access(current_user: User, tenant_id: str):
+    """
+    Verify user can modify branding for specified tenant.
+    - System Admin: Can modify any tenant's branding
+    - Admin: Can only modify their own tenant's branding
+    """
+    user_roles = current_user.roles or []
+    
+    if "system_admin" in user_roles:
+        return  # System Admin can modify any tenant
+    
+    if "admin" in user_roles:
+        if str(current_user.tenant_id) != str(tenant_id):
+            raise HTTPException(
+                status_code=403,
+                detail="You can only modify branding for your own tenant"
+            )
+        return
+    
+    # Other roles don't have branding access
+    raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+# Applied to branding endpoints
+@router.post("/tenants/{tenant_id}/branding/upload")
+async def upload_branding_file(
+    tenant_id: str,
+    file: UploadFile,
+    current_user: User = Depends(get_current_user)
+):
+    check_branding_access(current_user, tenant_id)
+    # ... upload logic
+```
+
+### 6.4 Keycloak SSO Integration
 
 ```python
 class KeycloakAuth:

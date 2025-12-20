@@ -517,6 +517,33 @@ async def export_tenant_data(tenant_id: UUID) -> dict:
 
 ### 8.3 Tenant Deactivation
 
+When a tenant is deactivated:
+1. **Tenant record** is marked as `is_active = False`
+2. **Login is blocked** for all users of that tenant
+3. **Data is preserved** (soft-delete approach)
+4. **Access can be restored** by reactivating the tenant
+
+**Login Enforcement:**
+```python
+# During authentication - check tenant status
+async def login(credentials: LoginRequest, db: Session):
+    user = db.query(User).filter(User.username == credentials.username).first()
+    
+    if not user:
+        raise HTTPException(401, "Invalid credentials")
+    
+    # Check if tenant is active
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    if not tenant or not tenant.is_active:
+        raise HTTPException(
+            status_code=403,
+            detail="Your organization's access has been suspended. Please contact support."
+        )
+    
+    # Continue with authentication...
+```
+
+**Deactivation Process:**
 ```python
 async def deactivate_tenant(tenant_id: UUID, reason: str):
     """
@@ -529,7 +556,7 @@ async def deactivate_tenant(tenant_id: UUID, reason: str):
         tenant.settings['deactivation_reason'] = reason
         tenant.settings['deactivated_at'] = datetime.utcnow().isoformat()
         
-        # 2. Deactivate all users
+        # 2. Optionally deactivate all users
         db.query(User).filter(User.tenant_id == tenant_id).update(
             {"is_active": False}
         )
@@ -545,6 +572,8 @@ async def deactivate_tenant(tenant_id: UUID, reason: str):
         
         await db.commit()
 ```
+
+> **Note:** Login blocking via tenant `is_active` status provides immediate access control without requiring individual user deactivation. Users see a clear message explaining their organization's access has been suspended.
 
 ---
 

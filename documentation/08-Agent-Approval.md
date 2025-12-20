@@ -61,25 +61,20 @@ The approval agent reads tenant-specific settings from the database:
 │       └── YES                                                              │
 │             │                                                               │
 │             ▼                                                               │
-│  confidence >= auto_approval_threshold (95%)?                              │
-│  amount <= max_auto_approval_amount?                                       │
-│  recommendation = APPROVE?                                                  │
+│  ALL conditions met?                                                        │
+│  ├── confidence >= auto_approval_threshold (95%)?                          │
+│  ├── confidence >= policy_compliance_threshold (80%)?                      │
+│  ├── amount <= max_auto_approval_amount?                                   │
+│  └── recommendation = APPROVE?                                              │
 │       │                                                                     │
 │       ├── ALL YES ──▶ FINANCE_APPROVED (Auto-Approved)                     │
 │       │                                                                     │
-│       └── NO                                                               │
+│       └── ANY NO                                                           │
 │             │                                                               │
 │             ▼                                                               │
 │  Policy exceptions (failed rules)?                                         │
 │       │                                                                     │
 │       ├── YES ──▶ PENDING_HR                                               │
-│       │                                                                     │
-│       └── NO                                                               │
-│             │                                                               │
-│             ▼                                                               │
-│  confidence >= policy_compliance_threshold (80%)?                          │
-│       │                                                                     │
-│       ├── YES ──▶ PENDING_MANAGER                                          │
 │       │                                                                     │
 │       └── NO                                                               │
 │             │                                                               │
@@ -120,11 +115,17 @@ The approval agent reads tenant-specific settings from the database:
 
 | Condition | New Status | Routed To |
 |-----------|------------|-----------|
-| Auto-approval enabled & confidence >= threshold & amount <= max & APPROVE | `FINANCE_APPROVED` | Auto |
+| Auto-approval enabled & confidence >= AI threshold & confidence >= policy threshold & amount <= max & APPROVE | `FINANCE_APPROVED` | Auto |
 | Has policy exceptions (failed rules) | `PENDING_HR` | HR |
-| Confidence >= policy_compliance_threshold | `PENDING_MANAGER` | Manager |
 | Confidence < 60% | `REJECTED` | System |
 | Default | `PENDING_MANAGER` | Manager |
+
+**Auto-Approval Criteria (ALL must be met):**
+1. `enable_auto_approval` = TRUE
+2. `confidence` >= `auto_approval_threshold` (default 95%)
+3. `confidence` >= `policy_compliance_threshold` (default 80%)
+4. `amount` <= `max_auto_approval_amount` (default $5000)
+5. AI recommendation = "APPROVE" or "AUTO_APPROVE"
 
 **Post-Manager Approval (when auto-skip enabled):**
 | Condition | New Status | Routed To |

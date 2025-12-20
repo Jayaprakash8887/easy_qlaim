@@ -641,10 +641,37 @@ Manage notification preferences:
 
 ### 15.6 Branding Settings
 
-Customize the application appearance:
-- Company logo
-- Primary/secondary colors
-- Email templates
+Admin users can customize the application appearance for their tenant:
+
+**Access Control:**
+| Role | Access Level |
+|------|--------------|
+| System Admin | Can modify any tenant's branding |
+| Admin | Can only modify their own tenant's branding |
+| Other roles | View only (branded elements visible) |
+
+**Customizable Elements:**
+
+| Element | Description | Recommendations |
+|---------|-------------|-----------------|
+| Company Logo | Main navigation logo | PNG, transparent background, 200x60px |
+| Favicon | Browser tab icon | ICO/PNG, 32x32px |
+| Email Logo | Logo for email templates | PNG, 400x120px |
+| Primary Color | Main brand color | Hex code (e.g., #1a73e8) |
+| Secondary Color | Accent color | Hex code (e.g., #34a853) |
+| Tagline | Company tagline/slogan | Text (max 100 chars) |
+
+**Branding Preview:**
+- Live preview available before saving
+- All changes apply across the tenant's application instance
+- Users within the tenant see consistent branded experience
+
+**File Upload Specifications:**
+| File Type | Max Size | Accepted Formats |
+|-----------|----------|------------------|
+| Logo | 2MB | PNG, JPG, SVG |
+| Favicon | 100KB | ICO, PNG |
+| Email Logo | 1MB | PNG, JPG |
 
 ---
 

@@ -295,6 +295,41 @@ REFRESH_TOKEN_EXPIRE_DAYS=7
        ON claims(tenant_id, status);
    ```
 
+#### 7.2 "Organization Access Suspended" Error
+
+**Symptom:** Users get "Your organization's access has been suspended" error during login
+
+**Cause:** The tenant has been deactivated (is_active = false)
+
+**Solutions:**
+
+1. **Check tenant status**
+   ```sql
+   -- Check if tenant is active
+   SELECT id, name, code, is_active 
+   FROM tenants 
+   WHERE id = 'tenant-uuid-here';
+   ```
+
+2. **Reactivate tenant (if authorized)**
+   ```sql
+   -- Reactivate tenant
+   UPDATE tenants 
+   SET is_active = true, 
+       updated_at = NOW()
+   WHERE id = 'tenant-uuid-here';
+   ```
+
+3. **Check deactivation reason (in settings)**
+   ```sql
+   SELECT settings->>'deactivation_reason' as reason,
+          settings->>'deactivated_at' as deactivated_at
+   FROM tenants 
+   WHERE id = 'tenant-uuid-here';
+   ```
+
+> **Note:** Only System Admin can reactivate a tenant. Contact the platform administrator if tenant reactivation is needed.
+
 ---
 
 ### 8. Performance Issues
