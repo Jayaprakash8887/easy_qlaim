@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { ChevronRight, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface BreadcrumbItem {
   label: string;
@@ -18,16 +19,31 @@ const routeLabels: Record<string, string> = {
   settlements: 'Settlements',
   settings: 'Settings',
   profile: 'Profile',
+  tenants: 'Tenants',
+  designations: 'Designations',
+  admin: 'Admin',
+};
+
+// Segments to skip for specific roles
+const skipSegmentsForRole: Record<string, string[]> = {
+  system_admin: ['admin'], // System admin doesn't need "Admin" in breadcrumb
 };
 
 export function Breadcrumbs() {
   const location = useLocation();
+  const { user } = useAuth();
   const pathSegments = location.pathname.split('/').filter(Boolean);
+  
+  // Filter out segments that should be skipped for this user's role
+  const skipSegments = user?.role ? (skipSegmentsForRole[user.role] || []) : [];
+  const filteredSegments = pathSegments.filter(segment => !skipSegments.includes(segment));
 
   const breadcrumbs: BreadcrumbItem[] = [
     { label: 'Home', href: '/' },
-    ...pathSegments.map((segment, index) => {
-      const href = '/' + pathSegments.slice(0, index + 1).join('/');
+    ...filteredSegments.map((segment, index) => {
+      // Build href from original path segments up to this filtered segment
+      const originalIndex = pathSegments.indexOf(segment);
+      const href = '/' + pathSegments.slice(0, originalIndex + 1).join('/');
       // Check if it's a dynamic segment (like claim ID)
       const label = segment.startsWith('CLM-') || /^\d+$/.test(segment)
         ? segment
@@ -35,12 +51,12 @@ export function Breadcrumbs() {
       
       return {
         label,
-        href: index === pathSegments.length - 1 ? undefined : href,
+        href: index === filteredSegments.length - 1 ? undefined : href,
       };
     }),
   ];
 
-  if (pathSegments.length === 0) {
+  if (filteredSegments.length === 0) {
     return null;
   }
 
