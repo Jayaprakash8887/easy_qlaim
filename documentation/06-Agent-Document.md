@@ -582,4 +582,4 @@ self.logger.error(f"Document processing failed: {e}")
 
 ---
 
-*Document Version: 1.0 | Last Updated: December 2024*
+*Document Version: 1.0 | Last Updated: December 2025*

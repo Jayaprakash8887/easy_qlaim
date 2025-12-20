@@ -443,4 +443,4 @@ self.logger.error(f"Orchestration failed for claim {claim_id}: {e}")
 
 ---
 
-*Document Version: 1.0 | Last Updated: December 2024*
+*Document Version: 1.0 | Last Updated: December 2025*

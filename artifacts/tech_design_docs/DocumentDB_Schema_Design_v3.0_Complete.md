@@ -2,7 +2,7 @@
 ## Agentic AI Reimbursement System
 
 **Version:** 3.0  
-**Date:** December 2024  
+**Date:** December 2025  
 **Database:** DocumentDB.io (PostgreSQL-based with MongoDB API)  
 **Features:** Vector embeddings, Full-text search, ACID transactions, BSON support
 
