@@ -45,7 +45,7 @@ export async function uploadPolicy(data: FormData): Promise<PolicyUpload> {
 
 export async function approvePolicy(
     id: string,
-    data: { review_notes?: string; effective_from?: string },
+    data: { review_notes?: string; effective_from?: string; approved_by?: string },
     tenantId: string
 ): Promise<PolicyUpload> {
     const response = await fetch(`${API_BASE_URL}/policies/${id}/approve?tenant_id=${tenantId}`, {

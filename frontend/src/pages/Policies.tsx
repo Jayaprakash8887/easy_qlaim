@@ -230,7 +230,7 @@ export default function Policies() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { review_notes?: string; effective_from?: string } }) =>
+    mutationFn: ({ id, data }: { id: string; data: { review_notes?: string; effective_from?: string; approved_by?: string } }) =>
       approvePolicy(id, data, user?.tenantId || ''),
     onSuccess: () => {
       toast({ title: 'Success', description: 'Policy approved and activated.' });
@@ -369,6 +369,7 @@ export default function Policies() {
       data: {
         review_notes: approveNotes || undefined,
         effective_from: effectiveFrom || undefined,
+        approved_by: user?.id,  // Pass current user as approver
       },
     });
   };
