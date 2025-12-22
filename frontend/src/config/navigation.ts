@@ -103,6 +103,11 @@ export const adminOnlyNavigation: NavItem[] = [
     icon: 'Building',
   },
   {
+    label: 'Departments',
+    href: '/departments',
+    icon: 'Users',
+  },
+  {
     label: 'Policies',
     href: '/policies',
     icon: 'FileText',

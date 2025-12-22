@@ -163,6 +163,47 @@ class IBU(Base):
     )
 
 
+class Department(Base):
+    """
+    Tenant-specific departments for organizational structure.
+    Used for employee assignment and claim categorization.
+    """
+    __tablename__ = "departments"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    
+    # Department identification
+    code = Column(String(50), nullable=False)  # Short code, e.g., "ENGG", "HR"
+    name = Column(String(255), nullable=False)  # Full name, e.g., "Engineering"
+    description = Column(Text)
+    
+    # Department head
+    head_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    
+    # Display order for UI
+    display_order = Column(Integer, default=0)
+    
+    # Additional metadata
+    extra_data = Column(JSONB, default={})
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "code", name="uq_department_tenant_code"),
+        Index("idx_departments_tenant", "tenant_id"),
+        Index("idx_departments_code", "code"),
+        Index("idx_departments_name", "name"),
+        Index("idx_departments_active", "is_active"),
+        Index("idx_departments_head", "head_id"),
+    )
+
+
 class Claim(Base):
     """Main claims table with OCR tracking, HR corrections, return workflow"""
     __tablename__ = "claims"

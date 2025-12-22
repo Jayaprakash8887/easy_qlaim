@@ -24,6 +24,7 @@ const Employees = lazy(() => import('./pages/Employees'));
 const EmployeeDetails = lazy(() => import('./pages/EmployeeDetails'));
 const Projects = lazy(() => import('./pages/Projects'));
 const IBUManagement = lazy(() => import('./pages/IBUManagement'));
+const Departments = lazy(() => import('./pages/Departments'));
 const Policies = lazy(() => import('./pages/Policies'));
 const ClaimManagement = lazy(() => import('./pages/ClaimManagement'));
 const RegionManagement = lazy(() => import('./pages/RegionManagement'));
@@ -199,6 +200,16 @@ const App = () => (
                   <Suspense fallback={<PageLoader />}>
                     <ProtectedRoute allowedRoles={['admin']}>
                       <IBUManagement />
+                    </ProtectedRoute>
+                  </Suspense>
+                }
+              />
+              <Route
+                path="/departments"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <Departments />
                     </ProtectedRoute>
                   </Suspense>
                 }

@@ -450,6 +450,44 @@ class IBUListResponse(BaseModel):
     limit: int
 
 
+# Department Schemas
+class DepartmentBase(BaseModel):
+    code: str = Field(..., min_length=1, max_length=50)
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+
+
+class DepartmentCreate(DepartmentBase):
+    head_id: Optional[UUID] = None
+    display_order: int = 0
+
+
+class DepartmentUpdate(BaseModel):
+    code: Optional[str] = Field(None, min_length=1, max_length=50)
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    head_id: Optional[UUID] = None
+    display_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class DepartmentResponse(DepartmentBase):
+    id: UUID
+    tenant_id: UUID
+    head_id: Optional[UUID] = None
+    is_active: bool = True
+    display_order: int = 0
+    created_at: datetime
+    updated_at: datetime
+    
+    # Optional: populated when fetching with details
+    head_name: Optional[str] = None
+    employee_count: Optional[int] = None
+    
+    class Config:
+        from_attributes = True
+
+
 # Project Schemas
 class ProjectBase(BaseModel):
     project_code: str

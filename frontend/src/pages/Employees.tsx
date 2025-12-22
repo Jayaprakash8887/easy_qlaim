@@ -2,7 +2,7 @@ import { useState, useMemo, useRef } from 'react';
 import { Plus, Search, Upload, MoreHorizontal, Mail, Phone, Download, FileDown, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { getAllDepartments } from '@/config/company';
+import { useDepartments } from '@/hooks/useDepartments';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -86,13 +86,18 @@ export default function Employees() {
   const createEmployee = useCreateEmployee();
   const updateEmployee = useUpdateEmployee();
 
-  // Get departments from config, with any additional ones from existing employees
+  // Get departments from API (tenant-specific)
+  const { data: departmentsData } = useDepartments(tenantId);
+
+  // Map departments to array of names for filters and forms
   const departments = useMemo(() => {
-    const configDepartments = getAllDepartments();
-    if (!employees) return configDepartments;
-    const employeeDepts = employees.map((e) => e.department).filter(Boolean);
-    return [...new Set([...configDepartments, ...employeeDepts])];
-  }, [employees]);
+    if (!departmentsData || departmentsData.length === 0) {
+      // Fallback: get unique departments from existing employees
+      if (!employees) return [];
+      return [...new Set(employees.map((e) => e.department).filter(Boolean))];
+    }
+    return departmentsData.map((d) => d.name);
+  }, [departmentsData, employees]);
 
   const managers = useMemo(() => {
     if (!employees) return [];
