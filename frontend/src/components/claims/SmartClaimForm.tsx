@@ -100,7 +100,7 @@ export function SmartClaimForm({
 
   // Get current user and their employee data for project filtering
   const { user } = useAuth();
-  
+
   // Get formatting functions based on tenant settings
   const { formatCurrency, formatDate, getCurrencySymbol, getDateFnsFormat } = useFormatting();
 
@@ -754,9 +754,9 @@ export function SmartClaimForm({
         opt.categoryCode.toLowerCase() === backendCategory
       );
 
-      // Use the backend category directly - don't override with 'other' if not found in frontend
-      // The backend has already validated against the database
-      const validatedCategory = categoryOption?.value || backendCategory;
+      // If category not found in policy options, fallback to 'other'
+      // This ensures the dropdown shows a valid selection
+      const validatedCategory = categoryOption?.value || 'other';
       const isOtherCategory = validatedCategory === 'other';
 
       // Get display title based on validated category
