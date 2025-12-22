@@ -47,28 +47,38 @@ if [ ! -d "secrets" ]; then
     echo -e "${YELLOW}📂 Created secrets/ directory for credential files${NC}"
 fi
 
+# Check for docker compose command
+if command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+else
+    echo -e "${RED}❌ Docker Compose not found! Please install it first.${NC}"
+    exit 1
+fi
+
 echo -e "${BLUE}📦 Building Docker images...${NC}"
-docker-compose build
+$DOCKER_COMPOSE build
 
 echo ""
 echo -e "${BLUE}🚀 Starting services...${NC}"
-docker-compose up -d postgres redis
+$DOCKER_COMPOSE up -d postgres redis
 
 echo ""
 echo -e "${YELLOW}⏳ Waiting for database to be ready...${NC}"
-sleep 5
+sleep 10  # Increased wait time for safety
 
 echo ""
 echo -e "${BLUE}🗄️  Initializing database...${NC}"
-docker-compose run --rm backend python -c "from database import init_db; init_db()"
+$DOCKER_COMPOSE run --rm backend python -c "from database import init_db; init_db()"
 
 echo ""
 echo -e "${BLUE}📊 Creating test data...${NC}"
-docker-compose run --rm backend python create_test_data.py
+$DOCKER_COMPOSE run --rm backend python create_test_data.py
 
 echo ""
 echo -e "${BLUE}🚀 Starting all services...${NC}"
-docker-compose up -d
+$DOCKER_COMPOSE up -d
 
 echo ""
 echo -e "${GREEN}================================================${NC}"
