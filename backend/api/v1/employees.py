@@ -200,6 +200,120 @@ async def create_employee(
     return _user_to_employee_response(user, db)
 
 
+@router.post("/bulk", status_code=status.HTTP_200_OK)
+async def bulk_import_employees(
+    import_data: "BulkEmployeeImport",
+    db: Session = Depends(get_sync_db)
+):
+    """
+    Bulk import employees from CSV/list.
+    Creates multiple employees in a single transaction.
+    Returns detailed results for each employee.
+    """
+    from schemas import BulkEmployeeImport, BulkEmployeeImportResult, BulkEmployeeImportResponse
+    
+    if not import_data.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="tenant_id is required"
+        )
+    
+    results = []
+    success_count = 0
+    failed_count = 0
+    
+    for emp_data in import_data.employees:
+        try:
+            # Check if employee_code already exists
+            existing = db.query(User).filter(
+                User.employee_code == emp_data.employee_id
+            ).first()
+            if existing:
+                results.append(BulkEmployeeImportResult(
+                    employee_id=emp_data.employee_id,
+                    email=emp_data.email,
+                    success=False,
+                    error=f"Employee ID {emp_data.employee_id} already exists"
+                ))
+                failed_count += 1
+                continue
+            
+            # Check if email already exists
+            existing_email = db.query(User).filter(
+                User.email == emp_data.email
+            ).first()
+            if existing_email:
+                results.append(BulkEmployeeImportResult(
+                    employee_id=emp_data.employee_id,
+                    email=emp_data.email,
+                    success=False,
+                    error=f"Email {emp_data.email} already exists"
+                ))
+                failed_count += 1
+                continue
+            
+            # Store project_ids in user_data JSONB field
+            user_data = dict(emp_data.employee_data) if emp_data.employee_data else {}
+            user_data['project_ids'] = emp_data.project_ids if emp_data.project_ids else []
+            
+            # Generate username from email
+            username = emp_data.email.split('@')[0]
+            
+            # Generate a default hashed password
+            default_password = hashlib.sha256(f"temp_{emp_data.employee_id}".encode()).hexdigest()
+            
+            user = User(
+                id=uuid4(),
+                tenant_id=import_data.tenant_id,
+                username=username,
+                email=emp_data.email,
+                hashed_password=default_password,
+                employee_code=emp_data.employee_id,
+                first_name=emp_data.first_name,
+                last_name=emp_data.last_name,
+                full_name=f"{emp_data.first_name} {emp_data.last_name}",
+                phone=emp_data.phone,
+                mobile=emp_data.mobile,
+                address=emp_data.address,
+                department=emp_data.department,
+                designation=emp_data.designation,
+                manager_id=UUID(emp_data.manager_id) if emp_data.manager_id else None,
+                date_of_joining=emp_data.date_of_joining,
+                user_data=user_data,
+                employment_status="ACTIVE",
+                roles=["EMPLOYEE"],
+                is_active=True
+            )
+            
+            db.add(user)
+            results.append(BulkEmployeeImportResult(
+                employee_id=emp_data.employee_id,
+                email=emp_data.email,
+                success=True
+            ))
+            success_count += 1
+            
+        except Exception as e:
+            results.append(BulkEmployeeImportResult(
+                employee_id=emp_data.employee_id,
+                email=emp_data.email,
+                success=False,
+                error=str(e)
+            ))
+            failed_count += 1
+    
+    # Commit all successful inserts
+    if success_count > 0:
+        db.commit()
+    
+    return BulkEmployeeImportResponse(
+        total=len(import_data.employees),
+        success_count=success_count,
+        failed_count=failed_count,
+        results=results
+    )
+
+
 @router.put("/{employee_id}", response_model=EmployeeResponse)
 async def update_employee(
     employee_id: UUID,

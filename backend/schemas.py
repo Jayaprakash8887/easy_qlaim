@@ -255,6 +255,28 @@ class EmployeeCreate(BaseModel):
     employee_data: Dict[str, Any] = {}
 
 
+class BulkEmployeeImport(BaseModel):
+    """Schema for bulk employee import request"""
+    tenant_id: UUID
+    employees: List[EmployeeCreate]
+
+
+class BulkEmployeeImportResult(BaseModel):
+    """Individual result for each employee import"""
+    employee_id: str
+    email: str
+    success: bool
+    error: Optional[str] = None
+
+
+class BulkEmployeeImportResponse(BaseModel):
+    """Response for bulk employee import"""
+    total: int
+    success_count: int
+    failed_count: int
+    results: List[BulkEmployeeImportResult]
+
+
 
 
 class EmployeeResponse(BaseModel):

@@ -1,0 +1,6 @@
+employee_id,first_name,last_name,email,phone,mobile,department,designation,region,join_date,manager_id
+EMP001,John,Doe,john.doe@company.com,+91-80-12345678,+91-9876543210,Engineering,Software Engineer,INDIA,2024-01-15,
+EMP002,Jane,Smith,jane.smith@company.com,+91-80-12345679,+91-9876543211,Human Resources,HR Manager,INDIA,2023-06-01,
+EMP003,Bob,Johnson,bob.johnson@company.com,+91-80-12345680,+91-9876543212,Finance,Finance Analyst,INDIA,2024-03-20,
+EMP004,Alice,Brown,alice.brown@company.com,+91-80-12345681,+91-9876543213,Engineering,Team Lead,INDIA,2022-11-10,
+EMP005,Charlie,Wilson,charlie.wilson@company.com,+91-80-12345682,+91-9876543214,Project Management,Project Manager,INDIA,2023-08-05,
