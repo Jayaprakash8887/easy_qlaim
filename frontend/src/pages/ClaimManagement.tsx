@@ -148,6 +148,9 @@ export default function ClaimManagement() {
             toast({ title: 'Success', description: 'Category updated successfully.' });
             setIsEditOpen(false);
             queryClient.invalidateQueries({ queryKey: ['extracted-claims'] });
+            // Also invalidate individual policy queries so the "Extracted Categories" 
+            // dialog in Policies page shows the updated values
+            queryClient.invalidateQueries({ queryKey: ['policy'] });
         },
         onError: (error: Error) => {
             toast({ title: 'Error', description: error.message, variant: 'destructive' });
