@@ -105,6 +105,19 @@ export default function Policies() {
     ...regionList.map(r => ({ value: r.code, label: r.name }))
   ];
 
+  // Helper function to convert region codes to display names
+  const getRegionDisplayNames = (regionCodes: string | string[] | null | undefined): string => {
+    if (!regionCodes) return 'Global';
+    const codes = Array.isArray(regionCodes) ? regionCodes : [regionCodes];
+    if (codes.length === 0) return 'Global';
+    
+    return codes.map(code => {
+      if (code === 'GLOBAL') return 'Global';
+      const region = regionList.find(r => r.code === code);
+      return region?.name || code; // Fallback to code if name not found
+    }).join(', ');
+  };
+
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [isApproveOpen, setIsApproveOpen] = useState(false);
@@ -791,7 +804,7 @@ export default function Policies() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-xs">
-                          {policy.region || 'Global'}
+                          {getRegionDisplayNames(policy.region)}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -1078,7 +1091,7 @@ export default function Policies() {
                 <div>
                   <Label className="text-muted-foreground">Region</Label>
                   <div className="mt-1">
-                    <Badge variant="outline">{selectedPolicy.region || 'Global'}</Badge>
+                    <Badge variant="outline">{getRegionDisplayNames(selectedPolicy.region)}</Badge>
                   </div>
                 </div>
                 <div>
@@ -1767,7 +1780,7 @@ export default function Policies() {
                 <div>
                   <Label className="text-muted-foreground">Region</Label>
                   <div className="mt-1">
-                    <Badge variant="outline">{selectedCustomClaim.region || 'Global'}</Badge>
+                    <Badge variant="outline">{getRegionDisplayNames(selectedCustomClaim.region)}</Badge>
                   </div>
                 </div>
                 <div>

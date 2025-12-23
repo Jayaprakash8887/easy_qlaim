@@ -20,21 +20,30 @@ from api.v1.auth import require_tenant_id
 
 
 def validate_regions_exist(db: Session, tenant_id: UUID, region_codes: List[str]) -> None:
-    """Validate that all provided region codes exist for the tenant"""
+    """Validate that all provided region codes exist for the tenant.
+    'GLOBAL' is a special value meaning the claim applies to all regions.
+    """
     if not region_codes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="At least one region is required"
         )
     
+    # Filter out 'GLOBAL' as it's a special value, not a database region
+    codes_to_validate = [code for code in region_codes if code.upper() != 'GLOBAL']
+    
+    # If only GLOBAL was provided, that's valid
+    if not codes_to_validate:
+        return
+    
     existing_regions = db.query(Region.code).filter(
         Region.tenant_id == tenant_id,
-        Region.code.in_(region_codes),
+        Region.code.in_(codes_to_validate),
         Region.is_active == True
     ).all()
     existing_codes = {r.code for r in existing_regions}
     
-    invalid_codes = set(region_codes) - existing_codes
+    invalid_codes = set(codes_to_validate) - existing_codes
     if invalid_codes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

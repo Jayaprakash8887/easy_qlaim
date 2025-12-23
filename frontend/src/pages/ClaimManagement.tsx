@@ -130,6 +130,19 @@ export default function ClaimManagement() {
         ...(regions || []).map(r => ({ value: r.code, label: r.name }))
     ];
 
+    // Helper function to convert region codes to display names
+    const getRegionDisplayName = (regionCode: string | string[] | null | undefined): string => {
+        if (!regionCode) return 'Global';
+        const codes = Array.isArray(regionCode) ? regionCode : [regionCode];
+        if (codes.length === 0) return 'Global';
+        
+        return codes.map(code => {
+            if (code === 'GLOBAL') return 'Global';
+            const region = regions?.find(r => r.code === code);
+            return region?.name || code;
+        }).join(', ');
+    };
+
     const [searchTerm, setSearchTerm] = useState('');
     const [regionFilter, setRegionFilter] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<ExtractedClaim | null>(null);
@@ -270,7 +283,7 @@ export default function ClaimManagement() {
                                     </TableCell>
                                     <TableCell>
                                         <Badge variant="outline">
-                                            {claim.policy_region || 'Global'}
+                                            {getRegionDisplayName(claim.policy_region)}
                                         </Badge>
                                     </TableCell>
                                     <TableCell>
