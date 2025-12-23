@@ -28,7 +28,7 @@ export const mainNavigation: NavItem[] = [
     label: 'Reports',
     href: '/reports',
     icon: 'BarChart3',
-    roles: ['manager', 'hr', 'finance', 'admin'],
+    roles: ['hr', 'finance', 'admin'],
   },
 ];
 
