@@ -4,6 +4,7 @@ Main FastAPI application
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from contextlib import asynccontextmanager
 import logging
 from config import settings
@@ -148,6 +149,9 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
     lifespan=lifespan
 )
+
+# Proxy headers middleware - trust X-Forwarded-Proto from nginx
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
 # CORS middleware
 app.add_middleware(
