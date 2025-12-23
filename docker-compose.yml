@@ -164,6 +164,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-key-change-in-production}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       GCP_CREDENTIALS_PATH: /app/secrets/gcp-service-account.json
       APP_ENV: development
@@ -186,13 +187,24 @@ services:
     ports:
       - "5555:5555"
     environment:
+      DATABASE_URL: postgresql://reimbursement_user:reimbursement_pass@pgbouncer:6432/reimbursement_db
+      MONGODB_URI: postgresql://reimbursement_user:reimbursement_pass@pgbouncer:6432/reimbursement_db
+      REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-key-change-in-production}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      GCP_CREDENTIALS_PATH: /app/secrets/gcp-service-account.json
+      APP_ENV: development
     depends_on:
+      pgbouncer:
+        condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      - ./secrets:/app/secrets:ro
     command: celery -A celery_app flower --port=5555
 
   # Frontend (React)
