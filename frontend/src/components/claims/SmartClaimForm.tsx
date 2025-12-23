@@ -29,6 +29,8 @@ import { useFormatting } from "@/hooks/useFormatting";
 import { useEmployeeProjectHistory } from "@/hooks/useEmployees";
 import { useReimbursementsByRegion, ExtractedClaimCategory } from "@/hooks/usePolicies";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
 interface ClaimFormData {
   title?: string;
   amount?: string;
@@ -309,7 +311,7 @@ export function SmartClaimForm({
       }
 
       const response = await fetch(
-        `/api/v1/claims/check-duplicate?${params}`,
+        `${API_BASE_URL}/claims/check-duplicate?${params}`,
         { method: 'POST' }
       );
 
@@ -395,7 +397,7 @@ export function SmartClaimForm({
         }
 
         const response = await fetch(
-          `/api/v1/claims/check-duplicate?${params}`,
+          `${API_BASE_URL}/claims/check-duplicate?${params}`,
           { method: 'POST' }
         );
 
@@ -699,7 +701,6 @@ export function SmartClaimForm({
       const employeeRegion = user?.region || 'INDIA';
 
       // Use absolute URL to backend API with region and tenant_id parameters
-      const API_BASE_URL = '/api/v1';
       const tenantId = user?.tenantId || '';
       const response = await fetch(`${API_BASE_URL}/documents/ocr?employee_region=${encodeURIComponent(employeeRegion)}&tenant_id=${encodeURIComponent(tenantId)}`, {
         method: 'POST',

@@ -14,8 +14,8 @@ from pathlib import Path
 import json
 import logging
 
-from database import get_async_db
-from models import Claim, Document, User, Comment
+from database import get_async_db, get_sync_db
+from models import Claim, Document, User, Comment, Designation
 # Employee is now an alias for User
 Employee = User
 from schemas import (
@@ -74,6 +74,71 @@ def _map_category(category_str: str) -> str:
     # For dynamic categories (from policy_categories table), 
     # return as uppercase to match category_code convention
     return category_str.upper()
+
+
+def _get_initial_claim_status(
+    tenant_id: UUID,
+    employee_email: str,
+    employee_designation_code: Optional[str],
+    claim_amount: float,
+    category_code: Optional[str] = None
+) -> tuple[str, dict]:
+    """
+    Determine the initial claim status based on approval skip rules.
+    
+    Returns:
+        tuple: (initial_status, skip_info_dict)
+        
+    The skip_info_dict contains details about which levels were skipped and why.
+    """
+    from api.v1.approval_skip_rules import get_approval_skip_for_employee
+    from database import SyncSessionLocal
+    
+    # Use a sync session for the skip rule check
+    sync_db = SyncSessionLocal()
+    try:
+        # Check if any skip rules apply
+        skip_result = get_approval_skip_for_employee(
+            db=sync_db,
+            tenant_id=tenant_id,
+            employee_email=employee_email,
+            employee_designation=employee_designation_code,
+            claim_amount=claim_amount,
+            category_code=category_code
+        )
+    finally:
+        sync_db.close()
+    
+    skip_info = {
+        "skip_manager": skip_result.skip_manager,
+        "skip_hr": skip_result.skip_hr,
+        "skip_finance": skip_result.skip_finance,
+        "applied_rule_id": str(skip_result.applied_rule_id) if skip_result.applied_rule_id else None,
+        "applied_rule_name": skip_result.applied_rule_name,
+        "reason": skip_result.reason
+    }
+    
+    # Determine initial status based on skipped levels
+    # Normal flow: PENDING_MANAGER -> PENDING_HR -> PENDING_FINANCE -> SETTLED
+    
+    if skip_result.skip_manager and skip_result.skip_hr and skip_result.skip_finance:
+        # All approvals skipped - go directly to settled
+        initial_status = "SETTLED"
+        skip_info["auto_settled"] = True
+        logger.info(f"Claim auto-settled due to skip rules: {skip_result.reason}")
+    elif skip_result.skip_manager and skip_result.skip_hr:
+        # Manager and HR skipped - go to Finance
+        initial_status = "PENDING_FINANCE"
+        logger.info(f"Claim skipping manager and HR approval: {skip_result.reason}")
+    elif skip_result.skip_manager:
+        # Only manager skipped - go to HR
+        initial_status = "PENDING_HR"
+        logger.info(f"Claim skipping manager approval: {skip_result.reason}")
+    else:
+        # Normal flow - start with manager
+        initial_status = "PENDING_MANAGER"
+    
+    return initial_status, skip_info
 
 
 @router.post("/batch", response_model=BatchClaimResponse, status_code=status.HTTP_201_CREATED)
@@ -200,6 +265,19 @@ async def create_batch_claims(
         )
         claim_payload["policy_checks"] = policy_checks
         
+        # Check approval skip rules for this employee
+        initial_status, skip_info = _get_initial_claim_status(
+            tenant_id=employee.tenant_id,
+            employee_email=employee.email,
+            employee_designation_code=employee.designation,
+            claim_amount=claim_item.amount,
+            category_code=category
+        )
+        
+        # Store skip info in claim payload for audit trail
+        if skip_info.get("applied_rule_id"):
+            claim_payload["approval_skip_info"] = skip_info
+        
         # Create claim
         new_claim = Claim(
             tenant_id=employee.tenant_id,
@@ -213,7 +291,7 @@ async def create_batch_claims(
             claim_date=claim_item.claim_date,
             description=claim_item.description or claim_item.title,
             claim_payload=claim_payload,
-            status="PENDING_MANAGER",  # Direct submit to manager approval
+            status=initial_status,  # Use status from skip rule check
             submission_date=datetime.utcnow(),
             can_edit=False
         )
@@ -419,6 +497,19 @@ async def create_batch_claims_with_document(
         )
         claim_payload["policy_checks"] = policy_checks
         
+        # Check approval skip rules for this employee
+        initial_status, skip_info = _get_initial_claim_status(
+            tenant_id=employee.tenant_id,
+            employee_email=employee.email,
+            employee_designation_code=employee.designation,
+            claim_amount=claim_item.amount,
+            category_code=category
+        )
+        
+        # Store skip info in claim payload for audit trail
+        if skip_info.get("applied_rule_id"):
+            claim_payload["approval_skip_info"] = skip_info
+        
         # Create claim
         new_claim = Claim(
             tenant_id=employee.tenant_id,
@@ -432,7 +523,7 @@ async def create_batch_claims_with_document(
             claim_date=claim_item.claim_date,
             description=claim_item.description or claim_item.title,
             claim_payload=claim_payload,
-            status="PENDING_MANAGER",
+            status=initial_status,  # Use status from skip rule check
             submission_date=datetime.utcnow(),
             can_edit=False
         )
@@ -504,6 +595,20 @@ async def create_claim(
             detail="Employee not found"
         )
     
+    # Check approval skip rules for this employee
+    initial_status, skip_info = _get_initial_claim_status(
+        tenant_id=employee.tenant_id,
+        employee_email=employee.email,
+        employee_designation_code=employee.designation,
+        claim_amount=float(claim.amount),
+        category_code=claim.category
+    )
+    
+    # Prepare claim payload with skip info if applicable
+    claim_payload = claim.claim_payload or {}
+    if skip_info.get("applied_rule_id"):
+        claim_payload["approval_skip_info"] = skip_info
+    
     # Create claim
     new_claim = Claim(
         tenant_id=employee.tenant_id,
@@ -516,8 +621,8 @@ async def create_claim(
         amount=claim.amount,
         claim_date=claim.claim_date,
         description=claim.description,
-        claim_payload=claim.claim_payload,
-        status="PENDING_MANAGER",
+        claim_payload=claim_payload,
+        status=initial_status,  # Use status from skip rule check
         submission_date=datetime.utcnow()
     )
     
@@ -533,7 +638,7 @@ async def submit_claim(
     claim_id: UUID,
     db: AsyncSession = Depends(get_async_db),
 ):
-    """Submit a claim for processing - moves to PENDING_MANAGER status"""
+    """Submit a claim for processing - moves to appropriate status based on skip rules"""
     
     # Get claim
     result = await db.execute(select(Claim).where(Claim.id == claim_id))
@@ -575,8 +680,32 @@ async def submit_claim(
                 }
             )
     
-    # Update status - ensure it's PENDING_MANAGER for manager review
-    claim.status = "PENDING_MANAGER"
+    # Get employee for skip rule check
+    emp_result = await db.execute(select(Employee).where(Employee.id == claim.employee_id))
+    employee = emp_result.scalar_one_or_none()
+    
+    # Check approval skip rules
+    if employee:
+        initial_status, skip_info = _get_initial_claim_status(
+            tenant_id=claim.tenant_id,
+            employee_email=employee.email,
+            employee_designation_code=employee.designation,
+            claim_amount=float(claim.amount),
+            category_code=claim.category
+        )
+        
+        # Store skip info in claim payload if rules applied
+        if skip_info.get("applied_rule_id"):
+            if not claim.claim_payload:
+                claim.claim_payload = {}
+            claim.claim_payload["approval_skip_info"] = skip_info
+            flag_modified(claim, "claim_payload")
+        
+        claim.status = initial_status
+    else:
+        # Fallback to normal flow if employee not found
+        claim.status = "PENDING_MANAGER"
+    
     claim.submission_date = datetime.utcnow()
     claim.can_edit = False
     await db.commit()

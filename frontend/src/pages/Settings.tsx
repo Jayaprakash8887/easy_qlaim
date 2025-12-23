@@ -13,6 +13,7 @@ import {
   Upload,
   Trash2,
   Info,
+  ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -57,6 +58,7 @@ import { toast } from '@/hooks/use-toast';
 import { toast as sonnerToast } from 'sonner';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
+import { ApprovalSkipRulesManager } from '@/components/ApprovalSkipRulesManager';
 import {
   useTenantBranding,
   useUploadBrandingFile,
@@ -524,10 +526,14 @@ export default function Settings() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList className="grid w-full max-w-lg grid-cols-3">
           <TabsTrigger value="general" className="flex items-center gap-2">
             <SettingsIcon className="h-4 w-4" />
             General Settings
+          </TabsTrigger>
+          <TabsTrigger value="approvals" className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4" />
+            Approval Rules
           </TabsTrigger>
           <TabsTrigger value="branding" className="flex items-center gap-2">
             <Palette className="h-4 w-4" />
@@ -1026,6 +1032,11 @@ export default function Settings() {
           </div>
         )}
           </div>
+        </TabsContent>
+
+        {/* Approval Rules Tab */}
+        <TabsContent value="approvals" className="space-y-4 mt-6">
+          <ApprovalSkipRulesManager />
         </TabsContent>
 
         {/* Branding Settings Tab */}

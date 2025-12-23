@@ -199,7 +199,7 @@ def create_test_data():
                 'employee_code': '1257',
                 'roles': ['EMPLOYEE', 'HR', 'ADMIN'],
                 'manager_email': None,
-                'region': ['INDIA']
+                'region': ['IND']
             },
             {
                 'email': 'pampan.gowda@tarento.com',
@@ -211,7 +211,7 @@ def create_test_data():
                 'employee_code': '1522',
                 'roles': ['EMPLOYEE', 'MANAGER'],
                 'manager_email': None,
-                'region': ['INDIA']
+                'region': ['IND']
             },
             {
                 'email': 'sureshkannan.sellamuthu@tarento.com',
@@ -223,7 +223,7 @@ def create_test_data():
                 'employee_code': '1228',
                 'roles': ['EMPLOYEE', 'MANAGER'],
                 'manager_email': None,
-                'region': ['INDIA']
+                'region': ['IND']
             },
             {
                 'email': 'shreevas.karanth@tarento.com',
@@ -235,7 +235,7 @@ def create_test_data():
                 'employee_code': '209',
                 'roles': ['EMPLOYEE'],
                 'manager_email': 'pampan.gowda@tarento.com',
-                'region': ['INDIA']
+                'region': ['IND']
             },
             {
                 'email': 'roven.roy@tarento.com',
@@ -247,7 +247,7 @@ def create_test_data():
                 'employee_code': '1650',
                 'roles': ['EMPLOYEE', 'HR'],
                 'manager_email': 'jinson.kuruvilla@tarento.com',
-                'region': ['INDIA']
+                'region': ['IND']
             },
             {
                 'email': 'shreevatsa.sridhar@tarento.com',
@@ -259,7 +259,7 @@ def create_test_data():
                 'employee_code': '231',
                 'roles': ['EMPLOYEE', 'HR'],
                 'manager_email': None,
-                'region': ['INDIA']
+                'region': ['IND']
             },
             {
                 'email': 'ranjith.babu@tarento.com',
@@ -271,7 +271,7 @@ def create_test_data():
                 'employee_code': '914',
                 'roles': ['EMPLOYEE', 'FINANCE'],
                 'manager_email': None,
-                'region': ['INDIA']
+                'region': ['IND']
             },
             {
                 'email': 'njayaprakash.8887@gmail.com',
@@ -283,7 +283,7 @@ def create_test_data():
                 'employee_code': '450',
                 'roles': ['EMPLOYEE', 'MANAGER'],
                 'manager_email': 'sureshkannan.sellamuthu@tarento.com',
-                'region': ['INDIA']
+                'region': ['IND']
             },
         ]
         

@@ -312,7 +312,7 @@ async def system_info():
 
 
 # API v1 routes
-from api.v1 import claims, employees, projects, approvals, documents, dashboard, comments, settings as settings_api, policies, custom_claims, cache, tenants, designations, auth, notifications, branding, regions, ibus, integrations, departments
+from api.v1 import claims, employees, projects, approvals, documents, dashboard, comments, settings as settings_api, policies, custom_claims, cache, tenants, designations, auth, notifications, branding, regions, ibus, integrations, departments, approval_skip_rules
 
 app.include_router(auth.router, prefix="/api/v1", tags=["Authentication"])
 app.include_router(claims.router, prefix="/api/v1/claims", tags=["Claims"])
@@ -321,6 +321,7 @@ app.include_router(projects.router, prefix="/api/v1/projects", tags=["Projects"]
 app.include_router(ibus.router, prefix="/api/v1/ibus", tags=["IBUs (Business Units)"])
 app.include_router(departments.router, prefix="/api/v1/departments", tags=["Departments"])
 app.include_router(approvals.router, prefix="/api/v1/approvals", tags=["Approvals"])
+app.include_router(approval_skip_rules.router, prefix="/api/v1/approval-skip-rules", tags=["Approval Skip Rules"])
 app.include_router(documents.router, prefix="/api/v1/documents", tags=["Documents"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
 app.include_router(comments.router, prefix="/api/v1/comments", tags=["Comments"])

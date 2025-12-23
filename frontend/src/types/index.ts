@@ -216,3 +216,33 @@ export interface Region {
   createdAt: string;
   updatedAt: string;
 }
+
+// Approval Skip Rule interface
+export interface ApprovalSkipRule {
+  id: string;
+  tenant_id: string;
+  rule_name: string;
+  description?: string;
+  match_type: 'designation' | 'email';
+  designations: string[];
+  emails: string[];
+  skip_manager_approval: boolean;
+  skip_hr_approval: boolean;
+  skip_finance_approval: boolean;
+  max_amount_threshold?: number;
+  category_codes: string[];
+  priority: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Approval Skip Result (from check endpoint)
+export interface ApprovalSkipResult {
+  skip_manager: boolean;
+  skip_hr: boolean;
+  skip_finance: boolean;
+  applied_rule_id?: string;
+  applied_rule_name?: string;
+  reason: string;
+}

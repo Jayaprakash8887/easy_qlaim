@@ -1490,3 +1490,55 @@ class WebhookDeliveryLog(Base):
         Index("idx_webhook_log_success", "success"),
         Index("idx_webhook_log_created", "created_at"),
     )
+
+
+class ApprovalSkipRule(Base):
+    """
+    Rules for skipping approval levels based on employee designation or email.
+    Allows CXOs and senior executives to bypass certain approval levels.
+    """
+    __tablename__ = "approval_skip_rules"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    
+    # Rule identification
+    rule_name = Column(String(100), nullable=False)  # e.g., "CXO Fast Track"
+    description = Column(Text)
+    
+    # Rule criteria - can match by designation OR specific emails
+    match_type = Column(String(20), nullable=False, default="designation")  # "designation" or "email"
+    designations = Column(ARRAY(String), default=[])  # List of designation codes, e.g., ["CEO", "CFO", "CTO"]
+    emails = Column(ARRAY(String), default=[])  # Specific email addresses
+    
+    # Approval levels to skip (these won't be required for matching employees)
+    skip_manager_approval = Column(Boolean, default=False)
+    skip_hr_approval = Column(Boolean, default=False)
+    skip_finance_approval = Column(Boolean, default=False)  # Usually kept False - Finance settles
+    
+    # Optional amount threshold (above this, normal approval flow applies)
+    max_amount_threshold = Column(Numeric(15, 2), nullable=True)  # NULL = unlimited
+    
+    # Category restrictions (optional - only applies to specific categories)
+    category_codes = Column(ARRAY(String), default=[])  # Empty = all categories
+    
+    # Priority (lower number = higher priority, checked first)
+    priority = Column(Integer, default=100)
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    
+    # Audit
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    
+    __table_args__ = (
+        Index("idx_approval_skip_tenant", "tenant_id"),
+        Index("idx_approval_skip_active", "is_active"),
+        Index("idx_approval_skip_priority", "priority"),
+        Index("idx_approval_skip_match_type", "match_type"),
+    )

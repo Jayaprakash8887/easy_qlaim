@@ -1124,3 +1124,65 @@ class RegionResponse(RegionBase):
 
     class Config:
         from_attributes = True
+
+
+# ==================== APPROVAL SKIP RULE SCHEMAS ====================
+
+class ApprovalSkipRuleBase(BaseModel):
+    """Base schema for approval skip rules"""
+    rule_name: str = Field(..., min_length=1, max_length=100, description="Name of the rule")
+    description: Optional[str] = Field(None, description="Description of when/why this rule applies")
+    match_type: str = Field("designation", description="'designation' or 'email'")
+    designations: List[str] = Field(default=[], description="List of designation codes to match")
+    emails: List[str] = Field(default=[], description="List of specific email addresses to match")
+    skip_manager_approval: bool = Field(False, description="Skip manager approval level")
+    skip_hr_approval: bool = Field(False, description="Skip HR approval level")
+    skip_finance_approval: bool = Field(False, description="Skip finance approval (usually False)")
+    max_amount_threshold: Optional[float] = Field(None, description="Max amount for rule to apply (null=unlimited)")
+    category_codes: List[str] = Field(default=[], description="Specific categories (empty=all)")
+    priority: int = Field(100, description="Rule priority (lower=higher priority)")
+    is_active: bool = Field(True, description="Whether the rule is active")
+
+
+class ApprovalSkipRuleCreate(ApprovalSkipRuleBase):
+    """Schema for creating an approval skip rule"""
+    pass
+
+
+class ApprovalSkipRuleUpdate(BaseModel):
+    """Schema for updating an approval skip rule"""
+    rule_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    match_type: Optional[str] = None
+    designations: Optional[List[str]] = None
+    emails: Optional[List[str]] = None
+    skip_manager_approval: Optional[bool] = None
+    skip_hr_approval: Optional[bool] = None
+    skip_finance_approval: Optional[bool] = None
+    max_amount_threshold: Optional[float] = None
+    category_codes: Optional[List[str]] = None
+    priority: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class ApprovalSkipRuleResponse(ApprovalSkipRuleBase):
+    """Response schema for approval skip rules"""
+    id: UUID
+    tenant_id: UUID
+    created_by: Optional[UUID] = None
+    updated_by: Optional[UUID] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ApprovalSkipResult(BaseModel):
+    """Result of checking approval skip rules for a claim"""
+    skip_manager: bool = False
+    skip_hr: bool = False
+    skip_finance: bool = False
+    applied_rule_id: Optional[UUID] = None
+    applied_rule_name: Optional[str] = None
+    reason: Optional[str] = None
