@@ -12,7 +12,7 @@ import os
 import logging
 
 from database import get_sync_db
-from models import PolicyUpload, PolicyCategory, PolicyAuditLog, User
+from models import PolicyUpload, PolicyCategory, PolicyAuditLog, User, Region
 from schemas import (
     PolicyUploadResponse, PolicyUploadListResponse, PolicyCategoryResponse,
     PolicyCategoryUpdate, PolicyApprovalRequest, PolicyRejectRequest,
@@ -23,6 +23,50 @@ from schemas import (
 from api.v1.auth import require_tenant_id
 
 logger = logging.getLogger(__name__)
+
+
+def validate_region_exists(db: Session, tenant_id: UUID, region_code: str) -> None:
+    """Validate that the provided region code exists for the tenant"""
+    if not region_code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Region is required for policy upload"
+        )
+    
+    existing_region = db.query(Region).filter(
+        Region.tenant_id == tenant_id,
+        Region.code == region_code,
+        Region.is_active == True
+    ).first()
+    
+    if not existing_region:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid region code: {region_code}. Please create this region first."
+        )
+
+
+def validate_regions_exist(db: Session, tenant_id: UUID, region_codes: List[str]) -> None:
+    """Validate that all provided region codes exist for the tenant"""
+    if not region_codes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one region is required for policy upload"
+        )
+    
+    existing_regions = db.query(Region.code).filter(
+        Region.tenant_id == tenant_id,
+        Region.code.in_(region_codes),
+        Region.is_active == True
+    ).all()
+    existing_codes = {r.code for r in existing_regions}
+    
+    invalid_codes = set(region_codes) - existing_codes
+    if invalid_codes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid region codes: {', '.join(invalid_codes)}. Please create these regions first."
+        )
 
 router = APIRouter()
 
@@ -111,7 +155,7 @@ async def upload_policy(
     file: UploadFile = File(...),
     policy_name: str = Form(...),
     description: str = Form(None),
-    region: str = Form(None),  # Region/location this policy applies to
+    region: List[str] = Form(..., description="Region codes this policy applies to (required)"),
     uploaded_by: UUID = Form(...),
     tenant_id: str = Form(...),  # Required tenant_id from authenticated user
     db: Session = Depends(get_sync_db)
@@ -119,10 +163,14 @@ async def upload_policy(
     """
     Upload a policy document for AI extraction.
     Supported formats: PDF, DOCX, JPG, PNG
+    Region is mandatory - at least one valid region must be specified.
     """
     # Validate tenant_id
     require_tenant_id(tenant_id)
     tenant_uuid = UUID(tenant_id)
+    
+    # Validate all regions exist
+    validate_regions_exist(db, tenant_uuid, region)
     
     # Validate file type
     allowed_types = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
@@ -535,7 +583,7 @@ async def upload_new_version(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     description: str = Form(None),
-    region: str = Form(None),
+    region: List[str] = Form(..., description="Region codes this policy applies to (required)"),
     uploaded_by: UUID = Form(...),
     tenant_id: str = Form(...),  # Required - must be provided
     db: Session = Depends(get_sync_db)
@@ -543,10 +591,14 @@ async def upload_new_version(
     """
     Upload a new version of an existing policy document.
     The old policy will be archived when this new version is approved.
+    Region is mandatory - at least one valid region must be specified.
     """
     # Validate tenant_id
     require_tenant_id(tenant_id)
     tenant_uuid = UUID(tenant_id)
+    
+    # Validate all regions exist
+    validate_regions_exist(db, tenant_uuid, region)
     
     # Get the existing policy
     existing_policy = db.query(PolicyUpload).filter(
@@ -604,7 +656,7 @@ async def upload_new_version(
         content_type=file.content_type,
         status="PENDING",
         version=new_version,
-        region=region if region else existing_policy.region,  # Use new region or keep existing
+        region=region,  # Use the provided region (now required)
         replaces_policy_id=existing_policy.id,  # Link to old policy
         uploaded_by=uploaded_by
     )

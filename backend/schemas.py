@@ -1002,7 +1002,7 @@ class CustomClaimBase(BaseModel):
     claim_name: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = None
     category_type: CustomClaimCategoryType
-    region: Optional[List[str]] = None  # Region where this claim type is applicable
+    region: List[str] = Field(..., min_length=1, description="Region codes where this claim type is applicable (required)")
     max_amount: Optional[float] = Field(None, ge=0)
     min_amount: Optional[float] = Field(None, ge=0)
     default_amount: Optional[float] = Field(None, ge=0)

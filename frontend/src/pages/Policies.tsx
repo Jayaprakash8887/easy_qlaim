@@ -343,6 +343,12 @@ export default function Policies() {
       return;
     }
 
+    // Validate region is provided
+    if (!uploadForm.region || uploadForm.region.length === 0) {
+      toast({ title: 'Error', description: 'Please select at least one region.', variant: 'destructive' });
+      return;
+    }
+
     const formData = new FormData();
     formData.append('file', uploadForm.file);
     formData.append('policy_name', uploadForm.policy_name);
@@ -398,6 +404,12 @@ export default function Policies() {
       return;
     }
 
+    // Validate region is provided for new version
+    if (!newVersionForm.region || newVersionForm.region.length === 0) {
+      toast({ title: 'Error', description: 'Please select at least one region.', variant: 'destructive' });
+      return;
+    }
+
     const formData = new FormData();
     formData.append('file', newVersionForm.file);
     if (newVersionForm.description) {
@@ -439,6 +451,12 @@ export default function Policies() {
   const handleCreateCustomClaim = () => {
     if (!customClaimForm.claim_name.trim()) {
       toast({ title: 'Error', description: 'Please provide a claim name.', variant: 'destructive' });
+      return;
+    }
+
+    // Validate region is provided
+    if (!customClaimForm.region || customClaimForm.region.length === 0) {
+      toast({ title: 'Error', description: 'Please select at least one region.', variant: 'destructive' });
       return;
     }
 
