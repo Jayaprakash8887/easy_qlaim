@@ -19,7 +19,8 @@ Employee = User
 from schemas import (
     EmployeeCreate, EmployeeResponse, 
     EmployeeProjectAllocationCreate, EmployeeProjectAllocationUpdate,
-    EmployeeProjectAllocationResponse, EmployeeProjectHistoryResponse
+    EmployeeProjectAllocationResponse, EmployeeProjectHistoryResponse,
+    BulkEmployeeImport, BulkEmployeeImportResult, BulkEmployeeImportResponse
 )
 
 router = APIRouter()
@@ -202,7 +203,7 @@ async def create_employee(
 
 @router.post("/bulk", status_code=status.HTTP_200_OK)
 async def bulk_import_employees(
-    import_data: "BulkEmployeeImport",
+    import_data: BulkEmployeeImport,
     db: Session = Depends(get_sync_db)
 ):
     """
@@ -210,7 +211,6 @@ async def bulk_import_employees(
     Creates multiple employees in a single transaction.
     Returns detailed results for each employee.
     """
-    from schemas import BulkEmployeeImport, BulkEmployeeImportResult, BulkEmployeeImportResponse
     
     if not import_data.tenant_id:
         raise HTTPException(
