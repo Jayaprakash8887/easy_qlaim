@@ -106,6 +106,7 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-key-change-in-production}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       GCP_CREDENTIALS_PATH: /app/secrets/gcp-service-account.json
+      KEYCLOAK_SERVER_URL: http://keycloak:8080
       APP_ENV: development
       DEBUG: "True"
       CORS_ORIGINS: http://localhost:5173,http://localhost:3000
