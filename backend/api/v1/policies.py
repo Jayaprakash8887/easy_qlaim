@@ -442,7 +442,8 @@ def list_extracted_claims(
     )
     
     if region:
-        custom_query = custom_query.filter(CustomClaim.region == region)
+        # Note: CustomClaim.region is an ARRAY type, so we use .any() to check if value is in array
+        custom_query = custom_query.filter(CustomClaim.region.any(region))
     
     custom_claims = custom_query.order_by(CustomClaim.created_at.desc(), CustomClaim.display_order).all()
     

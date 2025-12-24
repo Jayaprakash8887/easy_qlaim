@@ -598,15 +598,17 @@ class EmbeddingService:
                 embeddings.append(cat_emb)
             
             # ============ Query CustomClaim (standalone categories) ============
+            # Note: CustomClaim.region is an ARRAY type, so we use .any() to check if value is in array
             custom_claims = db.query(CustomClaim).filter(
                 and_(
                     CustomClaim.tenant_id == tenant_id,
                     CustomClaim.category_type == category_type,
                     CustomClaim.is_active == True,
                     or_(
-                        CustomClaim.region == region,
-                        CustomClaim.region == "GLOBAL",
-                        CustomClaim.region.is_(None)
+                        CustomClaim.region.any(region),  # Check if region is in the array
+                        CustomClaim.region.any("GLOBAL"),  # Check if GLOBAL is in the array
+                        CustomClaim.region.is_(None),  # NULL means all regions
+                        CustomClaim.region == []  # Empty array means all regions
                     )
                 )
             ).all()

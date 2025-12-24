@@ -232,7 +232,8 @@ async def list_custom_claims(
     
     # Apply filters
     if region:
-        query = query.filter(CustomClaim.region == region)
+        # Note: CustomClaim.region is an ARRAY type, so we use .any() to check if value is in array
+        query = query.filter(CustomClaim.region.any(region))
     if category_type:
         query = query.filter(CustomClaim.category_type == category_type)
     if is_active is not None:
