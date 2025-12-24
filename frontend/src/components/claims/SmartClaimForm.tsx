@@ -697,8 +697,12 @@ export function SmartClaimForm({
       const formData = new FormData();
       formData.append('file', file);
 
-      // Get employee's region for category filtering
-      const employeeRegion = user?.region || 'INDIA';
+      // Get employee's region(s) for category filtering
+      // region can be string[] from user profile, convert to comma-separated string
+      const userRegion = user?.region;
+      const employeeRegion = Array.isArray(userRegion) 
+        ? userRegion.join(',') 
+        : (userRegion || 'IND');
 
       // Use absolute URL to backend API with region and tenant_id parameters
       const tenantId = user?.tenantId || '';
@@ -1931,7 +1935,7 @@ export function SmartClaimForm({
                     : uploadedFiles.length > 0
                       ? "✅ Category auto-detected from document content"
                       : user?.region
-                        ? `Showing categories for ${user.region} region`
+                        ? `Showing categories for ${Array.isArray(user.region) ? user.region.join(', ') : user.region} region`
                         : "Upload document for AI-powered auto-detection"}
                 </p>
               </div>

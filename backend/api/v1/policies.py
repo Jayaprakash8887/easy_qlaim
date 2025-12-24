@@ -5,7 +5,7 @@ Handles policy document upload, AI extraction, review, and approval workflow.
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
-from typing import List, Optional
+from typing import List, Optional, Union
 from uuid import UUID
 from datetime import datetime, date
 import os
@@ -89,6 +89,46 @@ def validate_regions_exist(db: Session, tenant_id: UUID, region_codes: List[str]
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid regions: {', '.join(invalid_codes)}. Please create these regions first."
         )
+
+
+def normalize_region(region: Union[str, List[str]]) -> List[str]:
+    """
+    Normalize region parameter to handle various input formats.
+    
+    The user's region in the database is stored as an array (e.g., ['IND']),
+    but the API receives it as a string. This function handles:
+    - List input: ["IND", "USA"] -> ["IND", "USA"] (pass through)
+    - Comma-separated strings: "IND,USA" -> ["IND", "USA"]
+    - Array-like strings: "['IND']" -> ["IND"]
+    - Simple strings: "IND" -> ["IND"]
+    - Empty/None: -> ["IND"] (default)
+    
+    Returns a list of normalized region codes.
+    """
+    # If already a list, normalize each element and return
+    if isinstance(region, list):
+        normalized = [r.strip().upper() for r in region if r and r.strip()]
+        return normalized if normalized else ["IND"]
+    
+    if not region or not region.strip():
+        return ["IND"]
+    
+    region = region.strip()
+    
+    # Handle array-like strings: "['IND']" or '["IND"]' or "{IND}"
+    if region.startswith(('[', '{')) and region.endswith((']', '}')):
+        # Remove brackets and quotes
+        cleaned = region.strip('[]{}').replace('"', '').replace("'", "")
+        # Split by comma and clean each element
+        regions = [r.strip().upper() for r in cleaned.split(',') if r.strip()]
+        return regions if regions else ["IND"]
+    
+    # Handle comma-separated: "IND,USA"
+    if ',' in region:
+        regions = [r.strip().upper() for r in region.split(',') if r.strip()]
+        return regions if regions else ["IND"]
+    
+    return [region.upper()] if region else ["IND"]
 
 router = APIRouter()
 
@@ -1239,7 +1279,7 @@ async def invalidate_embedding_cache(
 async def test_embedding_match(
     text: str,
     tenant_id: UUID,
-    region: str = "INDIA",
+    region: str = "IND",
     category_type: str = "REIMBURSEMENT",
     top_k: int = 3
 ):
@@ -1260,18 +1300,22 @@ async def test_embedding_match(
     """
     require_tenant_id(tenant_id)
     
+    # Normalize region to handle array-like strings - returns List[str]
+    normalized_regions = normalize_region(region)
+    
     try:
         from services.embedding_service import get_embedding_service
         
         embedding_service = get_embedding_service()
+        # Pass all regions to match_category - it will search across all
         matches = await embedding_service.match_category(
-            text, region, category_type, top_k, tenant_id
+            text, normalized_regions, category_type, top_k, tenant_id
         )
         
         return {
             "success": True,
             "query": text,
-            "region": region,
+            "regions": normalized_regions,
             "category_type": category_type,
             "matches": [
                 {

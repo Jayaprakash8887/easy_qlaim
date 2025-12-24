@@ -13,7 +13,7 @@ Cost-saving approaches:
 - Category validation happens locally without LLM calls
 """
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from threading import Lock
@@ -99,51 +99,66 @@ class CategoryCacheService:
     
     def get_categories_for_region(
         self,
-        region: str,
+        region: Union[str, List[str]],
         category_type: Optional[str] = None,
         tenant_id: Optional[UUID] = None
     ) -> List[CachedCategory]:
         """
-        Get cached categories for a region.
+        Get cached categories for a region or list of regions.
         
         Args:
-            region: Employee's region (e.g., 'INDIA', 'US')
+            region: Employee's region(s) (e.g., 'IND', 'US' or ['IND', 'US'])
             category_type: Optional filter - 'REIMBURSEMENT' or 'ALLOWANCE'
             tenant_id: Tenant UUID (required for multi-tenant support)
             
         Returns:
-            List of cached categories
+            List of cached categories (combined from all regions, deduplicated)
         """
-        region_upper = region.upper() if region else "GLOBAL"
-        cache_key = f"{tenant_id or 'default'}_{region_upper}"
+        # Normalize to list
+        regions = region if isinstance(region, list) else [region]
         
-        # Check cache
-        cache_entry = self._get_cache_entry(cache_key)
+        all_categories = []
+        seen_codes = set()
         
-        if not cache_entry:
-            # Load from database
-            cache_entry = self._load_categories_from_db(region_upper, tenant_id)
+        for reg in regions:
+            region_upper = reg.upper() if reg else "GLOBAL"
+            cache_key = f"{tenant_id or 'default'}_{region_upper}"
+            
+            # Check cache
+            cache_entry = self._get_cache_entry(cache_key)
+            
+            if not cache_entry:
+                # Load from database
+                cache_entry = self._load_categories_from_db(region_upper, tenant_id)
+            
+            if not cache_entry:
+                continue
+            
+            # Get categories based on type
+            if category_type == "REIMBURSEMENT":
+                cats = cache_entry.reimbursement_categories
+            elif category_type == "ALLOWANCE":
+                cats = cache_entry.allowance_categories
+            else:
+                cats = cache_entry.categories
+            
+            # Add unique categories
+            for cat in cats:
+                if cat.code not in seen_codes:
+                    seen_codes.add(cat.code)
+                    all_categories.append(cat)
         
-        if not cache_entry:
-            return []
-        
-        # Filter by type if specified
-        if category_type == "REIMBURSEMENT":
-            return cache_entry.reimbursement_categories
-        elif category_type == "ALLOWANCE":
-            return cache_entry.allowance_categories
-        
-        return cache_entry.categories
+        return all_categories
     
     def get_reimbursement_categories_for_region(
         self,
-        region: str,
+        region: Union[str, List[str]],
         tenant_id: Optional[UUID] = None
     ) -> List[CachedCategory]:
-        """Get only reimbursement categories for a region"""
+        """Get only reimbursement categories for a region or list of regions"""
         return self.get_categories_for_region(region, "REIMBURSEMENT", tenant_id)
     
-    def get_llm_prompt_categories(self, region: str, tenant_id: Optional[UUID] = None) -> str:
+    def get_llm_prompt_categories(self, region: Union[str, List[str]], tenant_id: Optional[UUID] = None) -> str:
         """
         Get pre-formatted category list for LLM prompt.
         
@@ -151,21 +166,36 @@ class CategoryCacheService:
         enough context for accurate category matching.
         
         Args:
-            region: Employee's region
+            region: Employee's region(s) - can be string or list
             tenant_id: Tenant UUID (required for multi-tenant support)
             
         Returns:
-            Formatted string for LLM prompt
+            Formatted string for LLM prompt (combined from all regions)
         """
-        region_upper = region.upper() if region else "GLOBAL"
-        cache_key = f"{tenant_id or 'default'}_{region_upper}"
+        # Normalize to list
+        regions = region if isinstance(region, list) else [region]
         
-        cache_entry = self._get_cache_entry(cache_key)
-        if not cache_entry:
-            cache_entry = self._load_categories_from_db(region_upper, tenant_id)
+        all_prompts = []
+        seen_codes = set()
         
-        if cache_entry:
-            return cache_entry.llm_prompt_text
+        for reg in regions:
+            region_upper = reg.upper() if reg else "GLOBAL"
+            cache_key = f"{tenant_id or 'default'}_{region_upper}"
+            
+            cache_entry = self._get_cache_entry(cache_key)
+            if not cache_entry:
+                cache_entry = self._load_categories_from_db(region_upper, tenant_id)
+            
+            if cache_entry and cache_entry.llm_prompt_text:
+                # Parse and deduplicate categories from prompt
+                for cat in cache_entry.categories:
+                    if cat.code not in seen_codes:
+                        seen_codes.add(cat.code)
+        
+        # If we have categories, rebuild prompt from all unique categories
+        if seen_codes:
+            all_categories = self.get_categories_for_region(regions, None, tenant_id)
+            return self._build_llm_prompt(all_categories)
         
         # Fallback if no categories found
         return self._get_default_categories_prompt()
@@ -173,7 +203,7 @@ class CategoryCacheService:
     def validate_category(
         self,
         category: str,
-        region: str,
+        region: Union[str, List[str]],
         category_type: str = "REIMBURSEMENT",
         tenant_id: Optional[UUID] = None
     ) -> tuple[str, bool]:
@@ -182,7 +212,7 @@ class CategoryCacheService:
         
         Args:
             category: Category code/name from LLM
-            region: Employee's region
+            region: Employee's region(s) - can be string or list
             category_type: 'REIMBURSEMENT' or 'ALLOWANCE'
             tenant_id: Tenant UUID for multi-tenant category loading
             
@@ -193,6 +223,7 @@ class CategoryCacheService:
         if not category:
             return ('other', False)
         
+        # Get categories from all regions
         categories = self.get_categories_for_region(region, category_type, tenant_id)
         
         if not categories:
@@ -213,7 +244,8 @@ class CategoryCacheService:
                     return (cat.code.lower(), True)
         
         # No match found
-        logger.info(f"Category '{category}' not found in region '{region}' - defaulting to 'other'")
+        regions_str = region if isinstance(region, str) else ', '.join(region)
+        logger.info(f"Category '{category}' not found in region(s) '{regions_str}' - defaulting to 'other'")
         return ('other', False)
     
     def get_category_name_by_code(self, category_code: str, region: Optional[str] = None, tenant_id: Optional[UUID] = None) -> str:

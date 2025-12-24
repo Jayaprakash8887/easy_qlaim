@@ -7,7 +7,7 @@ All cache operations are scoped by tenant_id for proper data isolation.
 Cache keys follow the pattern: {tenant_id}:{entity}:{identifier}
 """
 from fastapi import APIRouter, Depends, HTTPException
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Union
 from uuid import UUID
 import logging
 
@@ -19,6 +19,46 @@ from models import User
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def normalize_region(region: Union[str, List[str]]) -> List[str]:
+    """
+    Normalize region parameter to handle various input formats.
+    
+    The user's region in the database is stored as an array (e.g., ['IND']),
+    but the API receives it as a string. This function handles:
+    - List input: ["IND", "USA"] -> ["IND", "USA"] (pass through)
+    - Comma-separated strings: "IND,USA" -> ["IND", "USA"]
+    - Array-like strings: "['IND']" -> ["IND"]
+    - Simple strings: "IND" -> ["IND"]
+    - Empty/None: -> ["IND"] (default)
+    
+    Returns a list of normalized region codes.
+    """
+    # If already a list, normalize each element and return
+    if isinstance(region, list):
+        normalized = [r.strip().upper() for r in region if r and r.strip()]
+        return normalized if normalized else ["IND"]
+    
+    if not region or not region.strip():
+        return ["IND"]
+    
+    region = region.strip()
+    
+    # Handle array-like strings: "['IND']" or '["IND"]' or "{IND}"
+    if region.startswith(('[', '{')) and region.endswith((']', '}')):
+        # Remove brackets and quotes
+        cleaned = region.strip('[]{}').replace('"', '').replace("'", "")
+        # Split by comma and clean each element
+        regions = [r.strip().upper() for r in cleaned.split(',') if r.strip()]
+        return regions if regions else ["IND"]
+    
+    # Handle comma-separated: "IND,USA"
+    if ',' in region:
+        regions = [r.strip().upper() for r in region.split(',') if r.strip()]
+        return regions if regions else ["IND"]
+    
+    return [region.upper()] if region else ["IND"]
 
 
 @router.get("/health")
@@ -200,7 +240,7 @@ async def warmup_project_cache(
 
 @router.post("/warmup/categories")
 async def warmup_category_cache(
-    region: str = "INDIA",
+    region: str = "IND",
     current_user: User = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """
@@ -209,15 +249,25 @@ async def warmup_category_cache(
     from database import get_async_db
     from services.cached_data import cached_data
     
+    # Normalize region to handle array-like strings - returns List[str]
+    normalized_regions = normalize_region(region)
     tenant_id = current_user.tenant_id
     
+    # Warm cache for all regions in the list
+    total_categories = 0
+    total_mappings = 0
+    
     async for db in get_async_db():
-        categories = await cached_data.get_all_categories(db, tenant_id, region)
-        name_map = await cached_data.get_category_name_map(db, tenant_id, region)
+        for reg in normalized_regions:
+            categories = await cached_data.get_all_categories(db, tenant_id, reg)
+            name_map = await cached_data.get_category_name_map(db, tenant_id, reg)
+            total_categories += len(categories)
+            total_mappings += len(name_map)
+        
         return {
             "status": "success",
             "tenant_id": str(tenant_id),
-            "region": region,
-            "categories_cached": len(categories),
-            "name_mappings_cached": len(name_map)
+            "regions": normalized_regions,
+            "categories_cached": total_categories,
+            "name_mappings_cached": total_mappings
         }

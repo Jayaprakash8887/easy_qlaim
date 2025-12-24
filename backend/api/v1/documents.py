@@ -4,7 +4,7 @@ Document management endpoints
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
 from fastapi.responses import RedirectResponse, FileResponse
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from uuid import UUID, uuid4
 import os
 import shutil
@@ -26,6 +26,46 @@ router = APIRouter()
 # Ensure upload directory exists - use local directory for development
 UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", "./uploads"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def normalize_region(region: Union[str, List[str]]) -> List[str]:
+    """
+    Normalize region parameter to handle various input formats.
+    
+    The user's region in the database is stored as an array (e.g., ['IND']),
+    but the API receives it as a string. This function handles:
+    - List input: ["IND", "USA"] -> ["IND", "USA"] (pass through)
+    - Comma-separated strings: "IND,USA" -> ["IND", "USA"]
+    - Array-like strings: "['IND']" -> ["IND"]
+    - Simple strings: "IND" -> ["IND"]
+    - Empty/None: -> ["IND"] (default)
+    
+    Returns a list of normalized region codes.
+    """
+    # If already a list, normalize each element and return
+    if isinstance(region, list):
+        normalized = [r.strip().upper() for r in region if r and r.strip()]
+        return normalized if normalized else ["IND"]
+    
+    if not region or not region.strip():
+        return ["IND"]
+    
+    region = region.strip()
+    
+    # Handle array-like strings: "['IND']" or '["IND"]' or "{IND}"
+    if region.startswith(('[', '{')) and region.endswith((']', '}')):
+        # Remove brackets and quotes
+        cleaned = region.strip('[]{}').replace('"', '').replace("'", "")
+        # Split by comma and clean each element
+        regions = [r.strip().upper() for r in cleaned.split(',') if r.strip()]
+        return regions if regions else ["IND"]
+    
+    # Handle comma-separated: "IND,USA"
+    if ',' in region:
+        regions = [r.strip().upper() for r in region.split(',') if r.strip()]
+        return regions if regions else ["IND"]
+    
+    return [region.upper()] if region else ["IND"]
 
 
 @router.get("/", response_model=List[DocumentResponse])
@@ -700,7 +740,7 @@ async def run_ocr_with_llm_fallback(image_path: Path) -> Dict[str, Any]:
 
 async def extract_receipts_with_llm(
     ocr_text: str,
-    employee_region: str = "INDIA",
+    employee_region: Union[str, List[str]] = "IND",
     use_embedding_validation: bool = True,
     tenant_id: Optional[UUID] = None
 ) -> List[Dict[str, Any]]:
@@ -716,7 +756,8 @@ async def extract_receipts_with_llm(
     
     Args:
         ocr_text: The OCR-extracted text from the document
-        employee_region: Employee's region for loading applicable categories
+        employee_region: Employee's region(s) for loading applicable categories.
+                        Can be string or List[str]
         use_embedding_validation: If True, use semantic embeddings for validation
         tenant_id: Tenant UUID for multi-tenant category filtering
         
@@ -727,6 +768,9 @@ async def extract_receipts_with_llm(
         logger.warning("OCR text too short for LLM extraction")
         return []
     
+    # Normalize region to handle array-like strings from frontend - returns List[str]
+    regions = normalize_region(employee_region)
+    
     try:
         import google.generativeai as genai
         from services.category_cache import get_category_cache
@@ -735,10 +779,10 @@ async def extract_receipts_with_llm(
         genai.configure(api_key=settings.GOOGLE_API_KEY)
         model = genai.GenerativeModel(settings.GEMINI_MODEL)
         
-        # Get cached category list for the employee's region
+        # Get cached category list for all employee's regions
         # This is cached for 24 hours to minimize DB queries
         category_cache = get_category_cache()
-        categories_prompt = category_cache.get_llm_prompt_categories(employee_region, tenant_id)
+        categories_prompt = category_cache.get_llm_prompt_categories(regions, tenant_id)
         
         # Pre-detect document type to provide hint to LLM
         text_lower = ocr_text.lower()
@@ -861,10 +905,10 @@ If no valid receipts can be identified, return an empty array: []
             for receipt in receipts:
                 llm_category = receipt.get('category', 'other')
                 
-                # Step 1: Validate against cached categories
+                # Step 1: Validate against cached categories (checks all regions)
                 validated_cat, is_valid = category_cache.validate_category(
                     llm_category,
-                    employee_region,
+                    regions,
                     "REIMBURSEMENT",
                     tenant_id
                 )
@@ -880,10 +924,10 @@ If no valid receipts can be identified, return an empty array: []
                         ]))
                         
                         if search_text.strip():
-                            # Get best embedding match
+                            # Get best embedding match (checks all regions)
                             emb_category, emb_score, emb_valid = await embedding_service.get_best_category_match(
                                 search_text,
-                                employee_region,
+                                regions,
                                 "REIMBURSEMENT",
                                 tenant_id=tenant_id
                             )
@@ -903,9 +947,10 @@ If no valid receipts can be identified, return an empty array: []
                 
                 # Step 3: Apply final validation result
                 if not is_valid:
+                    regions_str = ', '.join(regions) if isinstance(regions, list) else regions
                     logger.info(
-                        f"Category '{llm_category}' not validated for region "
-                        f"'{employee_region}' - setting to 'other'"
+                        f"Category '{llm_category}' not validated for region(s) "
+                        f"'{regions_str}' - setting to 'other'"
                     )
                     validated_cat = 'other'
                 
@@ -1183,7 +1228,7 @@ def extract_receipts_with_regex(ocr_text: str) -> List[Dict[str, Any]]:
 @router.post("/ocr", response_model=Dict[str, Any])
 async def extract_text_ocr(
     file: UploadFile = File(...),
-    employee_region: str = "INDIA",
+    employee_region: str = "IND",
     tenant_id: Optional[UUID] = None
 ):
     """
@@ -1194,9 +1239,13 @@ async def extract_text_ocr(
     Args:
         file: The document file to process
         employee_region: Employee's region for loading applicable expense categories.
+                        Can be a single region string or comma-separated list.
                         Categories are cached by region for 24 hours to optimize costs.
         tenant_id: Tenant UUID for multi-tenant category filtering.
     """
+    # Normalize region to handle array-like strings from frontend - returns List[str]
+    regions = normalize_region(employee_region)
+    
     # Validate file type - now includes PDF
     allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/tiff', 'application/pdf']
     
@@ -1241,7 +1290,7 @@ async def extract_text_ocr(
                 full_text = direct_result["text"]
                 
                 # Extract receipts using LLM with region-specific categories, fallback to regex
-                receipts = await extract_receipts_with_llm(full_text, employee_region, tenant_id=tenant_id)
+                receipts = await extract_receipts_with_llm(full_text, region, tenant_id=tenant_id)
                 if not receipts:
                     logger.info("LLM extraction failed or returned empty, trying regex extraction")
                     receipts = extract_receipts_with_regex(full_text)
@@ -1270,7 +1319,7 @@ async def extract_text_ocr(
                 if direct_result.get("lines"):
                     full_text = direct_result["text"]
                     # Try LLM with region-specific categories, then fallback to regex
-                    receipts = await extract_receipts_with_llm(full_text, employee_region, tenant_id=tenant_id)
+                    receipts = await extract_receipts_with_llm(full_text, region, tenant_id=tenant_id)
                     if not receipts:
                         receipts = extract_receipts_with_regex(full_text)
                     return {
@@ -1307,7 +1356,7 @@ async def extract_text_ocr(
             if not all_text_lines and direct_result.get("lines"):
                 full_text = direct_result["text"]
                 # Try LLM with region-specific categories, then fallback to regex
-                receipts = await extract_receipts_with_llm(full_text, employee_region, tenant_id=tenant_id)
+                receipts = await extract_receipts_with_llm(full_text, regions, tenant_id=tenant_id)
                 if not receipts:
                     receipts = extract_receipts_with_regex(full_text)
                 return {
@@ -1335,7 +1384,7 @@ async def extract_text_ocr(
         logger.info(f"OCR completed. Method: {method}, Lines: {len(all_text_lines)}, Confidence: {avg_confidence:.2f}, LLM Vision: {used_llm_vision}")
         
         # Try LLM with region-specific categories first, then fallback to regex extraction
-        receipts = await extract_receipts_with_llm(full_text, employee_region, tenant_id=tenant_id)
+        receipts = await extract_receipts_with_llm(full_text, regions, tenant_id=tenant_id)
         if not receipts:
             logger.info("LLM extraction returned empty, using regex fallback")
             receipts = extract_receipts_with_regex(full_text)

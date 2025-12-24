@@ -36,7 +36,7 @@ import logging
 import json
 import os
 import numpy as np
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Union
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field, asdict
 from threading import Lock
@@ -386,7 +386,7 @@ class EmbeddingService:
     async def match_category(
         self,
         text: str,
-        region: str,
+        region: Union[str, List[str]],
         category_type: str = "REIMBURSEMENT",
         top_k: int = 3,
         tenant_id: Optional[UUID] = None
@@ -396,7 +396,7 @@ class EmbeddingService:
         
         Args:
             text: Text to match (e.g., vendor name, description from OCR)
-            region: Employee's region
+            region: Employee's region(s) - can be string or list
             category_type: REIMBURSEMENT or ALLOWANCE
             top_k: Number of top matches to return
             tenant_id: Tenant UUID (required for multi-tenant support)
@@ -404,41 +404,43 @@ class EmbeddingService:
         Returns:
             List of (category_code, similarity_score, is_above_threshold)
         """
-        # Get cached embeddings for region
-        cache = await self._get_region_embeddings(region, category_type, tenant_id)
+        # Normalize to list
+        regions = region if isinstance(region, list) else [region]
         
-        if not cache or not cache.embeddings:
-            logger.warning(f"No embeddings found for region: {region}, type: {category_type}")
+        # Collect embeddings from all regions
+        all_embeddings = []
+        all_codes = []
+        
+        for reg in regions:
+            cache = await self._get_region_embeddings(reg, category_type, tenant_id)
+            if cache and cache.embeddings:
+                for emb in cache.embeddings:
+                    if emb.is_active and emb.category_code not in all_codes:
+                        all_embeddings.append(emb)
+                        all_codes.append(emb.category_code)
+        
+        if not all_embeddings:
+            regions_str = ', '.join(regions)
+            logger.warning(f"No embeddings found for region(s): {regions_str}, type: {category_type}")
             return [("other", 0.0, False)]
         
         # Generate query embedding
         query_embedding = await self.generate_query_embedding(text)
         query_vector = np.array(query_embedding)
         
-        # Compute similarities using pre-computed matrix
-        if cache.embedding_matrix is not None:
-            similarities = self._cosine_similarity_batch(
-                query_vector, 
-                cache.embedding_matrix
-            )
-        else:
-            # Fallback to individual computations
-            similarities = []
-            for emb in cache.embeddings:
-                if emb.is_active:
-                    sim = self._cosine_similarity(query_vector, np.array(emb.embedding))
-                    similarities.append(sim)
-                else:
-                    similarities.append(0.0)
-            similarities = np.array(similarities)
+        # Build combined embedding matrix
+        embedding_matrix = np.array([e.embedding for e in all_embeddings])
+        
+        # Compute similarities
+        similarities = self._cosine_similarity_batch(query_vector, embedding_matrix)
         
         # Get top-k matches
         top_indices = np.argsort(similarities)[::-1][:top_k]
         
         results = []
         for idx in top_indices:
-            if idx < len(cache.category_codes):
-                code = cache.category_codes[idx]
+            if idx < len(all_codes):
+                code = all_codes[idx]
                 score = float(similarities[idx])
                 is_match = score >= settings.EMBEDDING_SIMILARITY_THRESHOLD
                 results.append((code, score, is_match))
@@ -448,7 +450,7 @@ class EmbeddingService:
     async def get_best_category_match(
         self,
         text: str,
-        region: str,
+        region: Union[str, List[str]],
         category_type: str = "REIMBURSEMENT",
         tenant_id: Optional[UUID] = None
     ) -> Tuple[str, float, bool]:
@@ -457,7 +459,7 @@ class EmbeddingService:
         
         Args:
             text: Text to match (e.g., vendor name, description from OCR)
-            region: Employee's region
+            region: Employee's region(s) - can be string or list
             category_type: REIMBURSEMENT or ALLOWANCE
             tenant_id: Optional tenant UUID for multi-tenant support
             
