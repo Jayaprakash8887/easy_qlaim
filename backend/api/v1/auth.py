@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
-from passlib.context import CryptContext
+import bcrypt
 from jose import jwt, JWTError
 
 from database import get_sync_db as get_db
@@ -21,17 +21,23 @@ from config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-# Password hashing context for local authentication
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against a hashed password."""
+    """Verify a password against a bcrypt hashed password."""
     try:
-        return pwd_context.verify(plain_password, hashed_password)
+        # Use bcrypt directly to avoid passlib compatibility issues
+        return bcrypt.checkpw(
+            plain_password.encode('utf-8'),
+            hashed_password.encode('utf-8')
+        )
     except Exception as e:
         logger.error(f"Password verification error: {e}")
         return False
+
+
+def hash_password(password: str) -> str:
+    """Hash a password using bcrypt."""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
