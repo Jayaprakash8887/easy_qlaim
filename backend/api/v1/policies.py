@@ -343,7 +343,8 @@ def list_policies(
     if is_active is not None:
         query = query.filter(PolicyUpload.is_active == is_active)
     if region:
-        query = query.filter(PolicyUpload.region == region)
+        # Note: PolicyUpload.region is an ARRAY type, so we use .any() to check if value is in array
+        query = query.filter(PolicyUpload.region.any(region))
     
     policies = query.order_by(PolicyUpload.created_at.desc()).offset(skip).limit(limit).all()
     
@@ -396,7 +397,8 @@ def list_extracted_claims(
     )
     
     if region:
-        query = query.filter(PolicyUpload.region == region)
+        # Note: PolicyUpload.region is an ARRAY type, so we use .any() to check if value is in array
+        query = query.filter(PolicyUpload.region.any(region))
     
     categories = query.order_by(PolicyUpload.created_at.desc(), PolicyCategory.display_order).all()
     

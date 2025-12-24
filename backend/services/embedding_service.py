@@ -552,7 +552,7 @@ class EmbeddingService:
         try:
             from database import get_sync_db
             from models import PolicyCategory, PolicyUpload, CustomClaim
-            from sqlalchemy import and_, or_
+            from sqlalchemy import and_, or_, any_
             
             if not tenant_id:
                 logger.warning("No tenant_id provided for embedding generation - multi-tenant support requires tenant_id")
@@ -563,6 +563,7 @@ class EmbeddingService:
             embeddings = []
             
             # ============ Query PolicyCategory ============
+            # Note: PolicyUpload.region is an ARRAY type, so we need to use array operations
             results = db.query(PolicyCategory, PolicyUpload).join(
                 PolicyUpload, PolicyCategory.policy_upload_id == PolicyUpload.id
             ).filter(
@@ -572,8 +573,8 @@ class EmbeddingService:
                     PolicyCategory.is_active == True,
                     PolicyUpload.status == "ACTIVE",
                     or_(
-                        PolicyUpload.region == region,
-                        PolicyUpload.region == "GLOBAL",
+                        PolicyUpload.region.any(region),  # Check if region is in the array
+                        PolicyUpload.region.any("GLOBAL"),  # Check if GLOBAL is in the array
                         PolicyUpload.region.is_(None)
                     )
                 )
