@@ -918,7 +918,7 @@ export default function ClaimDetails() {
                             </p>
                           </div>
                           <p className="text-sm text-muted-foreground">
-                            by {item.actor.name} ({item.actor.role})
+                            by {item.approverName || item.approverRole || 'Unknown'}
                           </p>
                           {item.comment && (
                             <p className="mt-2 text-sm rounded-lg bg-muted/50 p-3">

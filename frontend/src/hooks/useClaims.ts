@@ -143,7 +143,27 @@ async function fetchClaimById(id: string, tenantId: string): Promise<Claim | und
         : undefined,
     paymentReference: claim.payment_reference || payload.settlement?.payment_reference || undefined,
     paymentMethod: claim.payment_method || payload.settlement?.payment_method || undefined,
+    // Approval history from claim_payload - only actual stored history
+    approvalHistory: buildApprovalHistory(claim, payload),
   };
+}
+
+// Helper function to build approval history from claim data
+function buildApprovalHistory(claim: any, payload: any): any[] {
+  // Only return actual stored approval_history, no derived data
+  if (payload.approval_history && payload.approval_history.length > 0) {
+    return payload.approval_history.map((item: any) => ({
+      id: item.id || `${item.timestamp}-${item.action}`,
+      action: item.action,
+      approverName: item.approver_name || item.approverName,
+      approverRole: item.approver_role || item.approverRole,
+      timestamp: item.timestamp,
+      comment: item.comment || item.comments,
+    }));
+  }
+  
+  // No stored history - return empty array
+  return [];
 }
 
 async function updateClaimStatus(id: string, status: ClaimStatus, tenantId: string): Promise<Claim> {

@@ -1244,33 +1244,39 @@ async def approve_claim(
     
     claim.can_edit = False
     
-    # Store approval comment in payload and create Comment record
+    # Always record approval history
+    if not claim.claim_payload:
+        claim.claim_payload = {}
+    if "approval_history" not in claim.claim_payload:
+        claim.claim_payload["approval_history"] = []
+    
+    # Determine role for this approval based on previous status
+    role_map = {
+        "PENDING_MANAGER": "MANAGER",
+        "PENDING_HR": "HR",
+        "PENDING_FINANCE": "FINANCE"
+    }
+    approver_role = (approve_data.approver_role if approve_data else None) or role_map.get(previous_status, "APPROVER")
+    approver_name = (approve_data.approver_name if approve_data else None) or approver_role
+    approver_id = str(approve_data.approver_id) if approve_data and approve_data.approver_id else None
+    comment_text = approve_data.comment if approve_data and approve_data.comment else None
+    
+    claim.claim_payload["approval_history"].append({
+        "action": "approved",
+        "from_status": previous_status,
+        "to_status": claim.status,
+        "comment": comment_text,
+        "approver_id": approver_id,
+        "approver_name": approver_name,
+        "approver_role": approver_role,
+        "timestamp": datetime.utcnow().isoformat()
+    })
+    # Flag claim_payload as modified for SQLAlchemy to detect JSONB changes
+    flag_modified(claim, "claim_payload")
+    
+    # Create a Comment record for visibility (only if comment provided)
     if approve_data and approve_data.comment:
-        if not claim.claim_payload:
-            claim.claim_payload = {}
-        if "approval_history" not in claim.claim_payload:
-            claim.claim_payload["approval_history"] = []
-        claim.claim_payload["approval_history"].append({
-            "action": "approved",
-            "from_status": previous_status,
-            "to_status": claim.status,
-            "comment": approve_data.comment,
-            "approver_id": str(approve_data.approver_id) if approve_data.approver_id else None,
-            "approver_name": approve_data.approver_name,
-            "approver_role": approve_data.approver_role,
-            "timestamp": datetime.utcnow().isoformat()
-        })
-        # Flag claim_payload as modified for SQLAlchemy to detect JSONB changes
-        flag_modified(claim, "claim_payload")
-        
-        # Create a Comment record for visibility
-        # Determine role for comment based on previous status
-        role_map = {
-            "PENDING_MANAGER": "MANAGER",
-            "PENDING_HR": "HR",
-            "PENDING_FINANCE": "FINANCE"
-        }
-        comment_role = approve_data.approver_role or role_map.get(previous_status, "APPROVER")
+        comment_role = approver_role
         
         # Use provided approver info or find a fallback user
         if approve_data.approver_id and approve_data.approver_name:
