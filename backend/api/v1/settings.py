@@ -496,3 +496,101 @@ def get_all_settings_options():
             "platform_max_minutes": PLATFORM_MAX_SESSION_TIMEOUT
         }
     }
+
+
+class TestEmailRequest(BaseModel):
+    """Request model for sending test email"""
+    to_email: str
+
+
+class TestEmailResponse(BaseModel):
+    """Response model for test email"""
+    success: bool
+    message: str
+
+
+@router.post("/test-email", response_model=TestEmailResponse)
+async def send_test_email(
+    request: TestEmailRequest,
+    tenant_id: UUID = Depends(require_tenant_id),
+    db: Session = Depends(get_sync_db)
+):
+    """
+    Send a test email to verify SMTP configuration.
+    
+    This endpoint allows administrators to verify that email settings
+    are configured correctly by sending a test email.
+    """
+    from services.email_service import EmailService
+    
+    try:
+        email_service = EmailService()
+        
+        html_content = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background-color: #2563eb; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+                .content { background-color: #f8fafc; padding: 30px; border: 1px solid #e2e8f0; border-radius: 0 0 8px 8px; }
+                .success { color: #16a34a; font-size: 24px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>Easy Qlaim - Test Email</h1>
+                </div>
+                <div class="content">
+                    <p class="success">✅ Email Configuration Working!</p>
+                    <p>This is a test email from Easy Qlaim to verify that your SMTP settings are configured correctly.</p>
+                    <p>If you received this email, your email notifications are ready to use.</p>
+                    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
+                    <p style="color: #64748b; font-size: 12px;">
+                        Sent from Easy Qlaim Platform<br>
+                        This is an automated test email.
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        text_content = """
+        Easy Qlaim - Test Email
+        
+        ✅ Email Configuration Working!
+        
+        This is a test email from Easy Qlaim to verify that your SMTP settings are configured correctly.
+        
+        If you received this email, your email notifications are ready to use.
+        """
+        
+        success = email_service.send_email(
+            to_email=request.to_email,
+            subject="Easy Qlaim - Test Email",
+            html_content=html_content,
+            text_content=text_content
+        )
+        
+        if success:
+            logger.info(f"Test email sent successfully to {request.to_email}")
+            return TestEmailResponse(
+                success=True,
+                message=f"Test email sent successfully to {request.to_email}"
+            )
+        else:
+            logger.error(f"Failed to send test email to {request.to_email}")
+            return TestEmailResponse(
+                success=False,
+                message="Failed to send test email. Please check SMTP configuration."
+            )
+            
+    except Exception as e:
+        logger.error(f"Error sending test email: {str(e)}")
+        return TestEmailResponse(
+            success=False,
+            message=f"Error: {str(e)}"
+        )

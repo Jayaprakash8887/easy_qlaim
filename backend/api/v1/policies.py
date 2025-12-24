@@ -26,29 +26,34 @@ logger = logging.getLogger(__name__)
 
 
 def validate_region_exists(db: Session, tenant_id: UUID, region_code: str) -> None:
-    """Validate that the provided region code exists for the tenant"""
+    """Validate that the provided region code or name exists for the tenant.
+    Accepts both region code (e.g., 'IND') or region name (e.g., 'India', 'INDIA').
+    """
     if not region_code:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Region is required for policy upload"
         )
     
+    # Try to find by code first, then by name (case-insensitive)
+    from sqlalchemy import func
     existing_region = db.query(Region).filter(
         Region.tenant_id == tenant_id,
-        Region.code == region_code,
-        Region.is_active == True
+        Region.is_active == True,
+        (Region.code == region_code) | (func.upper(Region.name) == region_code.upper())
     ).first()
     
     if not existing_region:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid region code: {region_code}. Please create this region first."
+            detail=f"Invalid region: {region_code}. Please create this region first."
         )
 
 
 def validate_regions_exist(db: Session, tenant_id: UUID, region_codes: List[str]) -> None:
-    """Validate that all provided region codes exist for the tenant.
+    """Validate that all provided region codes or names exist for the tenant.
     'GLOBAL' is a special value meaning the policy applies to all regions.
+    Accepts both region codes (e.g., 'IND') or region names (e.g., 'India', 'INDIA').
     """
     if not region_codes:
         raise HTTPException(
@@ -63,18 +68,26 @@ def validate_regions_exist(db: Session, tenant_id: UUID, region_codes: List[str]
     if not codes_to_validate:
         return
     
-    existing_regions = db.query(Region.code).filter(
+    # Query regions by code OR name (case-insensitive)
+    from sqlalchemy import func
+    existing_regions = db.query(Region).filter(
         Region.tenant_id == tenant_id,
-        Region.code.in_(codes_to_validate),
-        Region.is_active == True
+        Region.is_active == True,
+        (Region.code.in_(codes_to_validate)) | (func.upper(Region.name).in_([c.upper() for c in codes_to_validate]))
     ).all()
-    existing_codes = {r.code for r in existing_regions}
     
-    invalid_codes = set(codes_to_validate) - existing_codes
+    # Build set of valid identifiers (both codes and uppercase names)
+    valid_identifiers = set()
+    for r in existing_regions:
+        valid_identifiers.add(r.code)
+        valid_identifiers.add(r.name.upper())
+    
+    # Check which provided values are invalid
+    invalid_codes = [c for c in codes_to_validate if c not in valid_identifiers and c.upper() not in valid_identifiers]
     if invalid_codes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid region codes: {', '.join(invalid_codes)}. Please create these regions first."
+            detail=f"Invalid regions: {', '.join(invalid_codes)}. Please create these regions first."
         )
 
 router = APIRouter()
@@ -1100,6 +1113,7 @@ def get_audit_logs(
 async def refresh_region_embeddings(
     region: str,
     category_type: Optional[str] = None,
+    tenant_id: Optional[UUID] = None,
     db: Session = Depends(get_sync_db)
 ):
     """
@@ -1114,6 +1128,7 @@ async def refresh_region_embeddings(
     Args:
         region: The region to refresh (e.g., 'INDIA', 'US', 'GLOBAL')
         category_type: Optional filter - 'REIMBURSEMENT' or 'ALLOWANCE'
+        tenant_id: Optional tenant UUID for multi-tenant support
         
     Returns:
         Number of embeddings generated
@@ -1122,7 +1137,7 @@ async def refresh_region_embeddings(
         from services.embedding_service import get_embedding_service
         
         embedding_service = get_embedding_service()
-        count = await embedding_service.refresh_region_embeddings(region, category_type)
+        count = await embedding_service.refresh_region_embeddings(region, category_type, tenant_id)
         
         # Also invalidate category cache
         from services.category_cache import get_category_cache

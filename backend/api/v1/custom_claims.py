@@ -20,8 +20,9 @@ from api.v1.auth import require_tenant_id
 
 
 def validate_regions_exist(db: Session, tenant_id: UUID, region_codes: List[str]) -> None:
-    """Validate that all provided region codes exist for the tenant.
+    """Validate that all provided region codes or names exist for the tenant.
     'GLOBAL' is a special value meaning the claim applies to all regions.
+    Accepts both region codes (e.g., 'IND') or region names (e.g., 'India', 'INDIA').
     """
     if not region_codes:
         raise HTTPException(
@@ -36,18 +37,26 @@ def validate_regions_exist(db: Session, tenant_id: UUID, region_codes: List[str]
     if not codes_to_validate:
         return
     
-    existing_regions = db.query(Region.code).filter(
+    # Query regions by code OR name (case-insensitive)
+    from sqlalchemy import func
+    existing_regions = db.query(Region).filter(
         Region.tenant_id == tenant_id,
-        Region.code.in_(codes_to_validate),
-        Region.is_active == True
+        Region.is_active == True,
+        (Region.code.in_(codes_to_validate)) | (func.upper(Region.name).in_([c.upper() for c in codes_to_validate]))
     ).all()
-    existing_codes = {r.code for r in existing_regions}
     
-    invalid_codes = set(codes_to_validate) - existing_codes
+    # Build set of valid identifiers (both codes and uppercase names)
+    valid_identifiers = set()
+    for r in existing_regions:
+        valid_identifiers.add(r.code)
+        valid_identifiers.add(r.name.upper())
+    
+    # Check which provided values are invalid
+    invalid_codes = [c for c in codes_to_validate if c not in valid_identifiers and c.upper() not in valid_identifiers]
     if invalid_codes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid region codes: {', '.join(invalid_codes)}. Please create these regions first."
+            detail=f"Invalid regions: {', '.join(invalid_codes)}. Please create these regions first."
         )
 
 logger = logging.getLogger(__name__)

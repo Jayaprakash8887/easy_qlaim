@@ -805,7 +805,7 @@ async def list_claims(
         project_code = payload.get('project_code', '')
         claim_dict = {
             **{c.name: getattr(claim, c.name) for c in claim.__table__.columns},
-            "category_name": category_cache.get_category_name_by_code(claim.category),
+            "category_name": category_cache.get_category_name_by_code(claim.category, tenant_id=claim.tenant_id),
             "project_name": project_names.get(project_code, '')
         }
         claims_with_names.append(claim_dict)
@@ -848,7 +848,7 @@ async def get_claim(
     # Add category_name and project_name to the response
     claim_dict = {
         **{c.name: getattr(claim, c.name) for c in claim.__table__.columns},
-        "category_name": category_cache.get_category_name_by_code(claim.category),
+        "category_name": category_cache.get_category_name_by_code(claim.category, tenant_id=claim.tenant_id),
         "project_name": project_name
     }
     

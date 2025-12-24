@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { UseFormReturn } from "react-hook-form";
 import { Calendar, CheckCircle2, Circle, FileText, Sparkles, Trash2, Loader2, Zap, Pencil } from "lucide-react";
 import { parse } from "date-fns";
@@ -1003,6 +1003,7 @@ export function SmartClaimForm({
       setExtractedClaims([]);
       setShowMultipleClaims(false);
       setLastProcessedFileId(null);
+      lastProcessedFileIdRef.current = null;
 
       // Notify parent that multiple claims are cleared
       if (onMultipleClaimsExtracted) {
@@ -1011,26 +1012,33 @@ export function SmartClaimForm({
     }
   }, [uploadedFiles, lastProcessedFileId, setValue, onMultipleClaimsExtracted]);
 
+  // Ref to track extraction state without causing stale closures
+  const isExtractingRef = useRef(false);
+  const lastProcessedFileIdRef = useRef<string | null>(null);
+
   // OCR extraction when files are uploaded
   useEffect(() => {
     const processOCR = async () => {
-      console.log('processOCR called, uploadedFiles:', uploadedFiles.length, 'isExtractingOCR:', isExtractingOCR);
+      console.log('processOCR called, uploadedFiles:', uploadedFiles.length, 'isExtractingRef:', isExtractingRef.current);
 
       // Check if we have a file to process
-      if (uploadedFiles.length === 0 || isExtractingOCR) {
+      if (uploadedFiles.length === 0 || isExtractingRef.current) {
         console.log('Skipping: no files or already extracting');
         return;
       }
 
       const uploadedFile = uploadedFiles[0];
-      console.log('Processing file:', uploadedFile.name, 'id:', uploadedFile.id, 'lastProcessedId:', lastProcessedFileId);
+      console.log('Processing file:', uploadedFile.name, 'id:', uploadedFile.id, 'lastProcessedId:', lastProcessedFileIdRef.current);
 
       // Skip if we've already processed this file
-      if (uploadedFile.id === lastProcessedFileId) {
+      if (uploadedFile.id === lastProcessedFileIdRef.current) {
         console.log('Skipping: already processed this file');
         return;
       }
 
+      // Set both ref and state - ref for immediate check, state for UI
+      isExtractingRef.current = true;
+      lastProcessedFileIdRef.current = uploadedFile.id;
       setIsExtractingOCR(true);
       setLastProcessedFileId(uploadedFile.id);
 
@@ -1039,6 +1047,7 @@ export function SmartClaimForm({
 
         if (!file) {
           console.error('No file object found in uploadedFile');
+          isExtractingRef.current = false;
           setIsExtractingOCR(false);
           return;
         }
@@ -1049,6 +1058,7 @@ export function SmartClaimForm({
 
         if (!ocrResponse) {
           console.error('No response from OCR API');
+          isExtractingRef.current = false;
           setIsExtractingOCR(false);
           return;
         }
@@ -1211,6 +1221,7 @@ export function SmartClaimForm({
         // Set a default category on error
         setValue('category', 'other');
       } finally {
+        isExtractingRef.current = false;
         setIsExtractingOCR(false);
       }
     };

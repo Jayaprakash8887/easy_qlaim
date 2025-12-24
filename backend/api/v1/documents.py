@@ -865,7 +865,8 @@ If no valid receipts can be identified, return an empty array: []
                 validated_cat, is_valid = category_cache.validate_category(
                     llm_category,
                     employee_region,
-                    "REIMBURSEMENT"
+                    "REIMBURSEMENT",
+                    tenant_id
                 )
                 
                 # Step 2: If LLM returned 'other' or invalid, try embedding-based matching
@@ -883,7 +884,8 @@ If no valid receipts can be identified, return an empty array: []
                             emb_category, emb_score, emb_valid = await embedding_service.get_best_category_match(
                                 search_text,
                                 employee_region,
-                                "REIMBURSEMENT"
+                                "REIMBURSEMENT",
+                                tenant_id=tenant_id
                             )
                             
                             # Lower threshold to 0.55 for better matching
@@ -1239,7 +1241,7 @@ async def extract_text_ocr(
                 full_text = direct_result["text"]
                 
                 # Extract receipts using LLM with region-specific categories, fallback to regex
-                receipts = await extract_receipts_with_llm(full_text, employee_region)
+                receipts = await extract_receipts_with_llm(full_text, employee_region, tenant_id=tenant_id)
                 if not receipts:
                     logger.info("LLM extraction failed or returned empty, trying regex extraction")
                     receipts = extract_receipts_with_regex(full_text)
@@ -1268,7 +1270,7 @@ async def extract_text_ocr(
                 if direct_result.get("lines"):
                     full_text = direct_result["text"]
                     # Try LLM with region-specific categories, then fallback to regex
-                    receipts = await extract_receipts_with_llm(full_text, employee_region)
+                    receipts = await extract_receipts_with_llm(full_text, employee_region, tenant_id=tenant_id)
                     if not receipts:
                         receipts = extract_receipts_with_regex(full_text)
                     return {

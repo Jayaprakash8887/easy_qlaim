@@ -449,16 +449,23 @@ class EmbeddingService:
         self,
         text: str,
         region: str,
-        category_type: str = "REIMBURSEMENT"
+        category_type: str = "REIMBURSEMENT",
+        tenant_id: Optional[UUID] = None
     ) -> Tuple[str, float, bool]:
         """
         Get the best matching category for text.
         
+        Args:
+            text: Text to match (e.g., vendor name, description from OCR)
+            region: Employee's region
+            category_type: REIMBURSEMENT or ALLOWANCE
+            tenant_id: Optional tenant UUID for multi-tenant support
+            
         Returns:
             (category_code, confidence, is_valid_match)
             If no good match, returns ('other', 0.0, False)
         """
-        matches = await self.match_category(text, region, category_type, top_k=1)
+        matches = await self.match_category(text, region, category_type, top_k=1, tenant_id=tenant_id)
         
         if matches and matches[0][2]:  # Has valid match above threshold
             return matches[0]

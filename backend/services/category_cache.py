@@ -174,7 +174,8 @@ class CategoryCacheService:
         self,
         category: str,
         region: str,
-        category_type: str = "REIMBURSEMENT"
+        category_type: str = "REIMBURSEMENT",
+        tenant_id: Optional[UUID] = None
     ) -> tuple[str, bool]:
         """
         Validate and normalize a category code.
@@ -183,6 +184,7 @@ class CategoryCacheService:
             category: Category code/name from LLM
             region: Employee's region
             category_type: 'REIMBURSEMENT' or 'ALLOWANCE'
+            tenant_id: Tenant UUID for multi-tenant category loading
             
         Returns:
             Tuple of (validated_category, is_valid)
@@ -191,7 +193,7 @@ class CategoryCacheService:
         if not category:
             return ('other', False)
         
-        categories = self.get_categories_for_region(region, category_type)
+        categories = self.get_categories_for_region(region, category_type, tenant_id)
         
         if not categories:
             # No categories found - accept any
@@ -214,7 +216,7 @@ class CategoryCacheService:
         logger.info(f"Category '{category}' not found in region '{region}' - defaulting to 'other'")
         return ('other', False)
     
-    def get_category_name_by_code(self, category_code: str, region: Optional[str] = None) -> str:
+    def get_category_name_by_code(self, category_code: str, region: Optional[str] = None, tenant_id: Optional[UUID] = None) -> str:
         """
         Get human-readable category name from category code.
         Searches through all cached regions if region not specified.
@@ -222,6 +224,7 @@ class CategoryCacheService:
         Args:
             category_code: The category code (e.g., 'TRAVEL_WB', 'cc-2025-0001')
             region: Optional region to search in
+            tenant_id: Optional tenant ID for tenant-specific category lookup
             
         Returns:
             Human-readable category name or formatted fallback
@@ -241,8 +244,8 @@ class CategoryCacheService:
         for reg in regions_to_search:
             cache_entry = self._get_cache_entry(reg)
             if not cache_entry:
-                # Try to load from DB
-                cache_entry = self._load_categories_from_db(reg)
+                # Try to load from DB with tenant_id
+                cache_entry = self._load_categories_from_db(reg, tenant_id)
             
             if cache_entry:
                 for cat in cache_entry.categories:
@@ -258,16 +261,24 @@ class CategoryCacheService:
             db: Session = next(get_sync_db())
             
             # Try CustomClaim first (for codes like CC-2025-0001)
-            custom_claim = db.query(CustomClaim).filter(
+            custom_claim_query = db.query(CustomClaim).filter(
                 CustomClaim.claim_code.ilike(category_code)
-            ).first()
+            )
+            # Filter by tenant_id if provided
+            if tenant_id:
+                custom_claim_query = custom_claim_query.filter(CustomClaim.tenant_id == tenant_id)
+            custom_claim = custom_claim_query.first()
             if custom_claim:
                 return custom_claim.claim_name
             
             # Try PolicyCategory
-            policy_cat = db.query(PolicyCategory).filter(
+            policy_cat_query = db.query(PolicyCategory).filter(
                 PolicyCategory.category_code.ilike(category_code)
-            ).first()
+            )
+            # Filter by tenant_id if provided
+            if tenant_id:
+                policy_cat_query = policy_cat_query.filter(PolicyCategory.tenant_id == tenant_id)
+            policy_cat = policy_cat_query.first()
             if policy_cat:
                 return policy_cat.category_name
                 
@@ -341,6 +352,7 @@ class CategoryCacheService:
             db: Session = next(get_sync_db())
             
             # Query categories for region or global (from PolicyCategory)
+            # NOTE: region column is ARRAY type, so we use .any() to check if value is in array
             query = db.query(PolicyCategory, PolicyUpload).join(
                 PolicyUpload, PolicyCategory.policy_upload_id == PolicyUpload.id
             ).filter(
@@ -349,9 +361,10 @@ class CategoryCacheService:
                     PolicyCategory.is_active == True,
                     PolicyUpload.status == "ACTIVE",
                     or_(
-                        PolicyUpload.region == region,
-                        PolicyUpload.region == "GLOBAL",
-                        PolicyUpload.region.is_(None)
+                        PolicyUpload.region.any(region),  # Check if region is in the array
+                        PolicyUpload.region.any("GLOBAL"),  # Check if GLOBAL is in the array
+                        PolicyUpload.region.is_(None),  # NULL means all regions
+                        PolicyUpload.region == []  # Empty array means all regions
                     )
                 )
             ).order_by(PolicyCategory.display_order)
@@ -385,14 +398,16 @@ class CategoryCacheService:
             
             # ============ INCLUDE CUSTOM CLAIMS ============
             # Custom claims are standalone categories not linked to policy documents
+            # NOTE: region column is ARRAY type, so we use .any() to check if value is in array
             custom_claims_query = db.query(CustomClaim).filter(
                 and_(
                     CustomClaim.tenant_id == tenant_id,
                     CustomClaim.is_active == True,
                     or_(
-                        CustomClaim.region == region,
-                        CustomClaim.region == "GLOBAL",
-                        CustomClaim.region.is_(None)
+                        CustomClaim.region.any(region),  # Check if region is in the array
+                        CustomClaim.region.any("GLOBAL"),  # Check if GLOBAL is in the array
+                        CustomClaim.region.is_(None),  # NULL means all regions
+                        CustomClaim.region == []  # Empty array means all regions
                     )
                 )
             ).order_by(CustomClaim.display_order)
