@@ -29,6 +29,55 @@ def create_test_data():
     db = SyncSessionLocal()
     
     try:
+        # ==================== PLATFORM TENANT (for System Admin) ====================
+        platform_tenant = db.query(Tenant).filter(Tenant.code == 'PLATFORM').first()
+        
+        if not platform_tenant:
+            logger.info("Creating Platform tenant for system admin...")
+            platform_tenant = Tenant(
+                id=uuid4(),
+                name='EasyQlaim Platform',
+                code='PLATFORM',
+                domain='easyqlaim.com',
+                settings={
+                    'timezone': 'UTC',
+                    'default_currency': 'USD'
+                },
+                is_active=True
+            )
+            db.add(platform_tenant)
+            db.commit()
+            db.refresh(platform_tenant)
+            logger.info(f"Created Platform tenant: {platform_tenant.id}")
+        
+        # ==================== SYSTEM ADMIN USER ====================
+        system_admin = db.query(User).filter(User.email == 'system_admin@easyqlaim.com').first()
+        
+        if not system_admin:
+            logger.info("Creating system admin user...")
+            system_admin = User(
+                id=uuid4(),
+                tenant_id=platform_tenant.id,
+                username='system_admin',
+                email='system_admin@easyqlaim.com',
+                hashed_password=hash_password('Admin@123'),
+                first_name='System',
+                last_name='Administrator',
+                full_name='System Administrator',
+                department='Administration',
+                designation='System Administrator',
+                employee_code='SYS001',
+                employment_status='ACTIVE',
+                region=['GLOBAL'],
+                roles=['SYSTEM_ADMIN'],
+                is_active=True
+            )
+            db.add(system_admin)
+            db.commit()
+            logger.info(f"Created system admin user: {system_admin.email}")
+        else:
+            logger.info("System admin user already exists")
+        
         # Check if Tarento tenant already exists
         tarento = db.query(Tenant).filter(Tenant.code == 'TARENTO').first()
         
@@ -194,7 +243,7 @@ def create_test_data():
         users_data = [
             {
                 'email': 'jinson.kuruvilla@tarento.com',
-                'password': 'Jinson@123',
+                'password': 'Test@123',
                 'first_name': 'Jinson',
                 'last_name': 'Kuruvilla',
                 'department': 'Human Resources',
@@ -206,7 +255,7 @@ def create_test_data():
             },
             {
                 'email': 'pampan.gowda@tarento.com',
-                'password': 'Pampan@123',
+                'password': 'Test@123',
                 'first_name': 'Pampan',
                 'last_name': 'Gowda',
                 'department': 'Project Management',
@@ -218,7 +267,7 @@ def create_test_data():
             },
             {
                 'email': 'sureshkannan.sellamuthu@tarento.com',
-                'password': 'Suresh@123',
+                'password': 'Test@123',
                 'first_name': 'Sureshkannan',
                 'last_name': 'S',
                 'department': 'Project Management',
@@ -230,7 +279,7 @@ def create_test_data():
             },
             {
                 'email': 'shreevas.karanth@tarento.com',
-                'password': 'Shreevas@123',
+                'password': 'Test@123',
                 'first_name': 'Shreevas',
                 'last_name': 'Karanth',
                 'department': 'Engineering',
@@ -242,7 +291,7 @@ def create_test_data():
             },
             {
                 'email': 'roven.roy@tarento.com',
-                'password': 'Roven@123',
+                'password': 'Test@123',
                 'first_name': 'Roven',
                 'last_name': 'Roy',
                 'department': 'Human Resources',
@@ -254,7 +303,7 @@ def create_test_data():
             },
             {
                 'email': 'shreevatsa.sridhar@tarento.com',
-                'password': 'Shreevatsa@123',
+                'password': 'Test@123',
                 'first_name': 'Shreevatsa',
                 'last_name': 'S',
                 'department': 'Human Resources',
@@ -266,7 +315,7 @@ def create_test_data():
             },
             {
                 'email': 'ranjith.babu@tarento.com',
-                'password': 'Ranjith@123',
+                'password': 'Test@123',
                 'first_name': 'Ranjith',
                 'last_name': 'Babu',
                 'department': 'Finance & Accounts',
@@ -278,7 +327,7 @@ def create_test_data():
             },
             {
                 'email': 'njayaprakash.8887@gmail.com',
-                'password': 'Jayaprakash@123',
+                'password': 'Test@123',
                 'first_name': 'Jayaprakash',
                 'last_name': 'N',
                 'department': 'Engineering',
@@ -328,14 +377,19 @@ def create_test_data():
         print("\n" + "="*70)
         print("  TARENTO TEST DATA CREATED SUCCESSFULLY")
         print("="*70)
-        print(f"\n  Tenant: Tarento Technologies Pvt. Ltd. (code: TARENTO)")
+        print(f"\n  Platform Tenant: EasyQlaim Platform (code: PLATFORM)")
+        print(f"  Tarento Tenant: Tarento Technologies Pvt. Ltd. (code: TARENTO)")
         print(f"  Departments: {len(departments_data)}")
         print(f"  Designations: {len(designations_data)}")
         print(f"  IBUs: {len(ibus_data)}")
         print(f"  Regions: {len(regions_data)}")
         print(f"  Projects: {len(projects_data)}")
-        print(f"  Users: {len(users_data)}")
-        print("\n  Test User Credentials:")
+        print(f"  Users: {len(users_data)} + 1 System Admin")
+        print("\n  System Admin Credentials:")
+        print("  " + "-"*66)
+        print(f"  {'system_admin@easyqlaim.com':<40} | {'Admin@123':<15} | SYSTEM_ADMIN")
+        print("  " + "-"*66)
+        print("\n  Tarento User Credentials:")
         print("  " + "-"*66)
         print(f"  {'Email':<40} | {'Password':<15} | Roles")
         print("  " + "-"*66)
