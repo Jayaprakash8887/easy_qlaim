@@ -149,8 +149,8 @@ services:
       ALLOWED_EXTENSIONS: ${ALLOWED_EXTENSIONS:-.pdf,.png,.jpg,.jpeg,.gif,.webp}
       # Logging
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      # Keycloak - set to False to use local database auth
-      KEYCLOAK_ENABLED: ${KEYCLOAK_ENABLED:-False}
+      # Keycloak - set to True to use Keycloak authentication (default)
+      KEYCLOAK_ENABLED: ${KEYCLOAK_ENABLED:-True}
       KEYCLOAK_SERVER_URL: http://keycloak:8080
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-reimbursement}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-reimbursement-app}
