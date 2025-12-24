@@ -1,12 +1,15 @@
 """
-Authentication API endpoints using Keycloak.
+Authentication API endpoints supporting both Keycloak and local database authentication.
 """
 import logging
 from typing import Optional
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
+from passlib.context import CryptContext
+from jose import jwt, JWTError
 
 from database import get_sync_db as get_db
 from models import User, Tenant
@@ -17,6 +20,34 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# Password hashing context for local authentication
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against a hashed password."""
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception as e:
+        logger.error(f"Password verification error: {e}")
+        return False
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Create a JWT access token for local authentication."""
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire, "type": "access"})
+    return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+
+def create_refresh_token(data: dict) -> str:
+    """Create a JWT refresh token for local authentication."""
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire, "type": "refresh"})
+    return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 security = HTTPBearer(auto_error=False)
@@ -89,23 +120,47 @@ async def get_current_user(
     db: Session = Depends(get_db),
     keycloak: KeycloakService = Depends(get_keycloak_service)
 ) -> Optional[User]:
-    """Get the current authenticated user from the Keycloak token."""
+    """Get the current authenticated user from the token (Keycloak or local JWT)."""
     if not credentials:
         return None
     
     token = credentials.credentials
+    email = None
     
-    # Verify token with Keycloak
-    user_info = await keycloak.verify_token(token)
-    if not user_info:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    if settings.KEYCLOAK_ENABLED:
+        # Verify token with Keycloak
+        user_info = await keycloak.verify_token(token)
+        if not user_info:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        email = user_info.get("email")
+    else:
+        # Verify local JWT token
+        try:
+            payload = jwt.decode(
+                token,
+                settings.JWT_SECRET_KEY,
+                algorithms=[settings.JWT_ALGORITHM]
+            )
+            if payload.get("type") == "refresh":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Cannot use refresh token for authentication",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            email = payload.get("sub")
+        except JWTError as e:
+            logger.warning(f"JWT verification failed: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
     
     # Get email from token
-    email = user_info.get("email")
     if not email:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -170,10 +225,13 @@ async def login(
     """
     Authenticate user with email and password.
     Returns access token, refresh token, and user info.
+    Supports both Keycloak and local database authentication based on KEYCLOAK_ENABLED setting.
     """
     # Get client info for audit logging
     client_ip = get_client_ip(request)
     user_agent = request.headers.get("user-agent", "")
+    
+    logger.info(f"Login attempt for {login_request.email}, KEYCLOAK_ENABLED={settings.KEYCLOAK_ENABLED}")
     
     # First check if user exists in our database
     user = db.query(User).filter(User.email == login_request.email).first()
@@ -210,22 +268,66 @@ async def login(
                 detail="Your organization's access has been suspended. Please contact your administrator."
             )
     
-    # Authenticate with Keycloak
-    tokens = await keycloak.authenticate(login_request.email, login_request.password)
-    if not tokens:
-        # Log failed login attempt
-        audit_logger.log_auth_event(
-            event_type=audit_logger.AUTH_FAILED,
-            user_email=login_request.email,
-            success=False,
-            ip_address=client_ip,
-            user_agent=user_agent,
-            error_message="Invalid credentials (Keycloak rejection)"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials"
-        )
+    # Authenticate based on KEYCLOAK_ENABLED setting
+    if settings.KEYCLOAK_ENABLED:
+        # Use Keycloak authentication
+        tokens = await keycloak.authenticate(login_request.email, login_request.password)
+        if not tokens:
+            # Log failed login attempt
+            audit_logger.log_auth_event(
+                event_type=audit_logger.AUTH_FAILED,
+                user_email=login_request.email,
+                success=False,
+                ip_address=client_ip,
+                user_agent=user_agent,
+                error_message="Invalid credentials (Keycloak rejection)"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials"
+            )
+        access_token = tokens["access_token"]
+        refresh_token = tokens["refresh_token"]
+        expires_in = tokens.get("expires_in", 1800)
+    else:
+        # Use local database authentication
+        if not user.hashed_password:
+            audit_logger.log_auth_event(
+                event_type=audit_logger.AUTH_FAILED,
+                user_email=login_request.email,
+                success=False,
+                ip_address=client_ip,
+                user_agent=user_agent,
+                error_message="User has no password set"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials"
+            )
+        
+        if not verify_password(login_request.password, user.hashed_password):
+            audit_logger.log_auth_event(
+                event_type=audit_logger.AUTH_FAILED,
+                user_email=login_request.email,
+                success=False,
+                ip_address=client_ip,
+                user_agent=user_agent,
+                error_message="Invalid credentials (password mismatch)"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials"
+            )
+        
+        # Create JWT tokens for local auth
+        token_data = {
+            "sub": user.email,
+            "user_id": str(user.id),
+            "tenant_id": str(user.tenant_id) if user.tenant_id else None
+        }
+        access_token = create_access_token(token_data)
+        refresh_token = create_refresh_token(token_data)
+        expires_in = settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
     
     # Derive user roles using role_service:
     # - SYSTEM_ADMIN role comes from user.roles (platform-level)
@@ -263,50 +365,102 @@ async def login(
     }
     
     return LoginResponse(
-        access_token=tokens["access_token"],
-        refresh_token=tokens["refresh_token"],
+        access_token=access_token,
+        refresh_token=refresh_token,
         token_type="Bearer",
-        expires_in=tokens.get("expires_in", 1800),
+        expires_in=expires_in,
         user=user_data
     )
 
 
 @router.post("/refresh", response_model=RefreshResponse)
-async def refresh_token(
+async def refresh_token_endpoint(
     refresh_request: RefreshRequest,
     request: Request,
+    db: Session = Depends(get_db),
     keycloak: KeycloakService = Depends(get_keycloak_service)
 ):
     """Refresh access token using refresh token."""
     client_ip = get_client_ip(request)
     
-    tokens = await keycloak.refresh_token(refresh_request.refresh_token)
-    if not tokens:
+    if settings.KEYCLOAK_ENABLED:
+        # Use Keycloak to refresh token
+        tokens = await keycloak.refresh_token(refresh_request.refresh_token)
+        if not tokens:
+            audit_logger.log_auth_event(
+                event_type=audit_logger.AUTH_TOKEN_REFRESH,
+                user_email="unknown",
+                success=False,
+                ip_address=client_ip,
+                error_message="Invalid refresh token"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token"
+            )
+        
         audit_logger.log_auth_event(
             event_type=audit_logger.AUTH_TOKEN_REFRESH,
-            user_email="unknown",
-            success=False,
-            ip_address=client_ip,
-            error_message="Invalid refresh token"
+            user_email="token_refresh",
+            success=True,
+            ip_address=client_ip
         )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token"
+        
+        return RefreshResponse(
+            access_token=tokens["access_token"],
+            refresh_token=tokens["refresh_token"],
+            token_type="Bearer",
+            expires_in=tokens.get("expires_in", 1800)
         )
-    
-    audit_logger.log_auth_event(
-        event_type=audit_logger.AUTH_TOKEN_REFRESH,
-        user_email="token_refresh",
-        success=True,
-        ip_address=client_ip
-    )
-    
-    return RefreshResponse(
-        access_token=tokens["access_token"],
-        refresh_token=tokens["refresh_token"],
-        token_type="Bearer",
-        expires_in=tokens.get("expires_in", 1800)
-    )
+    else:
+        # Use local JWT refresh
+        try:
+            payload = jwt.decode(
+                refresh_request.refresh_token,
+                settings.JWT_SECRET_KEY,
+                algorithms=[settings.JWT_ALGORITHM]
+            )
+            if payload.get("type") != "refresh":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token type"
+                )
+            
+            # Create new tokens
+            token_data = {
+                "sub": payload.get("sub"),
+                "user_id": payload.get("user_id"),
+                "tenant_id": payload.get("tenant_id")
+            }
+            new_access_token = create_access_token(token_data)
+            new_refresh_token = create_refresh_token(token_data)
+            
+            audit_logger.log_auth_event(
+                event_type=audit_logger.AUTH_TOKEN_REFRESH,
+                user_email=payload.get("sub", "unknown"),
+                success=True,
+                ip_address=client_ip
+            )
+            
+            return RefreshResponse(
+                access_token=new_access_token,
+                refresh_token=new_refresh_token,
+                token_type="Bearer",
+                expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            )
+        except JWTError as e:
+            logger.warning(f"JWT refresh failed: {e}")
+            audit_logger.log_auth_event(
+                event_type=audit_logger.AUTH_TOKEN_REFRESH,
+                user_email="unknown",
+                success=False,
+                ip_address=client_ip,
+                error_message="Invalid refresh token"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token"
+            )
 
 
 @router.post("/logout")
@@ -318,7 +472,12 @@ async def logout(
     """Logout user by invalidating refresh token."""
     client_ip = get_client_ip(request)
     
-    success = await keycloak.logout(logout_request.refresh_token)
+    if settings.KEYCLOAK_ENABLED:
+        success = await keycloak.logout(logout_request.refresh_token)
+    else:
+        # For local JWT auth, we can't invalidate tokens server-side without a blacklist
+        # Client should just discard the token
+        success = True
     
     audit_logger.log_auth_event(
         event_type=audit_logger.AUTH_LOGOUT,
