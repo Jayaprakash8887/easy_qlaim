@@ -3,10 +3,10 @@
 Create test data for Easy Qlaim
 Seeds Tarento tenant with actual company data: employees, departments, IBUs, projects, regions, designations
 """
-import hashlib
 from uuid import uuid4
 from datetime import datetime
 from decimal import Decimal
+from passlib.context import CryptContext
 
 from database import SyncSessionLocal
 from models import Tenant, User, Department, Designation, IBU, Project, Region
@@ -15,10 +15,13 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Password hashing context - use bcrypt for local authentication
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 def hash_password(password: str) -> str:
-    """Hash password using SHA256"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash password using bcrypt (compatible with local auth)"""
+    return pwd_context.hash(password)
 
 
 def create_test_data():
