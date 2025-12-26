@@ -344,7 +344,7 @@ export function EmployeeForm({
           </Button>
           <Button type="submit" disabled={isLoading}>
             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {defaultValues?.employeeId ? 'Update Employee' : 'Add Employee'}
+            {defaultValues?.employeeId ? 'Save' : 'Add Employee'}
           </Button>
         </div>
       </form>

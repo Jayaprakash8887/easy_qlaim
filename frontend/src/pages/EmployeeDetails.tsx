@@ -98,7 +98,7 @@ export default function EmployeeDetails() {
           address: data.address || '',
           department: data.department,
           designation: data.designation || data.role,
-          region: data.region || '',  // Region/location for policy applicability
+          region: Array.isArray(data.region) ? data.region : (data.region ? [data.region] : []),
           joinDate: data.dateOfJoining || employee.joinDate,
           managerId: data.managerId || undefined,
           projectIds: data.projectIds || '',
@@ -200,7 +200,7 @@ export default function EmployeeDetails() {
               address: employee.address || '',
               department: employee.department,
               designation: employee.designation || '',
-              region: employee.region || '',
+              region: Array.isArray(employee.region) ? employee.region : (employee.region ? [employee.region] : []),
               dateOfJoining: employee.joinDate || '',
               managerId: employee.managerId || '',
               projectIds: employee.projectIds?.[0] || '',
