@@ -72,7 +72,6 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 // Types
 interface GeneralSettings {
-  ai_processing: boolean;
   auto_approval: boolean;
   enable_auto_approval: boolean;
   auto_skip_after_manager: boolean;
@@ -365,7 +364,6 @@ export default function Settings() {
 
   // Local state for form
   const [formData, setFormData] = useState<GeneralSettings>({
-    ai_processing: true,
     auto_approval: true,
     enable_auto_approval: true,
     auto_skip_after_manager: true,
@@ -589,19 +587,6 @@ export default function Settings() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>AI-Powered Processing</Label>
-                <p className="text-sm text-muted-foreground">
-                  Enable AI for OCR and validation
-                </p>
-              </div>
-              <Switch
-                checked={formData.ai_processing}
-                onCheckedChange={(checked) => handleChange('ai_processing', checked)}
-              />
-            </div>
-            <Separator />
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label>Auto-Approval</Label>
