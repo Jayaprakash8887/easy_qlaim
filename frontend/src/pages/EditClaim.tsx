@@ -119,13 +119,14 @@ export default function EditClaim() {
     }
   }, [claim]);
   
-  // Get the selected category's policy details
+  // Get the selected category's policy details - use formData.category for real-time updates
   const selectedCategoryPolicy = useMemo(() => {
-    if (!claim?.category) return null;
+    const currentCategory = formData.category || claim?.category;
+    if (!currentCategory) return null;
     return reimbursementCategories.find(cat => 
-      cat.category_code.toLowerCase() === claim.category.toLowerCase()
+      cat.category_code.toLowerCase() === currentCategory.toLowerCase()
     ) || null;
-  }, [claim?.category, reimbursementCategories]);
+  }, [formData.category, claim?.category, reimbursementCategories]);
   
   // Amount validation against policy
   const amountValidation = useMemo(() => {
@@ -226,9 +227,9 @@ export default function EditClaim() {
       {
         id: "category",
         label: "Category",
-        status: claim?.category ? "pass" as const : "warning" as const,
-        message: claim?.category 
-          ? `Category: ${claim.category}` 
+        status: (formData.category || claim?.category) ? "pass" as const : "warning" as const,
+        message: (formData.category || claim?.category) 
+          ? `Category: ${formData.category || claim?.category}` 
           : "Category not set",
       },
       {

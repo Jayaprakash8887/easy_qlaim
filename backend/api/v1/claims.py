@@ -1149,10 +1149,11 @@ async def update_claim(
     
     # Handle status update for resubmission
     if claim_update.status == 'PENDING_MANAGER':
-        # Check for duplicate claims before resubmission
-        # Use updated values if provided, otherwise use existing values
+        # Regenerate policy checks with updated claim data
         check_amount = float(claim_update.amount if claim_update.amount is not None else claim.amount)
         check_date = claim_update.claim_date if claim_update.claim_date is not None else claim.claim_date
+        check_category = claim_update.category if claim_update.category is not None else claim.category
+        check_description = claim_update.description if claim_update.description is not None else claim.description
         
         # Get transaction_ref from updated payload or existing payload
         if claim_update.claim_payload is not None:
@@ -1160,6 +1161,10 @@ async def update_claim(
         else:
             check_txn_ref = claim.claim_payload.get("transaction_ref") if claim.claim_payload else None
         
+        # Get tenant's fiscal year start for policy checks
+        fiscal_year_start = _get_tenant_fiscal_year_start(claim.tenant_id)
+        
+        # Check for potential duplicate
         dup_result = await check_duplicate_claim(
             db=db,
             employee_id=claim.employee_id,
@@ -1169,6 +1174,31 @@ async def update_claim(
             exclude_claim_id=claim.id,
             tenant_id=claim.tenant_id
         )
+        
+        is_potential_dup = dup_result.get("is_duplicate", False)
+        
+        # Regenerate policy checks
+        policy_checks = generate_policy_checks(
+            claim_data={
+                "amount": check_amount,
+                "category": check_category,
+                "claim_type": claim.claim_type,
+                "claim_date": check_date,
+                "description": check_description,
+                "vendor": payload.get("vendor") or (claim.claim_payload or {}).get("vendor"),
+            },
+            has_document=bool(claim.documents),
+            policy_limit=None,  # TODO: Get from policy_categories table based on category
+            submission_window_days=15,
+            is_potential_duplicate=is_potential_dup,
+            fiscal_year_start=fiscal_year_start
+        )
+        
+        # Update policy_checks in payload
+        payload = dict(claim.claim_payload or {})
+        payload["policy_checks"] = policy_checks
+        claim.claim_payload = payload
+        flag_modified(claim, 'claim_payload')
         
         # Block submission if exact duplicate found
         if dup_result["is_duplicate"] and dup_result["match_type"] == "exact":
