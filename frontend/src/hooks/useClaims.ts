@@ -408,6 +408,10 @@ export interface ClaimUpdateData {
   amount?: number;
   claim_date?: string;  // YYYY-MM-DD format
   description?: string;
+  category?: string;  // Category code
+  title?: string;  // Expense title
+  project_code?: string;  // Project code
+  transaction_ref?: string;  // Transaction reference ID
   status?: string;  // e.g., 'PENDING_MANAGER' to resubmit
   edited_sources?: string[];  // Fields that were edited (e.g., ['amount', 'date', 'description'])
 }

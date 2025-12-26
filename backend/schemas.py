@@ -124,6 +124,10 @@ class ClaimUpdate(BaseModel):
     amount: Optional[float] = Field(None, gt=0)
     claim_date: Optional[date] = None
     description: Optional[str] = None
+    category: Optional[str] = None  # Category code
+    title: Optional[str] = None  # Expense title
+    project_code: Optional[str] = None  # Project code
+    transaction_ref: Optional[str] = None  # Transaction reference ID
     claim_payload: Optional[Dict[str, Any]] = None
     status: Optional[str] = None  # For resubmission: 'PENDING_MANAGER'
     edited_sources: Optional[List[str]] = None  # Fields edited by user (e.g., ['amount', 'date'])

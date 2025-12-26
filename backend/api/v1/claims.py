@@ -28,6 +28,7 @@ from services.storage import upload_to_gcs
 from services.duplicate_detection import check_duplicate_claim, check_batch_duplicates
 from services.ai_analysis import generate_ai_analysis, generate_policy_checks
 from services.security import audit_logger, get_client_ip
+from services.redis_cache import redis_cache
 from services.email_service import get_email_service
 from config import get_settings
 
@@ -490,6 +491,12 @@ async def create_batch_claims(
         claim_ids.append(claim.id)
         claim_numbers.append(claim.claim_number)
     
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(employee.tenant_id) if employee.tenant_id else None,
+        employee_id=str(employee.id) if employee.id else None
+    )
+    
     return BatchClaimResponse(
         success=True,
         total_claims=len(created_claims),
@@ -755,6 +762,12 @@ async def create_batch_claims_with_document(
         await db.commit()
         logger.info(f"Created {len(created_claims)} document records linked to claims")
     
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(employee.tenant_id) if employee.tenant_id else None,
+        employee_id=str(employee.id) if employee.id else None
+    )
+    
     # Send email notifications to approvers for each created claim
     for claim in created_claims:
         approver_email, approver_name = await _get_next_approver(db, claim, employee)
@@ -914,6 +927,12 @@ async def submit_claim(
     claim.can_edit = False
     await db.commit()
     await db.refresh(claim)
+    
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(claim.tenant_id) if claim.tenant_id else None,
+        employee_id=str(claim.employee_id) if claim.employee_id else None
+    )
     
     # Queue for processing
     has_documents = await _check_has_documents(db, claim_id)
@@ -1090,12 +1109,22 @@ async def update_claim(
         claim.claim_date = claim_update.claim_date
     if claim_update.description is not None:
         claim.description = claim_update.description
+    if claim_update.category is not None:
+        claim.category = claim_update.category
     if claim_update.claim_payload is not None:
         claim.claim_payload = claim_update.claim_payload
     
+    # Update payload fields (title, project_code, transaction_ref)
+    payload = dict(claim.claim_payload or {})
+    if claim_update.title is not None:
+        payload['title'] = claim_update.title
+    if claim_update.project_code is not None:
+        payload['project_code'] = claim_update.project_code
+    if claim_update.transaction_ref is not None:
+        payload['transaction_ref'] = claim_update.transaction_ref
+    
     # Update data source flags for edited fields
     if claim_update.edited_sources:
-        payload = dict(claim.claim_payload or {})  # Make a copy
         source_field_map = {
             'amount': 'amount_source',
             'date': 'date_source',
@@ -1105,11 +1134,15 @@ async def update_claim(
             'title': 'title_source',
             'transaction_ref': 'transaction_ref_source',
             'payment_method': 'payment_method_source',
+            'project_code': 'project_code_source',
         }
         for field in claim_update.edited_sources:
             source_key = source_field_map.get(field)
             if source_key:
                 payload[source_key] = 'manual'
+    
+    # Always save payload if we made changes
+    if payload != (claim.claim_payload or {}):
         claim.claim_payload = payload
         # Force SQLAlchemy to detect the change in JSONB field
         flag_modified(claim, 'claim_payload')
@@ -1154,6 +1187,12 @@ async def update_claim(
     
     await db.commit()
     await db.refresh(claim)
+    
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(claim.tenant_id) if claim.tenant_id else None,
+        employee_id=str(claim.employee_id) if claim.employee_id else None
+    )
     
     return claim
 
@@ -1242,6 +1281,12 @@ async def hr_edit_claim(
     await db.commit()
     await db.refresh(claim)
     
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(claim.tenant_id) if claim.tenant_id else None,
+        employee_id=str(claim.employee_id) if claim.employee_id else None
+    )
+    
     logger.info(f"HR edited claim {claim_id}, fields: {hr_edit.hr_edited_fields}")
     
     # Audit log for HR edit
@@ -1285,8 +1330,18 @@ async def delete_claim(
             detail=f"Cannot delete claims in {claim.status} status. Only pending or returned claims can be deleted."
         )
     
+    # Store tenant and employee IDs before deletion for cache invalidation
+    tenant_id = str(claim.tenant_id) if claim.tenant_id else None
+    employee_id = str(claim.employee_id) if claim.employee_id else None
+    
     await db.delete(claim)
     await db.commit()
+    
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=tenant_id,
+        employee_id=employee_id
+    )
 
 
 @router.post("/{claim_id}/return", response_model=ClaimResponse)
@@ -1381,6 +1436,12 @@ async def return_to_employee(
     
     await db.commit()
     await db.refresh(claim)
+    
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(claim.tenant_id) if claim.tenant_id else None,
+        employee_id=str(claim.employee_id) if claim.employee_id else None
+    )
     
     # Audit log for claim return
     audit_logger.log_claim_action(
@@ -1527,6 +1588,12 @@ async def approve_claim(
     await db.commit()
     await db.refresh(claim)
     
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(claim.tenant_id) if claim.tenant_id else None,
+        employee_id=str(claim.employee_id) if claim.employee_id else None
+    )
+    
     # Audit log for claim approval
     audit_logger.log_claim_action(
         user_id="system",  # Approver ID not passed in current request body
@@ -1639,6 +1706,12 @@ async def reject_claim(
     await db.commit()
     await db.refresh(claim)
     
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(claim.tenant_id) if claim.tenant_id else None,
+        employee_id=str(claim.employee_id) if claim.employee_id else None
+    )
+    
     # Audit log for claim rejection
     audit_logger.log_claim_action(
         user_id="system",  # Approver ID not passed in current request body
@@ -1747,6 +1820,12 @@ async def settle_claim(
     
     await db.commit()
     await db.refresh(claim)
+    
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(claim.tenant_id) if claim.tenant_id else None,
+        employee_id=str(claim.employee_id) if claim.employee_id else None
+    )
     
     # Audit log for claim settlement
     audit_logger.log_claim_action(

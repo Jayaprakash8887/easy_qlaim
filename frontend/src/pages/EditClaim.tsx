@@ -12,6 +12,9 @@ import {
   Zap,
   User,
   CheckCircle2,
+  Tag,
+  Folder,
+  Hash,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DataSource } from '@/types';
@@ -33,6 +36,13 @@ import { useFormatting } from '@/hooks/useFormatting';
 import { toast } from '@/hooks/use-toast';
 import { useReimbursementsByRegion } from '@/hooks/usePolicies';
 import { PolicyChecks } from '@/components/claims/PolicyChecks';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export default function EditClaim() {
   const { id } = useParams<{ id: string }>();
@@ -53,6 +63,10 @@ export default function EditClaim() {
     amount: '',
     claim_date: '',
     description: '',
+    category: '',
+    title: '',
+    project_code: '',
+    transaction_ref: '',
   });
   const [editedFields, setEditedFields] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
@@ -68,10 +82,15 @@ export default function EditClaim() {
   // Initialize form data when claim loads
   useEffect(() => {
     if (claim) {
+      const payload = claim.claimPayload || {};
       setFormData({
         amount: claim.amount?.toString() || '',
         claim_date: formatDateForInput(claim.claimDate),
         description: claim.description || '',
+        category: claim.category || '',
+        title: payload.title || claim.title || '',
+        project_code: payload.project_code || '',
+        transaction_ref: payload.transaction_ref || '',
       });
     }
   }, [claim]);
@@ -246,6 +265,18 @@ export default function EditClaim() {
       if (formData.description) {
         updateData.description = formData.description;
       }
+      if (formData.category) {
+        updateData.category = formData.category;
+      }
+      if (formData.title) {
+        updateData.title = formData.title;
+      }
+      if (formData.project_code) {
+        updateData.project_code = formData.project_code;
+      }
+      if (formData.transaction_ref) {
+        updateData.transaction_ref = formData.transaction_ref;
+      }
       
       // Include edited field sources - mark as 'manual' for edited fields
       if (editedFields.size > 0) {
@@ -382,6 +413,52 @@ export default function EditClaim() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Category */}
+                <div className="space-y-2">
+                  <Label htmlFor="category" className="flex items-center">
+                    <Tag className="h-4 w-4 mr-2" />
+                    Category
+                    {getDataSourceBadge(editedFields.has('category') ? 'manual' : (claim.dataSource?.category || 'manual'))}
+                  </Label>
+                  <Select
+                    value={formData.category}
+                    onValueChange={(value) => {
+                      setFormData(prev => ({ ...prev, category: value }));
+                      setEditedFields(prev => new Set(prev).add('category'));
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {reimbursementCategories.map((cat) => (
+                        <SelectItem key={cat.category_code} value={cat.category_code}>
+                          {cat.category_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Expense Title */}
+                <div className="space-y-2">
+                  <Label htmlFor="title" className="flex items-center">
+                    <FileText className="h-4 w-4 mr-2" />
+                    Expense Title
+                    {getDataSourceBadge(editedFields.has('title') ? 'manual' : (claim.dataSource?.title || 'manual'))}
+                  </Label>
+                  <Input
+                    id="title"
+                    type="text"
+                    value={formData.title}
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, title: e.target.value }));
+                      setEditedFields(prev => new Set(prev).add('title'));
+                    }}
+                    placeholder="Enter expense title"
+                  />
+                </div>
+
                 {/* Amount */}
                 <div className="space-y-2">
                   <Label htmlFor="amount" className="flex items-center">
@@ -404,11 +481,11 @@ export default function EditClaim() {
                   />
                 </div>
 
-                {/* Claim Date */}
+                {/* Expense Date */}
                 <div className="space-y-2">
                   <Label htmlFor="claim_date" className="flex items-center">
                     <Calendar className="h-4 w-4 mr-2" />
-                    Claim Date
+                    Expense Date
                     {getDataSourceBadge(editedFields.has('date') ? 'manual' : (claim.dataSource?.date || 'manual'))}
                   </Label>
                   <Input
@@ -420,6 +497,44 @@ export default function EditClaim() {
                       setEditedFields(prev => new Set(prev).add('date'));
                     }}
                     required
+                  />
+                </div>
+
+                {/* Project Code */}
+                <div className="space-y-2">
+                  <Label htmlFor="project_code" className="flex items-center">
+                    <Folder className="h-4 w-4 mr-2" />
+                    Project Code
+                    {getDataSourceBadge(editedFields.has('project_code') ? 'manual' : 'manual')}
+                  </Label>
+                  <Input
+                    id="project_code"
+                    type="text"
+                    value={formData.project_code}
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, project_code: e.target.value }));
+                      setEditedFields(prev => new Set(prev).add('project_code'));
+                    }}
+                    placeholder="Enter project code"
+                  />
+                </div>
+
+                {/* Transaction Ref ID */}
+                <div className="space-y-2">
+                  <Label htmlFor="transaction_ref" className="flex items-center">
+                    <Hash className="h-4 w-4 mr-2" />
+                    Transaction Ref ID
+                    {getDataSourceBadge(editedFields.has('transaction_ref') ? 'manual' : (claim.dataSource?.transactionRef || 'manual'))}
+                  </Label>
+                  <Input
+                    id="transaction_ref"
+                    type="text"
+                    value={formData.transaction_ref}
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, transaction_ref: e.target.value }));
+                      setEditedFields(prev => new Set(prev).add('transaction_ref'));
+                    }}
+                    placeholder="Enter transaction reference ID"
                   />
                 </div>
 
@@ -447,7 +562,7 @@ export default function EditClaim() {
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                Only amount, date, and description can be edited. To change documents, please create a new claim.
+                Documents cannot be modified after upload. To change documents, please create a new claim.
               </AlertDescription>
             </Alert>
 
