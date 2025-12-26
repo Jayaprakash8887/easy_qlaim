@@ -34,6 +34,66 @@ settings = get_settings()
 router = APIRouter()
 
 
+def _sync_project_allocations(
+    db: Session,
+    user_id: UUID,
+    tenant_id: UUID,
+    new_project_ids: List[str],
+    existing_allocations: List[EmployeeProjectAllocation] = None
+) -> None:
+    """
+    Sync the EmployeeProjectAllocation table with the list of project_ids.
+    This ensures that when projects are assigned via the Employee form,
+    the allocations are properly created/deactivated.
+    """
+    # Convert to set of strings for comparison
+    new_project_id_set = set(str(pid) for pid in new_project_ids) if new_project_ids else set()
+    
+    # Get existing active allocations if not provided
+    if existing_allocations is None:
+        existing_allocations = db.query(EmployeeProjectAllocation).filter(
+            EmployeeProjectAllocation.employee_id == user_id,
+            EmployeeProjectAllocation.status == "ACTIVE"
+        ).all()
+    
+    existing_project_ids = set(str(alloc.project_id) for alloc in existing_allocations)
+    
+    # Projects to add (in new list but not in existing)
+    projects_to_add = new_project_id_set - existing_project_ids
+    
+    # Projects to remove (in existing but not in new list)
+    projects_to_remove = existing_project_ids - new_project_id_set
+    
+    # Create new allocations
+    for project_id_str in projects_to_add:
+        try:
+            project_uuid = UUID(project_id_str)
+            # Verify project exists
+            project = db.query(Project).filter(Project.id == project_uuid).first()
+            if project:
+                allocation = EmployeeProjectAllocation(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    employee_id=user_id,
+                    project_id=project_uuid,
+                    role="MEMBER",
+                    allocation_percentage=100,
+                    allocated_date=date.today(),
+                    status="ACTIVE"
+                )
+                db.add(allocation)
+                logger.info(f"Created project allocation for employee {user_id} to project {project_id_str}")
+        except Exception as e:
+            logger.error(f"Error creating allocation for project {project_id_str}: {e}")
+    
+    # Deactivate removed allocations
+    for alloc in existing_allocations:
+        if str(alloc.project_id) in projects_to_remove:
+            alloc.status = "REMOVED"
+            alloc.deallocated_date = date.today()
+            logger.info(f"Deactivated project allocation for employee {user_id} from project {alloc.project_id}")
+
+
 def generate_temporary_password(length: int = 12) -> str:
     """Generate a secure temporary password"""
     alphabet = string.ascii_letters + string.digits + "!@#$%&*"
@@ -227,6 +287,16 @@ async def create_employee(
     db.add(user)
     db.commit()
     db.refresh(user)
+    
+    # Sync project allocations to EmployeeProjectAllocation table
+    if employee_data.project_ids:
+        _sync_project_allocations(
+            db=db,
+            user_id=user.id,
+            tenant_id=user.tenant_id,
+            new_project_ids=employee_data.project_ids
+        )
+        db.commit()
     
     # Create Keycloak user if KEYCLOAK_ENABLED
     keycloak_user_created = False
@@ -528,12 +598,21 @@ async def update_employee(
     # Store project_ids in user_data JSONB field
     user_data = dict(user.user_data) if user.user_data else {}
     # Always store project_ids, even if empty
-    user_data['project_ids'] = employee_data.project_ids if employee_data.project_ids else []
+    new_project_ids = employee_data.project_ids if employee_data.project_ids else []
+    user_data['project_ids'] = new_project_ids
     if employee_data.employee_data:
         user_data.update(employee_data.employee_data)
     user.user_data = user_data
     # Flag the JSONB field as modified so SQLAlchemy detects the change
     flag_modified(user, 'user_data')
+    
+    # Sync project allocations to EmployeeProjectAllocation table
+    _sync_project_allocations(
+        db=db,
+        user_id=user.id,
+        tenant_id=user.tenant_id,
+        new_project_ids=new_project_ids
+    )
     
     # Note: Roles are NOT updated here - they are derived from designation-to-role mappings
     
