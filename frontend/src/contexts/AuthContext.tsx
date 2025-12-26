@@ -248,16 +248,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [fetchEmployeeById]);
 
-  // Refresh current user data from API
+  // Refresh current user data from API - uses /auth/me to get latest data including avatar
   const refreshUser = useCallback(async () => {
-    if (user?.id) {
-      const updatedUser = await fetchEmployeeById(user.id, user.tenantId);
-      if (updatedUser) {
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/auth/me`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Map the /auth/me response to our User type
+        const updatedUser: User = {
+          ...user!,
+          id: data.id,
+          tenantId: data.tenant_id,
+          email: data.email,
+          name: data.full_name,
+          firstName: data.first_name,
+          lastName: data.last_name,
+          department: data.department,
+          role: mapBackendRolesToUserRole(data.roles || []),
+          avatar: data.avatar_url || user?.avatar,
+        };
         setUser(updatedUser);
         localStorage.setItem(USER_KEY, JSON.stringify(updatedUser));
       }
+    } catch (error) {
+      console.error('Error refreshing user:', error);
     }
-  }, [user?.id, fetchEmployeeById]);
+  }, [user]);
 
   const getAccessToken = useCallback(() => {
     return localStorage.getItem(TOKEN_KEY);

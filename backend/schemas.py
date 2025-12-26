@@ -289,6 +289,7 @@ class EmployeeResponse(BaseModel):
     employee_id: Optional[str] = None  # employee_code
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    full_name: Optional[str] = None
     email: str
     phone: Optional[str] = None
     mobile: Optional[str] = None
@@ -300,6 +301,7 @@ class EmployeeResponse(BaseModel):
     employment_status: str = "ACTIVE"
     region: Optional[List[str]] = None  # Region/location for policy applicability
     roles: List[str] = []  # Dynamically resolved from designation-to-role mappings
+    avatar_url: Optional[str] = None  # Profile picture URL
     employee_data: Dict[str, Any] = {}
     created_at: datetime
     

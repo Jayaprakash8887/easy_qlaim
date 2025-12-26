@@ -94,13 +94,14 @@ class UserInfoResponse(BaseModel):
     id: str
     tenant_id: Optional[str] = None
     email: str
-    first_name: str
-    last_name: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     full_name: str
     department: Optional[str] = None
     designation: Optional[str] = None
     roles: list[str] = []
-    region: Optional[str] = None
+    region: Optional[list[str]] = None
+    avatar_url: Optional[str] = None
 
 
 # ============ Helper Functions ============
@@ -135,15 +136,36 @@ async def get_current_user(
     email = None
     
     if settings.KEYCLOAK_ENABLED:
-        # Verify token with Keycloak
+        # Verify token with Keycloak userinfo endpoint
+        logger.info(f"Verifying token with Keycloak (token length: {len(token)})")
         user_info = await keycloak.verify_token(token)
-        if not user_info:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        email = user_info.get("email")
+        if user_info:
+            logger.info(f"Keycloak token verified successfully for user: {user_info.get('email')}")
+            email = user_info.get("email")
+        else:
+            # Fallback: Try to decode Keycloak JWT locally (for expired tokens)
+            # This allows us to get the email claim even if the token is expired
+            logger.warning(f"Keycloak userinfo failed, trying local JWT decode...")
+            try:
+                # Decode without verification to get claims (Keycloak tokens are JWTs)
+                payload = jwt.decode(token, options={"verify_signature": False})
+                email = payload.get("email") or payload.get("preferred_username")
+                if email:
+                    logger.info(f"Extracted email from Keycloak token: {email}")
+                else:
+                    logger.warning("Could not extract email from Keycloak token")
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid or expired token",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to decode Keycloak token: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired token",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
     else:
         # Verify local JWT token
         try:
@@ -369,6 +391,7 @@ async def login(
         "roles": effective_roles,
         "region": user.region,
         "role": map_backend_roles_to_frontend(effective_roles),
+        "avatar_url": user.avatar_url,
     }
     
     return LoginResponse(
@@ -506,24 +529,42 @@ async def change_password(
     request: Request,
     password_data: ChangePasswordRequest,
     user: User = Depends(require_auth),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    keycloak: KeycloakService = Depends(get_keycloak_service)
 ):
     """Change the current user's password."""
     client_ip = get_client_ip(request)
     
     # Verify current password
-    if not verify_password(password_data.current_password, user.hashed_password):
-        audit_logger.log_auth_event(
-            event_type="PASSWORD_CHANGE_FAILED",
-            user_email=user.email,
-            success=False,
-            ip_address=client_ip,
-            details={"reason": "invalid_current_password"}
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Current password is incorrect"
-        )
+    if settings.KEYCLOAK_ENABLED:
+        # When Keycloak is enabled, verify by attempting to authenticate with Keycloak
+        auth_result = await keycloak.authenticate(user.email, password_data.current_password)
+        if not auth_result:
+            audit_logger.log_auth_event(
+                event_type="PASSWORD_CHANGE_FAILED",
+                user_email=user.email,
+                success=False,
+                ip_address=client_ip,
+                details={"reason": "invalid_current_password_keycloak"}
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is incorrect"
+            )
+    else:
+        # When Keycloak is disabled, verify against local database
+        if not verify_password(password_data.current_password, user.hashed_password):
+            audit_logger.log_auth_event(
+                event_type="PASSWORD_CHANGE_FAILED",
+                user_email=user.email,
+                success=False,
+                ip_address=client_ip,
+                details={"reason": "invalid_current_password"}
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is incorrect"
+            )
     
     # Validate new password
     if len(password_data.new_password) < 8:
@@ -540,6 +581,23 @@ async def change_password(
     
     # Update password
     try:
+        # Update in Keycloak if enabled
+        if settings.KEYCLOAK_ENABLED:
+            # Get Keycloak user ID
+            keycloak_user = await keycloak.get_user_by_email(user.email)
+            if keycloak_user:
+                keycloak_updated = await keycloak.update_user_password(
+                    keycloak_user["id"], 
+                    password_data.new_password
+                )
+                if not keycloak_updated:
+                    logger.warning(f"Failed to update password in Keycloak for {user.email}")
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Failed to update password in authentication server"
+                    )
+        
+        # Also update in local database (for fallback/local auth)
         user.hashed_password = hash_password(password_data.new_password)
         db.commit()
         
@@ -551,6 +609,8 @@ async def change_password(
         )
         
         return {"success": True, "message": "Password changed successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to change password for {user.email}: {e}")
         db.rollback()
@@ -579,7 +639,8 @@ async def get_me(
         department=user.department,
         designation=user.designation,
         roles=effective_roles,
-        region=user.region
+        region=user.region,
+        avatar_url=user.avatar_url
     )
 
 

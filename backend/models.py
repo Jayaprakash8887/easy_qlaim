@@ -316,8 +316,8 @@ class User(Base):
     address = Column(Text)
     
     # Profile Picture / Avatar
-    avatar_url = Column(String(500))  # Signed URL or public URL for display
-    avatar_storage_path = Column(String(500))  # Cloud storage path (e.g., gs://bucket/path)
+    avatar_url = Column(Text)  # Signed URL or public URL for display (can be long)
+    avatar_storage_path = Column(String(1000))  # Cloud storage path (e.g., gs://bucket/path)
     avatar_blob_name = Column(String(500))  # Blob name for generating signed URLs
     
     # Employment

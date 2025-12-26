@@ -263,24 +263,8 @@ def upload_avatar_to_cloud(
         logger.error("Cloud storage not configured - avatar upload not available")
         return None, None
     
-    # Use provider abstraction if available
-    if USE_PROVIDER_ABSTRACTION:
-        try:
-            provider = get_storage_provider()
-            # Generate avatar-specific blob name with tenant folder
-            file_extension = Path(original_filename).suffix.lower()
-            unique_filename = f"{uuid4()}{file_extension}"
-            if tenant_id:
-                blob_name = f"tenants/{tenant_id}/avatars/{user_id}/{unique_filename}"
-            else:
-                blob_name = f"avatars/{user_id}/{unique_filename}"
-            
-            # Upload using provider
-            return provider.upload_bytes(file_content, user_id, original_filename, content_type)
-        except Exception as e:
-            logger.error(f"Provider avatar upload failed, trying direct GCS: {e}")
-    
-    # Direct GCS implementation (fallback)
+    # Always use direct GCS implementation for avatars to ensure correct folder structure
+    # The provider abstraction uses claims/ folder which is not appropriate for avatars
     client, bucket = get_gcs_client()
     
     if not client or not bucket:

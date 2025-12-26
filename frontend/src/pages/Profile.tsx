@@ -121,8 +121,12 @@ export default function Profile() {
       const formData = new FormData();
       formData.append('file', file);
 
+      const token = localStorage.getItem('access_token');
       const response = await fetch(`${API_BASE_URL}/auth/me/avatar`, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
         body: formData,
       });
 
@@ -153,8 +157,12 @@ export default function Profile() {
 
     setIsDeletingAvatar(true);
     try {
+      const token = localStorage.getItem('access_token');
       const response = await fetch(`${API_BASE_URL}/auth/me/avatar`, {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
       });
 
       if (!response.ok) {
@@ -312,39 +320,42 @@ export default function Profile() {
                   </AvatarFallback>
                 </Avatar>
                 
-                {/* Avatar upload/delete overlay - only show if cloud storage is enabled */}
-                {isAvatarUploadEnabled && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                    {isUploadingAvatar || isDeletingAvatar ? (
-                      <Loader2 className="h-6 w-6 text-white animate-spin" />
-                    ) : (
-                      <div className="flex gap-1">
+                {/* Loading overlay - always visible during upload/delete */}
+                {(isUploadingAvatar || isDeletingAvatar) && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-full">
+                    <Loader2 className="h-8 w-8 text-white animate-spin" />
+                  </div>
+                )}
+                
+                {/* Avatar upload/delete overlay - only show if cloud storage is enabled and not loading */}
+                {isAvatarUploadEnabled && !isUploadingAvatar && !isDeletingAvatar && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                    <div className="flex gap-1">
+                      <button
+                        onClick={handleAvatarClick}
+                        className="p-1.5 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+                        title="Upload photo"
+                      >
+                        <Camera className="h-4 w-4 text-white" />
+                      </button>
+                      {avatarUrl && (
                         <button
-                          onClick={handleAvatarClick}
-                          className="p-1.5 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
-                          title="Upload photo"
+                          onClick={handleDeleteAvatar}
+                          className="p-1.5 rounded-full bg-white/20 hover:bg-red-500/80 transition-colors"
+                          title="Remove photo"
                         >
-                          <Camera className="h-4 w-4 text-white" />
+                          <Trash2 className="h-4 w-4 text-white" />
                         </button>
-                        {avatarUrl && (
-                          <button
-                            onClick={handleDeleteAvatar}
-                            className="p-1.5 rounded-full bg-white/20 hover:bg-red-500/80 transition-colors"
-                            title="Remove photo"
-                          >
-                            <Trash2 className="h-4 w-4 text-white" />
-                          </button>
-                        )}
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
               
-              {/* Upload hint text */}
+              {/* Upload status text */}
               {isAvatarUploadEnabled && (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Hover to change photo
+                  {isUploadingAvatar ? 'Uploading...' : isDeletingAvatar ? 'Removing...' : 'Hover to change photo'}
                 </p>
               )}
               
@@ -370,20 +381,6 @@ export default function Profile() {
                   <span className="text-sm">Joined Jan 2022</span>
                 </div>
               </div>
-
-              <Button 
-                variant="outline" 
-                className="mt-6 w-full"
-                onClick={() => {
-                  // Switch to Personal Info tab and scroll to it
-                  const personalTab = document.querySelector('[value="personal"]') as HTMLButtonElement;
-                  if (personalTab) personalTab.click();
-                  // Scroll to the form
-                  document.querySelector('.lg\\:col-span-2')?.scrollIntoView({ behavior: 'smooth' });
-                }}
-              >
-                Edit Profile
-              </Button>
             </div>
           </CardContent>
         </Card>

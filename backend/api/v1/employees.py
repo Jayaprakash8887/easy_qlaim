@@ -56,6 +56,7 @@ def _user_to_employee_response(user: User, db: Session) -> dict:
         "employee_id": user.employee_code,
         "first_name": user.first_name,
         "last_name": user.last_name,
+        "full_name": user.full_name or f"{user.first_name} {user.last_name}",
         "email": user.email,
         "phone": user.phone,
         "mobile": user.mobile,
@@ -67,6 +68,7 @@ def _user_to_employee_response(user: User, db: Session) -> dict:
         "employment_status": user.employment_status or "ACTIVE",
         "region": user.region,
         "roles": roles,
+        "avatar_url": user.avatar_url,
         "employee_data": user.user_data or {},
         "created_at": user.created_at,
     }
