@@ -220,16 +220,38 @@ export default function Employees() {
     toast.success('Employees exported successfully');
   };
 
-  // Parse CSV content into rows
+  // Parse CSV content into rows (handles quoted values)
   const parseCSV = (content: string): Record<string, string>[] => {
     const lines = content.split('\n').filter(line => line.trim());
     if (lines.length < 2) return [];
 
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+    // Parse a CSV line handling quoted values
+    const parseCSVLine = (line: string): string[] => {
+      const result: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          result.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      result.push(current.trim()); // Push last value
+      return result;
+    };
+
+    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/\s+/g, '_'));
     const rows: Record<string, string>[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim());
+      const values = parseCSVLine(lines[i]);
       const row: Record<string, string> = {};
       headers.forEach((header, idx) => {
         row[header] = values[idx] || '';
@@ -274,7 +296,7 @@ export default function Employees() {
         address: row.address || '',
         department: row.department || 'Engineering',
         designation: row.designation || 'Employee',
-        region: row.region ? [row.region] : undefined,
+        region: row.region ? [row.region] : ['IND'], // Default to IND if not specified
         date_of_joining: row.join_date || format(new Date(), 'yyyy-MM-dd'),
         manager_id: row.manager_id || undefined,
         project_ids: row.project_ids ? [row.project_ids] : [],
