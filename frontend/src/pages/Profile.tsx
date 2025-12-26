@@ -248,9 +248,13 @@ export default function Profile() {
     
     setIsSavingPassword(true);
     try {
+      const token = localStorage.getItem('access_token');
       const response = await fetch(`${API_BASE_URL}/auth/change-password`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
         body: JSON.stringify({
           current_password: currentPassword,
           new_password: newPassword,
@@ -367,7 +371,17 @@ export default function Profile() {
                 </div>
               </div>
 
-              <Button variant="outline" className="mt-6 w-full">
+              <Button 
+                variant="outline" 
+                className="mt-6 w-full"
+                onClick={() => {
+                  // Switch to Personal Info tab and scroll to it
+                  const personalTab = document.querySelector('[value="personal"]') as HTMLButtonElement;
+                  if (personalTab) personalTab.click();
+                  // Scroll to the form
+                  document.querySelector('.lg\\:col-span-2')?.scrollIntoView({ behavior: 'smooth' });
+                }}
+              >
                 Edit Profile
               </Button>
             </div>

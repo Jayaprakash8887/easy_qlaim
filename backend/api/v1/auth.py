@@ -512,7 +512,7 @@ async def change_password(
     client_ip = get_client_ip(request)
     
     # Verify current password
-    if not verify_password(password_data.current_password, user.password_hash):
+    if not verify_password(password_data.current_password, user.hashed_password):
         audit_logger.log_auth_event(
             event_type="PASSWORD_CHANGE_FAILED",
             user_email=user.email,
@@ -540,7 +540,7 @@ async def change_password(
     
     # Update password
     try:
-        user.password_hash = hash_password(password_data.new_password)
+        user.hashed_password = hash_password(password_data.new_password)
         db.commit()
         
         audit_logger.log_auth_event(
