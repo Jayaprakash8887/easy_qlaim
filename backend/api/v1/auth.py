@@ -4,7 +4,7 @@ Authentication API endpoints supporting both Keycloak and local database authent
 import logging
 from typing import Optional
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
@@ -16,6 +16,7 @@ from models import User, Tenant
 from services.keycloak_service import get_keycloak_service, KeycloakService
 from services.role_service import get_user_roles
 from services.security import audit_logger, get_client_ip
+from services.storage import is_cloud_storage_configured, get_cloud_storage_status, upload_avatar_to_cloud, get_signed_url, delete_from_gcs
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -495,6 +496,70 @@ async def logout(
     return {"success": success, "message": "Logged out successfully" if success else "Logout may have failed"}
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/change-password")
+async def change_password(
+    request: Request,
+    password_data: ChangePasswordRequest,
+    user: User = Depends(require_auth),
+    db: Session = Depends(get_db)
+):
+    """Change the current user's password."""
+    client_ip = get_client_ip(request)
+    
+    # Verify current password
+    if not verify_password(password_data.current_password, user.password_hash):
+        audit_logger.log_auth_event(
+            event_type="PASSWORD_CHANGE_FAILED",
+            user_email=user.email,
+            success=False,
+            ip_address=client_ip,
+            details={"reason": "invalid_current_password"}
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect"
+        )
+    
+    # Validate new password
+    if len(password_data.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 8 characters"
+        )
+    
+    if password_data.new_password == password_data.current_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from current password"
+        )
+    
+    # Update password
+    try:
+        user.password_hash = hash_password(password_data.new_password)
+        db.commit()
+        
+        audit_logger.log_auth_event(
+            event_type="PASSWORD_CHANGED",
+            user_email=user.email,
+            success=True,
+            ip_address=client_ip
+        )
+        
+        return {"success": True, "message": "Password changed successfully"}
+    except Exception as e:
+        logger.error(f"Failed to change password for {user.email}: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to change password"
+        )
+
+
 @router.get("/me", response_model=UserInfoResponse)
 async def get_me(
     user: User = Depends(require_auth),
@@ -531,3 +596,185 @@ async def verify_token(
     if user_info:
         return {"valid": True, "email": user_info.get("email")}
     return {"valid": False, "message": "Invalid token"}
+
+
+@router.get("/cloud-storage-status")
+async def cloud_storage_status():
+    """Check if cloud storage is configured and available for avatar uploads."""
+    status = get_cloud_storage_status()
+    return {
+        "avatar_upload_enabled": status["configured"] and status["accessible"],
+        "provider": status["provider"],
+        "error": status["error"] if not status["accessible"] else None
+    }
+
+
+@router.post("/me/avatar")
+async def upload_avatar(
+    request: Request,
+    file: UploadFile = File(...),
+    user: User = Depends(require_auth),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload a profile picture/avatar for the current user.
+    
+    This endpoint is only available when cloud storage is configured.
+    Supported formats: JPEG, PNG, GIF, WebP (max 5MB)
+    """
+    client_ip = get_client_ip(request)
+    
+    # Check if cloud storage is configured
+    if not is_cloud_storage_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Profile picture upload is not available. Cloud storage is not configured."
+        )
+    
+    # Validate file type
+    allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type. Allowed types: {', '.join(allowed_types)}"
+        )
+    
+    # Read file content
+    file_content = await file.read()
+    
+    # Validate file size (max 5MB)
+    max_size = 5 * 1024 * 1024  # 5MB
+    if len(file_content) > max_size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File too large. Maximum size is 5MB."
+        )
+    
+    # Delete old avatar if exists
+    if user.avatar_blob_name:
+        try:
+            delete_from_gcs(user.avatar_blob_name)
+            logger.info(f"Deleted old avatar for user {user.id}")
+        except Exception as e:
+            logger.warning(f"Failed to delete old avatar: {e}")
+    
+    # Upload to cloud storage with tenant-based folder structure
+    try:
+        gcs_path, blob_name = upload_avatar_to_cloud(
+            file_content=file_content,
+            user_id=str(user.id),
+            original_filename=file.filename or "avatar.jpg",
+            content_type=file.content_type,
+            tenant_id=str(user.tenant_id) if user.tenant_id else None
+        )
+        
+        if not gcs_path or not blob_name:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to upload avatar to cloud storage"
+            )
+        
+        # Generate signed URL for immediate display
+        signed_url = get_signed_url(blob_name, expiration_minutes=60 * 24 * 7)  # 7 days
+        
+        # Update user record
+        user.avatar_storage_path = gcs_path
+        user.avatar_blob_name = blob_name
+        user.avatar_url = signed_url
+        db.commit()
+        
+        audit_logger.log_auth_event(
+            event_type="AVATAR_UPLOADED",
+            user_email=user.email,
+            success=True,
+            ip_address=client_ip
+        )
+        
+        return {
+            "success": True,
+            "message": "Avatar uploaded successfully",
+            "avatar_url": signed_url
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to upload avatar for {user.email}: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload avatar"
+        )
+
+
+@router.delete("/me/avatar")
+async def delete_avatar(
+    request: Request,
+    user: User = Depends(require_auth),
+    db: Session = Depends(get_db)
+):
+    """Delete the current user's avatar/profile picture."""
+    client_ip = get_client_ip(request)
+    
+    if not user.avatar_blob_name:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No avatar to delete"
+        )
+    
+    try:
+        # Delete from cloud storage
+        if delete_from_gcs(user.avatar_blob_name):
+            # Clear user avatar fields
+            user.avatar_url = None
+            user.avatar_storage_path = None
+            user.avatar_blob_name = None
+            db.commit()
+            
+            audit_logger.log_auth_event(
+                event_type="AVATAR_DELETED",
+                user_email=user.email,
+                success=True,
+                ip_address=client_ip
+            )
+            
+            return {"success": True, "message": "Avatar deleted successfully"}
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete avatar from storage"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete avatar for {user.email}: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete avatar"
+        )
+
+
+@router.get("/me/avatar-url")
+async def get_avatar_url(
+    user: User = Depends(require_auth),
+    db: Session = Depends(get_db)
+):
+    """Get a fresh signed URL for the user's avatar."""
+    if not user.avatar_blob_name:
+        return {"avatar_url": None}
+    
+    try:
+        # Generate new signed URL
+        signed_url = get_signed_url(user.avatar_blob_name, expiration_minutes=60 * 24)  # 24 hours
+        
+        if signed_url:
+            # Update stored URL
+            user.avatar_url = signed_url
+            db.commit()
+            return {"avatar_url": signed_url}
+        else:
+            return {"avatar_url": None, "error": "Could not generate URL"}
+    except Exception as e:
+        logger.error(f"Failed to get avatar URL: {e}")
+        return {"avatar_url": None, "error": str(e)}

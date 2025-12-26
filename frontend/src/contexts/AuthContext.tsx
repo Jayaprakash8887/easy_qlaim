@@ -27,6 +27,10 @@ function mapBackendEmployeeToUser(backendEmployee: any): User {
     ? mapBackendRolesToUserRole(backendEmployee.roles)
     : backendEmployee.role || 'employee';
 
+  // Use custom avatar URL if available, otherwise generate from name
+  const avatarUrl = backendEmployee.avatar_url || 
+    `https://api.dicebear.com/7.x/avataaars/svg?seed=${backendEmployee.first_name} ${backendEmployee.last_name}`;
+
   return {
     id: backendEmployee.id,
     tenantId: backendEmployee.tenant_id,
@@ -35,7 +39,7 @@ function mapBackendEmployeeToUser(backendEmployee: any): User {
     role: role,
     department: backendEmployee.department,
     managerId: backendEmployee.manager_id || undefined,
-    avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${backendEmployee.first_name} ${backendEmployee.last_name}`,
+    avatar: avatarUrl,
     // Extended employee fields
     employeeId: backendEmployee.employee_id,
     firstName: backendEmployee.first_name,

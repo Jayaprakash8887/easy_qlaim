@@ -132,9 +132,20 @@ def normalize_region(region: Union[str, List[str]]) -> List[str]:
 
 router = APIRouter()
 
-# Upload directory for policy documents
-POLICY_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads", "policies")
+# Base upload directory for policy documents
+POLICY_UPLOAD_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
+os.makedirs(POLICY_UPLOAD_BASE_DIR, exist_ok=True)
+
+# Legacy path for backwards compatibility
+POLICY_UPLOAD_DIR = os.path.join(POLICY_UPLOAD_BASE_DIR, "policies")
 os.makedirs(POLICY_UPLOAD_DIR, exist_ok=True)
+
+
+def get_tenant_policy_upload_dir(tenant_id: str) -> str:
+    """Get tenant-specific policy upload directory."""
+    tenant_dir = os.path.join(POLICY_UPLOAD_BASE_DIR, "tenants", tenant_id, "policies")
+    os.makedirs(tenant_dir, exist_ok=True)
+    return tenant_dir
 
 
 async def _invalidate_policy_cache(policy_id: UUID = None, region: str = None):
@@ -255,10 +266,11 @@ async def upload_policy(
     # Generate policy number
     policy_number = generate_policy_number(db)
     
-    # Save file locally
+    # Save file locally with tenant-based folder structure
     file_extension = file.filename.split(".")[-1] if "." in file.filename else file_type.lower()
     storage_filename = f"{policy_number}.{file_extension}"
-    storage_path = os.path.join(POLICY_UPLOAD_DIR, storage_filename)
+    tenant_upload_dir = get_tenant_policy_upload_dir(str(tenant_uuid))
+    storage_path = os.path.join(tenant_upload_dir, storage_filename)
     
     content = await file.read()
     with open(storage_path, "wb") as f:
@@ -698,10 +710,11 @@ async def upload_new_version(
     new_version = (existing_policy.version or 1) + 1
     policy_number = generate_policy_number(db)
     
-    # Save file locally
+    # Save file locally with tenant-based folder structure
     file_extension = file.filename.split(".")[-1] if "." in file.filename else file_type.lower()
     storage_filename = f"{policy_number}.{file_extension}"
-    storage_path = os.path.join(POLICY_UPLOAD_DIR, storage_filename)
+    tenant_upload_dir = get_tenant_policy_upload_dir(str(tenant_uuid))
+    storage_path = os.path.join(tenant_upload_dir, storage_filename)
     
     content = await file.read()
     with open(storage_path, "wb") as f:

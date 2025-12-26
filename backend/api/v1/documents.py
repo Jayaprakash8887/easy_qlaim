@@ -185,7 +185,12 @@ async def upload_document(
     # Generate unique filename
     file_extension = Path(safe_filename).suffix
     unique_filename = f"{uuid4()}{file_extension}"
-    file_path = UPLOAD_DIR / unique_filename
+    
+    # Create tenant-based local folder structure
+    tenant_id_str = str(claim.tenant_id) if claim.tenant_id else "default"
+    tenant_upload_dir = UPLOAD_DIR / "tenants" / tenant_id_str / "claims" / str(claim_id) / "documents"
+    tenant_upload_dir.mkdir(parents=True, exist_ok=True)
+    file_path = tenant_upload_dir / unique_filename
     
     # Save file locally first (needed for OCR processing)
     try:
@@ -197,7 +202,7 @@ async def upload_document(
             detail=f"Failed to save file: {str(e)}"
         )
     
-    # Try to upload to GCS
+    # Try to upload to GCS with tenant-based folder structure
     gcs_uri = None
     gcs_blob_name = None
     storage_type = "local"
@@ -207,7 +212,8 @@ async def upload_document(
             file_path=file_path,
             claim_id=str(claim_id),
             original_filename=file.filename or unique_filename,
-            content_type=file.content_type
+            content_type=file.content_type,
+            tenant_id=str(claim.tenant_id) if claim.tenant_id else None
         )
         if gcs_uri and gcs_blob_name:
             storage_type = "gcs"

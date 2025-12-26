@@ -34,6 +34,86 @@ _gcs_client = None
 _gcs_bucket = None
 
 
+def is_cloud_storage_configured() -> bool:
+    """
+    Check if cloud storage is properly configured and working.
+    
+    Returns:
+        True if cloud storage is configured and accessible, False otherwise
+    """
+    # Check if GCP settings are configured
+    if settings.GCP_PROJECT_ID and settings.GCP_BUCKET_NAME:
+        try:
+            client, bucket = get_gcs_client()
+            if client and bucket:
+                # Try to check if bucket exists (lightweight operation)
+                return bucket.exists()
+        except Exception as e:
+            logger.warning(f"Cloud storage check failed: {e}")
+            return False
+    
+    # Check Azure storage settings
+    if settings.AZURE_STORAGE_CONNECTION_STRING or (settings.AZURE_STORAGE_ACCOUNT_NAME and settings.AZURE_STORAGE_ACCOUNT_KEY):
+        if USE_PROVIDER_ABSTRACTION:
+            try:
+                provider = get_storage_provider()
+                # Try a simple operation to verify connection
+                return provider is not None
+            except Exception as e:
+                logger.warning(f"Azure storage check failed: {e}")
+                return False
+    
+    return False
+
+
+def get_cloud_storage_status() -> dict:
+    """
+    Get detailed status of cloud storage configuration.
+    
+    Returns:
+        Dict with storage status details
+    """
+    status = {
+        "configured": False,
+        "provider": None,
+        "bucket_name": None,
+        "accessible": False,
+        "error": None
+    }
+    
+    # Check GCS
+    if settings.GCP_PROJECT_ID and settings.GCP_BUCKET_NAME:
+        status["provider"] = "gcs"
+        status["bucket_name"] = settings.GCP_BUCKET_NAME
+        status["configured"] = True
+        try:
+            client, bucket = get_gcs_client()
+            if client and bucket and bucket.exists():
+                status["accessible"] = True
+            else:
+                status["error"] = "Could not connect to GCS bucket"
+        except Exception as e:
+            status["error"] = str(e)
+    
+    # Check Azure
+    elif settings.AZURE_STORAGE_CONNECTION_STRING or settings.AZURE_STORAGE_ACCOUNT_NAME:
+        status["provider"] = "azure"
+        status["bucket_name"] = settings.AZURE_STORAGE_CONTAINER
+        status["configured"] = True
+        try:
+            if USE_PROVIDER_ABSTRACTION:
+                provider = get_storage_provider()
+                status["accessible"] = provider is not None
+            else:
+                status["error"] = "Provider abstraction not available"
+        except Exception as e:
+            status["error"] = str(e)
+    else:
+        status["error"] = "No cloud storage configured"
+    
+    return status
+
+
 def get_gcs_client():
     """Get or create GCS client singleton (fallback method)"""
     global _gcs_client, _gcs_bucket
@@ -95,7 +175,8 @@ def upload_to_gcs(
     file_path: Path,
     claim_id: str,
     original_filename: str,
-    content_type: Optional[str] = None
+    content_type: Optional[str] = None,
+    tenant_id: Optional[str] = None
 ) -> Tuple[Optional[str], Optional[str]]:
     """
     Upload a file to cloud storage (uses configured provider)
@@ -105,6 +186,7 @@ def upload_to_gcs(
         claim_id: Claim ID for organizing files
         original_filename: Original filename from upload
         content_type: MIME type of the file
+        tenant_id: Tenant ID for multi-tenant folder organization
     
     Returns:
         Tuple of (storage_path, blob_name) or (None, None) on failure
@@ -125,10 +207,15 @@ def upload_to_gcs(
         return None, None
     
     try:
-        # Generate unique blob name with folder structure
+        # Generate unique blob name with tenant-based folder structure
         file_extension = Path(original_filename).suffix.lower()
         unique_filename = f"{uuid4()}{file_extension}"
-        blob_name = f"claims/{claim_id}/documents/{unique_filename}"
+        
+        # Organize by tenant if provided
+        if tenant_id:
+            blob_name = f"tenants/{tenant_id}/claims/{claim_id}/documents/{unique_filename}"
+        else:
+            blob_name = f"claims/{claim_id}/documents/{unique_filename}"
         
         # Create blob and upload
         blob = bucket.blob(blob_name)
@@ -152,11 +239,93 @@ def upload_to_gcs(
         return None, None
 
 
+def upload_avatar_to_cloud(
+    file_content: bytes,
+    user_id: str,
+    original_filename: str,
+    content_type: Optional[str] = None,
+    tenant_id: Optional[str] = None
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Upload user avatar/profile picture to cloud storage.
+    
+    Args:
+        file_content: File content as bytes
+        user_id: User ID for organizing files
+        original_filename: Original filename from upload
+        content_type: MIME type of the file
+        tenant_id: Tenant ID for multi-tenant folder organization
+    
+    Returns:
+        Tuple of (storage_path, blob_name) or (None, None) on failure
+    """
+    if not is_cloud_storage_configured():
+        logger.error("Cloud storage not configured - avatar upload not available")
+        return None, None
+    
+    # Use provider abstraction if available
+    if USE_PROVIDER_ABSTRACTION:
+        try:
+            provider = get_storage_provider()
+            # Generate avatar-specific blob name with tenant folder
+            file_extension = Path(original_filename).suffix.lower()
+            unique_filename = f"{uuid4()}{file_extension}"
+            if tenant_id:
+                blob_name = f"tenants/{tenant_id}/avatars/{user_id}/{unique_filename}"
+            else:
+                blob_name = f"avatars/{user_id}/{unique_filename}"
+            
+            # Upload using provider
+            return provider.upload_bytes(file_content, user_id, original_filename, content_type)
+        except Exception as e:
+            logger.error(f"Provider avatar upload failed, trying direct GCS: {e}")
+    
+    # Direct GCS implementation (fallback)
+    client, bucket = get_gcs_client()
+    
+    if not client or not bucket:
+        logger.error("GCS client not available for avatar upload")
+        return None, None
+    
+    try:
+        # Generate unique blob name for avatars with tenant folder
+        file_extension = Path(original_filename).suffix.lower()
+        unique_filename = f"{uuid4()}{file_extension}"
+        
+        # Organize by tenant if provided
+        if tenant_id:
+            blob_name = f"tenants/{tenant_id}/avatars/{user_id}/{unique_filename}"
+        else:
+            blob_name = f"avatars/{user_id}/{unique_filename}"
+        
+        # Create blob and upload
+        blob = bucket.blob(blob_name)
+        
+        # Set content type
+        if content_type:
+            blob.content_type = content_type
+        
+        # Upload from bytes
+        blob.upload_from_string(file_content, content_type=content_type)
+        
+        logger.info(f"Avatar uploaded to GCS: gs://{settings.GCP_BUCKET_NAME}/{blob_name}")
+        
+        # Return the GCS path
+        gcs_path = f"gs://{settings.GCP_BUCKET_NAME}/{blob_name}"
+        
+        return gcs_path, blob_name
+        
+    except Exception as e:
+        logger.error(f"Failed to upload avatar to GCS: {e}")
+        return None, None
+
+
 def upload_bytes_to_gcs(
     file_content: bytes,
     claim_id: str,
     original_filename: str,
-    content_type: Optional[str] = None
+    content_type: Optional[str] = None,
+    tenant_id: Optional[str] = None
 ) -> Tuple[Optional[str], Optional[str]]:
     """
     Upload file bytes directly to cloud storage (uses configured provider)
@@ -166,6 +335,7 @@ def upload_bytes_to_gcs(
         claim_id: Claim ID for organizing files
         original_filename: Original filename from upload
         content_type: MIME type of the file
+        tenant_id: Tenant ID for multi-tenant folder organization
     
     Returns:
         Tuple of (storage_path, blob_name) or (None, None) on failure
@@ -186,10 +356,15 @@ def upload_bytes_to_gcs(
         return None, None
     
     try:
-        # Generate unique blob name with folder structure
+        # Generate unique blob name with tenant-based folder structure
         file_extension = Path(original_filename).suffix.lower()
         unique_filename = f"{uuid4()}{file_extension}"
-        blob_name = f"claims/{claim_id}/documents/{unique_filename}"
+        
+        # Organize by tenant if provided
+        if tenant_id:
+            blob_name = f"tenants/{tenant_id}/claims/{claim_id}/documents/{unique_filename}"
+        else:
+            blob_name = f"claims/{claim_id}/documents/{unique_filename}"
         
         # Create blob and upload
         blob = bucket.blob(blob_name)

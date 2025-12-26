@@ -315,6 +315,11 @@ class User(Base):
     mobile = Column(String(20))
     address = Column(Text)
     
+    # Profile Picture / Avatar
+    avatar_url = Column(String(500))  # Signed URL or public URL for display
+    avatar_storage_path = Column(String(500))  # Cloud storage path (e.g., gs://bucket/path)
+    avatar_blob_name = Column(String(500))  # Blob name for generating signed URLs
+    
     # Employment
     department = Column(String(100))
     designation = Column(String(100))

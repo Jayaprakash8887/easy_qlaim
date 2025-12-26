@@ -545,7 +545,12 @@ async def create_batch_claims_with_document(
         # Generate unique filename
         file_extension = Path(file.filename).suffix
         unique_filename = f"{uuid4()}{file_extension}"
-        file_path = UPLOAD_DIR / unique_filename
+        
+        # Create tenant-based local folder structure
+        tenant_id_str = str(employee.tenant_id) if employee.tenant_id else "default"
+        tenant_upload_dir = UPLOAD_DIR / "tenants" / tenant_id_str / "claims" / "batch_upload" / "documents"
+        tenant_upload_dir.mkdir(parents=True, exist_ok=True)
+        file_path = tenant_upload_dir / unique_filename
         
         # Save file locally first
         try:
@@ -559,13 +564,14 @@ async def create_batch_claims_with_document(
                 detail=f"Failed to save document: {str(e)}"
             )
         
-        # Upload to GCS
+        # Upload to GCS with tenant-based folder structure
         try:
             gcs_uri, gcs_blob_name = upload_to_gcs(
                 file_path=file_path,
                 claim_id="batch_upload",  # Temporary - will be updated per claim
                 original_filename=file.filename,
-                content_type=file.content_type
+                content_type=file.content_type,
+                tenant_id=str(employee.tenant_id) if employee.tenant_id else None
             )
             if gcs_uri:
                 logger.info(f"Document uploaded to GCS: {gcs_uri}")
