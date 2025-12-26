@@ -188,6 +188,121 @@ If you did not expect this email, please contact your system administrator.
         
         return self.send_email(to_email, subject, html_content, text_content)
 
+    def send_employee_welcome_email(
+        self,
+        to_email: str,
+        employee_name: str,
+        tenant_name: str,
+        temporary_password: str,
+        login_url: str = "http://localhost:8080"
+    ) -> bool:
+        """
+        Send welcome email to a new employee with their login credentials.
+        
+        Args:
+            to_email: Employee's email address
+            employee_name: Employee's full name
+            tenant_name: Name of the tenant organization
+            temporary_password: Temporary password for first login
+            login_url: URL to the login page
+        
+        Returns:
+            True if email sent successfully, False otherwise
+        """
+        subject = f"Welcome to {tenant_name} - Your Easy Qlaim Account"
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background-color: #00928F; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
+                .content {{ background-color: #f8fafc; padding: 30px; border: 1px solid #e2e8f0; }}
+                .credentials {{ background-color: #fff; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin: 20px 0; }}
+                .credential-item {{ margin: 10px 0; }}
+                .credential-label {{ font-weight: bold; color: #64748b; }}
+                .credential-value {{ font-family: monospace; background-color: #f1f5f9; padding: 8px 12px; border-radius: 4px; display: inline-block; margin-top: 5px; }}
+                .button {{ display: inline-block; background-color: #00928F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin-top: 20px; }}
+                .warning {{ background-color: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 6px; margin-top: 20px; }}
+                .features {{ background-color: #f0fdfa; padding: 15px; border-radius: 6px; margin-top: 20px; }}
+                .footer {{ text-align: center; color: #64748b; font-size: 12px; margin-top: 20px; padding: 20px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>Welcome to Easy Qlaim</h1>
+                </div>
+                <div class="content">
+                    <p>Hello {employee_name},</p>
+                    <p>Welcome to <strong>{tenant_name}</strong>! Your Easy Qlaim account has been created successfully.</p>
+                    
+                    <div class="credentials">
+                        <h3 style="margin-top: 0;">Your Login Credentials</h3>
+                        <div class="credential-item">
+                            <div class="credential-label">Email / Username:</div>
+                            <div class="credential-value">{to_email}</div>
+                        </div>
+                        <div class="credential-item">
+                            <div class="credential-label">Temporary Password:</div>
+                            <div class="credential-value">{temporary_password}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="features">
+                        <h4 style="margin-top: 0; color: #00928F;">What you can do with Easy Qlaim:</h4>
+                        <ul style="margin-bottom: 0;">
+                            <li>Submit expense claims quickly and easily</li>
+                            <li>Track the status of your claims in real-time</li>
+                            <li>Upload receipts and supporting documents</li>
+                            <li>View your claim history and reports</li>
+                        </ul>
+                    </div>
+                    
+                    <a href="{login_url}" class="button">Login to Easy Qlaim</a>
+                    
+                    <div class="warning">
+                        <strong>⚠️ Important:</strong> Please change your password immediately after your first login for security purposes.
+                    </div>
+                </div>
+                <div class="footer">
+                    <p>This is an automated message from Easy Qlaim.</p>
+                    <p>If you did not expect this email, please contact your administrator.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        text_content = f"""
+Welcome to Easy Qlaim
+
+Hello {employee_name},
+
+Welcome to {tenant_name}! Your Easy Qlaim account has been created successfully.
+
+Your Login Credentials:
+- Email / Username: {to_email}
+- Temporary Password: {temporary_password}
+
+Login URL: {login_url}
+
+IMPORTANT: Please change your password immediately after your first login for security purposes.
+
+What you can do with Easy Qlaim:
+- Submit expense claims quickly and easily
+- Track the status of your claims in real-time
+- Upload receipts and supporting documents
+- View your claim history and reports
+
+This is an automated message from Easy Qlaim.
+If you did not expect this email, please contact your administrator.
+        """
+        
+        return self.send_email(to_email, subject, html_content, text_content)
+
     def send_claim_submitted_notification(
         self,
         to_email: str,

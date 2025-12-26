@@ -10,10 +10,16 @@ from typing import List, Optional
 from uuid import UUID, uuid4
 from datetime import date
 import hashlib
+import secrets
+import string
+import logging
 
 from database import get_sync_db
-from models import User, EmployeeProjectAllocation, Project
+from models import User, EmployeeProjectAllocation, Project, Tenant
 from services.role_service import get_user_roles
+from services.email_service import get_email_service
+from services.keycloak_service import get_keycloak_service
+from config import get_settings
 # Employee is now an alias for User in models.py
 Employee = User
 from schemas import (
@@ -23,7 +29,24 @@ from schemas import (
     BulkEmployeeImport, BulkEmployeeImportResult, BulkEmployeeImportResponse
 )
 
+logger = logging.getLogger(__name__)
+settings = get_settings()
 router = APIRouter()
+
+
+def generate_temporary_password(length: int = 12) -> str:
+    """Generate a secure temporary password"""
+    alphabet = string.ascii_letters + string.digits + "!@#$%&*"
+    password = ''.join(secrets.choice(alphabet) for _ in range(length))
+    # Ensure at least one of each type
+    password = (
+        secrets.choice(string.ascii_uppercase) +
+        secrets.choice(string.ascii_lowercase) +
+        secrets.choice(string.digits) +
+        secrets.choice("!@#$%&*") +
+        password[4:]
+    )
+    return password
 
 
 async def _invalidate_employee_cache(employee_id: UUID = None, employee_code: str = None, email: str = None):
@@ -169,23 +192,20 @@ async def create_employee(
     # Generate username from email
     username = employee_data.email.split('@')[0]
     
-    # Generate a default hashed password
-    default_password = hashlib.sha256(f"temp_{employee_data.employee_id}".encode()).hexdigest()
+    # Generate a secure temporary password
+    temp_password = generate_temporary_password()
+    hashed_password = hashlib.sha256(temp_password.encode()).hexdigest()
     
-    # tenant_id is required - must be provided in the request
-    if not employee_data.tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="tenant_id is required when creating an employee"
-        )
-    employee_tenant_id = employee_data.tenant_id
+    # Get tenant info for email branding
+    tenant = db.query(Tenant).filter(Tenant.id == employee_tenant_id).first()
+    tenant_name = tenant.name if tenant else "Easy Qlaim"
     
     user = User(
         id=uuid4(),
         tenant_id=employee_tenant_id,
         username=username,
         email=employee_data.email,
-        hashed_password=default_password,
+        hashed_password=hashed_password,
         employee_code=employee_data.employee_id,
         first_name=employee_data.first_name,
         last_name=employee_data.last_name,
@@ -208,7 +228,50 @@ async def create_employee(
     db.commit()
     db.refresh(user)
     
-    # Note: No cache invalidation needed for new employee since it's not in cache yet
+    # Create Keycloak user if KEYCLOAK_ENABLED
+    keycloak_user_created = False
+    if settings.KEYCLOAK_ENABLED:
+        try:
+            keycloak = get_keycloak_service()
+            keycloak_user_id = await keycloak.create_user(
+                email=employee_data.email,
+                password=temp_password,
+                first_name=employee_data.first_name,
+                last_name=employee_data.last_name,
+                enabled=True,
+                email_verified=False,
+                attributes={
+                    "tenant_id": [str(employee_tenant_id)],
+                    "employee_id": [str(user.id)],
+                    "employee_code": [employee_data.employee_id]
+                }
+            )
+            if keycloak_user_id:
+                keycloak_user_created = True
+                logger.info(f"Keycloak user created for employee {employee_data.email} with ID {keycloak_user_id}")
+            else:
+                logger.warning(f"Keycloak user creation returned no ID for employee {employee_data.email}")
+        except Exception as e:
+            logger.error(f"Failed to create Keycloak user for employee {employee_data.email}: {str(e)}")
+            # Continue even if Keycloak fails - user can still be created locally
+    
+    # Send welcome email with credentials
+    try:
+        email_service = get_email_service()
+        login_url = settings.FRONTEND_URL or "http://localhost:5173"
+        
+        background_tasks.add_task(
+            email_service.send_employee_welcome_email,
+            to_email=employee_data.email,
+            employee_name=f"{employee_data.first_name} {employee_data.last_name}",
+            tenant_name=tenant_name,
+            temporary_password=temp_password,
+            login_url=login_url
+        )
+        logger.info(f"Welcome email queued for employee {employee_data.email}")
+    except Exception as e:
+        logger.error(f"Failed to queue welcome email for employee {employee_data.email}: {str(e)}")
+        # Don't fail the request if email fails
     
     return _user_to_employee_response(user, db)
 
@@ -216,12 +279,14 @@ async def create_employee(
 @router.post("/bulk", status_code=status.HTTP_200_OK)
 async def bulk_import_employees(
     import_data: BulkEmployeeImport,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_sync_db)
 ):
     """
     Bulk import employees from CSV/list.
     Creates multiple employees in a single transaction.
     Returns detailed results for each employee.
+    Also creates Keycloak users and sends welcome emails.
     """
     
     if not import_data.tenant_id:
@@ -230,9 +295,14 @@ async def bulk_import_employees(
             detail="tenant_id is required"
         )
     
+    # Get tenant info for email branding
+    tenant = db.query(Tenant).filter(Tenant.id == import_data.tenant_id).first()
+    tenant_name = tenant.name if tenant else "Easy Qlaim"
+    
     results = []
     success_count = 0
     failed_count = 0
+    created_users = []  # Track created users for Keycloak/email processing
     
     for emp_data in import_data.employees:
         try:
@@ -272,15 +342,16 @@ async def bulk_import_employees(
             # Generate username from email
             username = emp_data.email.split('@')[0]
             
-            # Generate a default hashed password
-            default_password = hashlib.sha256(f"temp_{emp_data.employee_id}".encode()).hexdigest()
+            # Generate a secure temporary password
+            temp_password = generate_temporary_password()
+            hashed_password = hashlib.sha256(temp_password.encode()).hexdigest()
             
             user = User(
                 id=uuid4(),
                 tenant_id=import_data.tenant_id,
                 username=username,
                 email=emp_data.email,
-                hashed_password=default_password,
+                hashed_password=hashed_password,
                 employee_code=emp_data.employee_id,
                 first_name=emp_data.first_name,
                 last_name=emp_data.last_name,
@@ -300,6 +371,15 @@ async def bulk_import_employees(
             )
             
             db.add(user)
+            
+            # Store user info for post-commit processing
+            created_users.append({
+                'user': user,
+                'temp_password': temp_password,
+                'username': username,
+                'emp_data': emp_data
+            })
+            
             results.append(BulkEmployeeImportResult(
                 employee_id=emp_data.employee_id,
                 email=emp_data.email,
@@ -319,6 +399,66 @@ async def bulk_import_employees(
     # Commit all successful inserts
     if success_count > 0:
         db.commit()
+        
+        # Process Keycloak users and welcome emails after commit
+        keycloak = None
+        if settings.KEYCLOAK_ENABLED:
+            try:
+                keycloak = get_keycloak_service()
+            except Exception as e:
+                logger.error(f"Failed to get Keycloak service for bulk import: {str(e)}")
+        
+        email_service = None
+        try:
+            email_service = get_email_service()
+        except Exception as e:
+            logger.error(f"Failed to get email service for bulk import: {str(e)}")
+        
+        login_url = settings.FRONTEND_URL or "http://localhost:5173"
+        
+        for user_info in created_users:
+            user = user_info['user']
+            temp_password = user_info['temp_password']
+            username = user_info['username']
+            emp_data = user_info['emp_data']
+            
+            # Create Keycloak user if enabled
+            if keycloak:
+                try:
+                    keycloak_user_id = await keycloak.create_user(
+                        email=emp_data.email,
+                        password=temp_password,
+                        first_name=emp_data.first_name,
+                        last_name=emp_data.last_name,
+                        enabled=True,
+                        email_verified=False,
+                        attributes={
+                            "tenant_id": [str(import_data.tenant_id)],
+                            "employee_id": [str(user.id)],
+                            "employee_code": [emp_data.employee_id]
+                        }
+                    )
+                    if keycloak_user_id:
+                        logger.info(f"Keycloak user created for employee {emp_data.email} with ID {keycloak_user_id}")
+                    else:
+                        logger.warning(f"Keycloak user creation returned no ID for employee {emp_data.email}")
+                except Exception as e:
+                    logger.error(f"Failed to create Keycloak user for employee {emp_data.email}: {str(e)}")
+            
+            # Queue welcome email
+            if email_service:
+                try:
+                    background_tasks.add_task(
+                        email_service.send_employee_welcome_email,
+                        to_email=emp_data.email,
+                        employee_name=f"{emp_data.first_name} {emp_data.last_name}",
+                        tenant_name=tenant_name,
+                        temporary_password=temp_password,
+                        login_url=login_url
+                    )
+                    logger.info(f"Welcome email queued for employee {emp_data.email}")
+                except Exception as e:
+                    logger.error(f"Failed to queue welcome email for employee {emp_data.email}: {str(e)}")
     
     return BulkEmployeeImportResponse(
         total=len(import_data.employees),
