@@ -30,8 +30,9 @@ export function Header({ onMenuClick }: HeaderProps) {
   const { user, logout } = useAuth();
   const { branding } = useBranding();
 
-  // Use tenant logo if available, otherwise fall back to default
+  // Use tenant logo if available, otherwise fall back to Easy Qlaim default
   const logoUrl = branding?.logo_url || '/logo-horizontal.svg';
+  const appName = branding?.logo_url ? 'Logo' : 'Easy Qlaim';
 
   return (
     <header className="sticky top-0 z-50 h-20 border-b border-border bg-card/95 backdrop-blur">
@@ -45,7 +46,7 @@ export function Header({ onMenuClick }: HeaderProps) {
           <Link to="/" className="flex items-center gap-3">
             <img 
               src={logoUrl} 
-              alt="Logo" 
+              alt={appName} 
               className="h-12 max-w-[200px] object-contain"
             />
           </Link>

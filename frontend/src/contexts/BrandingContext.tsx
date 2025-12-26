@@ -3,6 +3,15 @@ import { useAuth } from './AuthContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
+// Easy Qlaim default branding - used when tenant-specific branding is not configured
+export const EASY_QLAIM_DEFAULTS = {
+  logo_url: '/logo-horizontal.svg',
+  logo_mark_url: '/logo-mark.svg',
+  favicon_url: '/favicon.ico',
+  app_name: 'Easy Qlaim',
+  tagline: 'Simplifying expense management',
+};
+
 interface BrandingSettings {
   logo_url: string | null;
   logo_mark_url: string | null;
