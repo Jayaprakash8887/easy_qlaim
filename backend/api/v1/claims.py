@@ -1177,6 +1177,15 @@ async def update_claim(
         
         is_potential_dup = dup_result.get("is_duplicate", False)
         
+        # Check if claim has documents - use claim_payload since documents relationship requires lazy load
+        # The document_urls or documents array in claim_payload indicates attached documents
+        claim_payload_data = claim.claim_payload or {}
+        has_documents = bool(
+            claim_payload_data.get("document_urls") or 
+            claim_payload_data.get("documents") or
+            claim_payload_data.get("document_id")
+        )
+        
         # Regenerate policy checks
         policy_checks = generate_policy_checks(
             claim_data={
@@ -1187,7 +1196,7 @@ async def update_claim(
                 "description": check_description,
                 "vendor": payload.get("vendor") or (claim.claim_payload or {}).get("vendor"),
             },
-            has_document=bool(claim.documents),
+            has_document=has_documents,
             policy_limit=None,  # TODO: Get from policy_categories table based on category
             submission_window_days=15,
             is_potential_duplicate=is_potential_dup,
