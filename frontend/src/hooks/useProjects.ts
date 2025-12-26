@@ -148,6 +148,7 @@ export function useCreateProject() {
     mutationFn: createProject,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project-members-all'] });
     },
   });
 }
@@ -199,6 +200,7 @@ export function useUpdateProject() {
     mutationFn: ({ id, data }: { id: string; data: Partial<Project> }) => updateProject(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project-members-all'] });
     },
   });
 }
