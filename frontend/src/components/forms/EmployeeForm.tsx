@@ -234,7 +234,7 @@ export function EmployeeForm({
             name="dateOfJoining"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Date of Joining</FormLabel>
+                <FormLabel>Date of Joining (Optional)</FormLabel>
                 <FormControl>
                   <Input type="date" {...field} />
                 </FormControl>

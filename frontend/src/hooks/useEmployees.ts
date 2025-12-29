@@ -119,7 +119,7 @@ async function createEmployee(employee: Partial<Employee> & { tenantId?: string 
     department: employee.department,
     designation: employee.designation,
     region: employee.region || null,
-    date_of_joining: employee.joinDate,
+    date_of_joining: employee.joinDate || null,
     manager_id: employee.managerId || null,
     project_ids: employee.projectIds ? [employee.projectIds] : [],
   };
@@ -151,7 +151,7 @@ async function updateEmployee(id: string, employee: Partial<Employee>, tenantId:
     department: employee.department || null,
     designation: employee.designation,
     region: Array.isArray(employee.region) ? employee.region : (employee.region ? [employee.region] : []),
-    date_of_joining: employee.joinDate,
+    date_of_joining: employee.joinDate || null,
     manager_id: employee.managerId || null,
     project_ids: employee.projectIds ? [employee.projectIds] : [],
   };
