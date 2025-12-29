@@ -23,7 +23,7 @@ DASHBOARD_CACHE_TTL = 300
 
 @router.get("/summary")
 async def get_dashboard_summary(
-    employee_id: str = None,
+    employee_id: Optional[UUID] = None,
     tenant_id: Optional[UUID] = None,
     db: Session = Depends(get_sync_db)
 ):
@@ -97,7 +97,7 @@ async def get_dashboard_summary(
 
 @router.get("/claims-by-status")
 async def get_claims_by_status(
-    employee_id: str = None,
+    employee_id: Optional[UUID] = None,
     tenant_id: Optional[UUID] = None,
     db: Session = Depends(get_sync_db)
 ):
@@ -140,7 +140,7 @@ async def get_claims_by_status(
 
 @router.get("/claims-by-category")
 async def get_claims_by_category(
-    employee_id: str = None,
+    employee_id: Optional[UUID] = None,
     tenant_id: Optional[UUID] = None,
     db: Session = Depends(get_sync_db)
 ):
@@ -191,7 +191,7 @@ async def get_claims_by_category(
 @router.get("/recent-activity")
 async def get_recent_activity(
     limit: int = 10,
-    employee_id: str = None,
+    employee_id: Optional[UUID] = None,
     status: str = None,
     tenant_id: Optional[UUID] = None,
     db: Session = Depends(get_sync_db)
@@ -408,7 +408,7 @@ async def get_hr_metrics(
 
 @router.get("/allowance-summary")
 async def get_allowance_summary(
-    employee_id: str = None,
+    employee_id: Optional[UUID] = None,
     tenant_id: Optional[UUID] = None,
     db: Session = Depends(get_sync_db)
 ):
