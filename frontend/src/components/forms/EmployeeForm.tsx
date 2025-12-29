@@ -293,18 +293,24 @@ export function EmployeeForm({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Project Allocation (Optional)</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select 
+                  onValueChange={field.onChange} 
+                  defaultValue={field.value}
+                  disabled={projects.length === 0}
+                >
                   <FormControl>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select project" />
+                      <SelectValue placeholder={
+                        projects.length === 0 ? "No projects available" : "Select project"
+                      } />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    {projects.length > 0 ? projects.map((project) => (
+                    {projects.filter(p => p.id).map((project) => (
                       <SelectItem key={project.id} value={project.id}>
                         {project.name} ({project.code})
                       </SelectItem>
-                    )) : <SelectItem value=" " disabled>No projects available</SelectItem>}
+                    ))}
                   </SelectContent>
                 </Select>
                 <FormMessage />
@@ -318,18 +324,24 @@ export function EmployeeForm({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Reporting Manager (Optional)</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select 
+                  onValueChange={field.onChange} 
+                  defaultValue={field.value}
+                  disabled={availableManagers.length === 0}
+                >
                   <FormControl>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select manager" />
+                      <SelectValue placeholder={
+                        availableManagers.length === 0 ? "No managers available" : "Select manager"
+                      } />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    {availableManagers.length > 0 ? availableManagers.map((manager) => (
+                    {availableManagers.filter(m => m.id).map((manager) => (
                       <SelectItem key={manager.id} value={manager.id}>
                         {manager.name}
                       </SelectItem>
-                    )) : <SelectItem value=" " disabled>No managers available</SelectItem>}
+                    ))}
                   </SelectContent>
                 </Select>
                 <FormMessage />

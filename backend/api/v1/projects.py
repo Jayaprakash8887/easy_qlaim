@@ -160,14 +160,15 @@ async def create_project(
     db: Session = Depends(get_sync_db)
 ):
     """Create a new project"""
-    # Check if project_code already exists
+    # Check if project_code already exists within the same tenant
     existing = db.query(Project).filter(
+        Project.tenant_id == current_user.tenant_id,
         Project.project_code == project_data.project_code
     ).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Project with code {project_data.project_code} already exists"
+            detail=f"Project with code {project_data.project_code} already exists in this tenant"
         )
     
     # Create project with user's tenant_id
@@ -213,6 +214,19 @@ async def update_project(
         )
     
     old_project_code = project.project_code
+    
+    # Check if project code is being changed and if new code already exists in this tenant
+    if project_data.project_code and project_data.project_code != old_project_code:
+        existing_project = db.query(Project).filter(
+            Project.tenant_id == project.tenant_id,
+            Project.project_code == project_data.project_code,
+            Project.id != project_id
+        ).first()
+        if existing_project:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Project with code {project_data.project_code} already exists in this tenant"
+            )
     
     # Update fields
     for field, value in project_data.dict(exclude_unset=True).items():

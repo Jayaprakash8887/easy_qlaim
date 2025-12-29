@@ -153,14 +153,22 @@ export function ProjectForm({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Project Manager</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select 
+                  onValueChange={field.onChange} 
+                  defaultValue={field.value}
+                  disabled={managers.filter(m => m.id).length === 0}
+                >
                   <FormControl>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select manager" />
+                      <SelectValue placeholder={
+                        managers.filter(m => m.id).length === 0 
+                          ? "No managers available" 
+                          : "Select manager"
+                      } />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    {managers.map((manager) => (
+                    {managers.filter(m => m.id).map((manager) => (
                       <SelectItem key={manager.id} value={manager.id}>
                         {manager.name}
                       </SelectItem>
