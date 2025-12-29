@@ -238,7 +238,19 @@ export default function ClaimDetails() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Action failed');
+        // Handle Pydantic validation errors (array of detail objects) or simple string errors
+        let errorMessage = 'Action failed';
+        if (error.detail) {
+          if (Array.isArray(error.detail)) {
+            // Pydantic validation error format: [{loc: [...], msg: "...", type: "..."}]
+            errorMessage = error.detail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join(', ');
+          } else if (typeof error.detail === 'string') {
+            errorMessage = error.detail;
+          } else {
+            errorMessage = JSON.stringify(error.detail);
+          }
+        }
+        throw new Error(errorMessage);
       }
 
       const messages = {
