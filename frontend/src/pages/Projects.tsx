@@ -238,7 +238,9 @@ export default function Projects() {
               role: 'MEMBER',
             });
           } catch (e) {
+            const errorMessage = e instanceof Error ? e.message : 'Failed to allocate employee';
             console.error(`Failed to allocate employee ${memberId}:`, e);
+            toast.error(errorMessage);
           }
         }
       }
@@ -283,7 +285,9 @@ export default function Projects() {
             role: 'MEMBER',
           });
         } catch (e) {
+          const errorMessage = e instanceof Error ? e.message : 'Failed to allocate employee';
           console.error(`Failed to allocate employee ${memberId}:`, e);
+          toast.error(errorMessage);
         }
       }
       

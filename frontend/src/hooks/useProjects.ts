@@ -85,6 +85,7 @@ async function createProject(project: Omit<Project, 'id'>): Promise<Project> {
       budget_allocated: project.budget,
       start_date: project.startDate.toISOString().split('T')[0],
       end_date: project.endDate?.toISOString().split('T')[0],
+      manager_id: project.managerId || null,
       ibu_id: project.ibuId || null,
     }),
   });

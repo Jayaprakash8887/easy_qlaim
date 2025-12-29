@@ -793,12 +793,15 @@ async def allocate_employee_to_project(
     db.add(allocation)
     
     # Also update user_data.project_ids for quick access
-    user_data = user.user_data or {}
-    project_ids = user_data.get('project_ids', [])
+    # Need to create a new dict to trigger SQLAlchemy change detection for JSONB
+    user_data = dict(user.user_data) if user.user_data else {}
+    project_ids = list(user_data.get('project_ids', []))
     if str(allocation_data.project_id) not in project_ids:
         project_ids.append(str(allocation_data.project_id))
         user_data['project_ids'] = project_ids
         user.user_data = user_data
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(user, 'user_data')
     
     db.commit()
     db.refresh(allocation)

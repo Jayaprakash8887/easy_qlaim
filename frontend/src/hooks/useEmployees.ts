@@ -311,6 +311,7 @@ export function useAllocateEmployeeToProject() {
       queryClient.invalidateQueries({ queryKey: ['employeeProjectHistory'] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['projectMembers'] });
+      queryClient.invalidateQueries({ queryKey: ['project-members-all'] });
     },
   });
 }
