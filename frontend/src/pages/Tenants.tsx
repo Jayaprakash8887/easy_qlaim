@@ -339,19 +339,19 @@ function TenantUsersDialog({ tenant }: { tenant: Tenant }) {
                                     <Select
                                         value={adminDesignation}
                                         onValueChange={setAdminDesignation}
-                                        disabled={designationsLoading || !designations || designations.filter((d: Designation) => d.is_active).length === 0}
+                                        disabled={designationsLoading || !designations || designations.filter((d: Designation) => d.is_active && d.roles?.some(r => r.toLowerCase() === 'admin')).length === 0}
                                     >
                                         <SelectTrigger id="admin-designation" className={!adminDesignation && !designationsLoading ? "border-muted-foreground/50" : ""}>
                                             <SelectValue placeholder={
                                                 designationsLoading 
                                                     ? "Loading designations..." 
-                                                    : (!designations || designations.filter((d: Designation) => d.is_active).length === 0)
-                                                        ? "No designations available"
+                                                    : (!designations || designations.filter((d: Designation) => d.is_active && d.roles?.some(r => r.toLowerCase() === 'admin')).length === 0)
+                                                        ? "No admin designations available"
                                                         : "Select a designation (required)"
                                             } />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {designations && designations.filter((d: Designation) => d.is_active).map((designation: Designation) => (
+                                            {designations && designations.filter((d: Designation) => d.is_active && d.roles?.some(r => r.toLowerCase() === 'admin')).map((designation: Designation) => (
                                                 <SelectItem key={designation.id} value={designation.name}>
                                                     {designation.name}
                                                 </SelectItem>
@@ -359,12 +359,12 @@ function TenantUsersDialog({ tenant }: { tenant: Tenant }) {
                                         </SelectContent>
                                     </Select>
                                     <p className="text-xs text-muted-foreground">
-                                        {(!designations || designations.filter((d: Designation) => d.is_active).length === 0) && !designationsLoading ? (
+                                        {(!designations || designations.filter((d: Designation) => d.is_active && d.roles?.some(r => r.toLowerCase() === 'admin')).length === 0) && !designationsLoading ? (
                                             <span className="text-amber-600 dark:text-amber-400">
-                                                ⚠️ No designations configured. Please create designations for this tenant first in the Designations page.
+                                                ⚠️ No designations with Admin role configured. Please map the Admin role to at least one designation in the Designations page.
                                             </span>
                                         ) : (
-                                            "Select the designation for this administrator."
+                                            "Select the designation for this administrator. Only designations with Admin role are shown."
                                         )}
                                     </p>
                                 </div>
