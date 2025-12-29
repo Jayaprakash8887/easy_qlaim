@@ -1296,7 +1296,7 @@ async def extract_text_ocr(
                 full_text = direct_result["text"]
                 
                 # Extract receipts using LLM with region-specific categories, fallback to regex
-                receipts = await extract_receipts_with_llm(full_text, region, tenant_id=tenant_id)
+                receipts = await extract_receipts_with_llm(full_text, regions, tenant_id=tenant_id)
                 if not receipts:
                     logger.info("LLM extraction failed or returned empty, trying regex extraction")
                     receipts = extract_receipts_with_regex(full_text)
@@ -1325,7 +1325,7 @@ async def extract_text_ocr(
                 if direct_result.get("lines"):
                     full_text = direct_result["text"]
                     # Try LLM with region-specific categories, then fallback to regex
-                    receipts = await extract_receipts_with_llm(full_text, region, tenant_id=tenant_id)
+                    receipts = await extract_receipts_with_llm(full_text, regions, tenant_id=tenant_id)
                     if not receipts:
                         receipts = extract_receipts_with_regex(full_text)
                     return {

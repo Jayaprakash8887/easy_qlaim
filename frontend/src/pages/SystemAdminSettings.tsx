@@ -45,8 +45,9 @@ async function fetchSystemInfo(): Promise<SystemInfo> {
 }
 
 export default function SystemAdminSettings() {
-    // Tenant ID - In production, this would come from auth context
-    const TENANT_ID = '9af8238c-692d-4765-8be2-bcaa5ab1cac2';
+    // Platform Tenant ID - used for system-wide settings (not tenant-specific)
+    // This is a special "virtual" tenant that holds platform-level configurations
+    const PLATFORM_TENANT_ID = '00000000-0000-0000-0000-000000000000';
 
     // Shared state for platform settings (if needed across tabs)
     const [platformSettings, setPlatformSettings] = useState<PlatformSettings>(DEFAULT_PLATFORM_SETTINGS);
@@ -63,7 +64,7 @@ export default function SystemAdminSettings() {
     });
 
     // Integrations overview for stats
-    const { data: integrationsOverview } = useIntegrationsOverview(TENANT_ID);
+    const { data: integrationsOverview } = useIntegrationsOverview(PLATFORM_TENANT_ID);
 
     // Calculate stats
     const activeIntegrations = integrationsOverview?.active_integrations || 0;
@@ -181,7 +182,7 @@ export default function SystemAdminSettings() {
 
                 {/* Integrations Tab */}
                 <TabsContent value="integrations">
-                    <IntegrationsTab tenantId={TENANT_ID} />
+                    <IntegrationsTab tenantId={PLATFORM_TENANT_ID} />
                 </TabsContent>
 
                 {/* Database Settings Tab */}

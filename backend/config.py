@@ -246,6 +246,10 @@ class Settings(BaseSettings):
     MULTI_TENANT_ENABLED: bool = False
     # Note: tenant_id must always come from authenticated user - no default allowed
     
+    # Platform tenant ID - used for system-wide settings (not tenant-specific)
+    # This is a special "virtual" tenant that holds platform-level configurations
+    PLATFORM_TENANT_ID: str = "00000000-0000-0000-0000-000000000000"
+    
     # File Upload
     MAX_UPLOAD_SIZE_MB: int = 10
     ALLOWED_EXTENSIONS: str = "pdf,jpg,jpeg,png,xlsx,xls"
