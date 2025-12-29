@@ -485,12 +485,15 @@ class Approval(Base):
 class Project(Base):
     """Project master for project-based claims"""
     __tablename__ = "projects"
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'project_code', name='uq_project_tenant_code'),
+    )
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), nullable=False)
     
     # Project info
-    project_code = Column(String(50), unique=True, nullable=False)
+    project_code = Column(String(50), nullable=False)  # Unique per tenant via composite constraint
     project_name = Column(String(255), nullable=False)
     description = Column(Text)
     manager_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
