@@ -656,12 +656,18 @@ class EmployeeProjectAllocation(Base):
 class SystemSettings(Base):
     """System-wide settings and configurations"""
     __tablename__ = "system_settings"
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'setting_key', name='uq_settings_tenant_key'),
+        Index("idx_settings_tenant", "tenant_id"),
+        Index("idx_settings_key", "setting_key"),
+        Index("idx_settings_category", "category"),
+    )
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), nullable=False)
     
     # Setting identification
-    setting_key = Column(String(100), nullable=False, unique=True)
+    setting_key = Column(String(100), nullable=False)  # Unique per tenant via composite constraint
     setting_value = Column(Text, nullable=False)
     setting_type = Column(String(20), nullable=False, default="string")  # string, boolean, number, json
     
@@ -673,12 +679,6 @@ class SystemSettings(Base):
     updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
-    
-    __table_args__ = (
-        Index("idx_settings_tenant", "tenant_id"),
-        Index("idx_settings_key", "setting_key"),
-        Index("idx_settings_category", "category"),
-    )
 
 
 # ==================== POLICY & CRITERIA MANAGEMENT ====================
