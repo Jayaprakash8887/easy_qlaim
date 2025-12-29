@@ -317,7 +317,9 @@ function TenantUsersDialog({ tenant }: { tenant: Tenant }) {
                             <h4 className="font-medium text-sm mb-3">Add New Administrator</h4>
                             <form onSubmit={handleAddAdmin} className="space-y-4">
                                 <div className="space-y-2">
-                                    <Label htmlFor="admin-email">Email Address</Label>
+                                    <Label htmlFor="admin-email">
+                                        Email Address <span className="text-destructive">*</span>
+                                    </Label>
                                     <Input
                                         id="admin-email"
                                         type="email"
@@ -331,37 +333,46 @@ function TenantUsersDialog({ tenant }: { tenant: Tenant }) {
                                     </p>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="admin-designation">Designation *</Label>
+                                    <Label htmlFor="admin-designation">
+                                        Designation <span className="text-destructive">*</span>
+                                    </Label>
                                     <Select
                                         value={adminDesignation}
                                         onValueChange={setAdminDesignation}
-                                        required
+                                        disabled={designationsLoading || !designations || designations.filter((d: Designation) => d.is_active).length === 0}
                                     >
-                                        <SelectTrigger id="admin-designation">
-                                            <SelectValue placeholder="Select a designation" />
+                                        <SelectTrigger id="admin-designation" className={!adminDesignation && !designationsLoading ? "border-muted-foreground/50" : ""}>
+                                            <SelectValue placeholder={
+                                                designationsLoading 
+                                                    ? "Loading designations..." 
+                                                    : (!designations || designations.filter((d: Designation) => d.is_active).length === 0)
+                                                        ? "No designations available"
+                                                        : "Select a designation (required)"
+                                            } />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {designationsLoading ? (
-                                                <SelectItem value="" disabled>Loading...</SelectItem>
-                                            ) : designations && designations.length > 0 ? (
-                                                designations.filter((d: Designation) => d.is_active).map((designation: Designation) => (
-                                                    <SelectItem key={designation.id} value={designation.name}>
-                                                        {designation.name}
-                                                    </SelectItem>
-                                                ))
-                                            ) : (
-                                                <SelectItem value="" disabled>No designations available</SelectItem>
-                                            )}
+                                            {designations && designations.filter((d: Designation) => d.is_active).map((designation: Designation) => (
+                                                <SelectItem key={designation.id} value={designation.name}>
+                                                    {designation.name}
+                                                </SelectItem>
+                                            ))}
                                         </SelectContent>
                                     </Select>
                                     <p className="text-xs text-muted-foreground">
-                                        Select the designation for this administrator.
+                                        {(!designations || designations.filter((d: Designation) => d.is_active).length === 0) && !designationsLoading ? (
+                                            <span className="text-amber-600 dark:text-amber-400">
+                                                ⚠️ No designations configured. Please create designations for this tenant first in the Designations page.
+                                            </span>
+                                        ) : (
+                                            "Select the designation for this administrator."
+                                        )}
                                     </p>
                                 </div>
                                 <div className="flex gap-2">
                                     <Button 
                                         type="submit" 
                                         disabled={createAdminMutation.isPending || !adminEmail.trim() || !adminDesignation}
+                                        title={!adminDesignation ? "Please select a designation" : !adminEmail.trim() ? "Please enter email address" : "Add administrator"}
                                     >
                                         {createAdminMutation.isPending ? 'Adding...' : 'Add Administrator'}
                                     </Button>
