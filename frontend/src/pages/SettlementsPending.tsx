@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Search, CheckCircle2, Clock, Wallet, Download, Eye, Calendar } from 'lucide-react';
+import { extractErrorMessage } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -138,7 +139,7 @@ export default function SettlementsPending() {
 
         if (!response.ok) {
           const error = await response.json();
-          throw new Error(error.detail || 'Failed to settle claim');
+          throw new Error(extractErrorMessage(error, 'Failed to settle claim'));
         }
       }
 

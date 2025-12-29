@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Claim, ClaimStatus } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { extractErrorMessage } from '@/lib/utils';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -320,11 +321,7 @@ async function createBatchClaims(batch: BatchClaimCreate): Promise<BatchClaimRes
 
   if (!response.ok) {
     const error = await response.json();
-    // Handle both string and object error details (e.g., duplicate claim errors)
-    const errorMessage = typeof error.detail === 'object'
-      ? error.detail.message || JSON.stringify(error.detail)
-      : error.detail || 'Failed to create claims';
-    throw new Error(errorMessage);
+    throw new Error(extractErrorMessage(error, 'Failed to create claims'));
   }
 
   return response.json();
@@ -346,11 +343,7 @@ async function createBatchClaimsWithDocument(data: BatchClaimWithDocumentCreate)
 
   if (!response.ok) {
     const error = await response.json();
-    // Handle both string and object error details (e.g., duplicate claim errors)
-    const errorMessage = typeof error.detail === 'object'
-      ? error.detail.message || JSON.stringify(error.detail)
-      : error.detail || 'Failed to create claims';
-    throw new Error(errorMessage);
+    throw new Error(extractErrorMessage(error, 'Failed to create claims'));
   }
 
   return response.json();
@@ -387,7 +380,7 @@ async function deleteClaim(claimId: string, tenantId: string): Promise<void> {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.detail || 'Failed to delete claim');
+    throw new Error(extractErrorMessage(error, 'Failed to delete claim'));
   }
 }
 
@@ -425,11 +418,7 @@ async function updateClaim(claimId: string, data: ClaimUpdateData, tenantId: str
 
   if (!response.ok) {
     const error = await response.json();
-    // Handle both string and object error details (e.g., duplicate claim errors)
-    const errorMessage = typeof error.detail === 'object'
-      ? error.detail.message || JSON.stringify(error.detail)
-      : error.detail || 'Failed to update claim';
-    throw new Error(errorMessage);
+    throw new Error(extractErrorMessage(error, 'Failed to update claim'));
   }
 
   const claim = await response.json();

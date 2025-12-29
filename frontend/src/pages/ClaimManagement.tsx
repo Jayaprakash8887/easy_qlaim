@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { extractErrorMessage } from '@/lib/utils';
 import {
     Table,
     TableBody,
@@ -99,7 +100,7 @@ async function updateCategory(id: string, updates: Partial<ExtractedClaim>, tena
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to update category');
+        throw new Error(extractErrorMessage(error, 'Failed to update category'));
     }
     return response.json();
 }

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Employee } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { extractErrorMessage } from '@/lib/utils';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -294,7 +295,7 @@ async function allocateEmployeeToProject(data: AllocateEmployeeData, tenantId: s
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.detail || 'Failed to allocate employee to project');
+    throw new Error(extractErrorMessage(error, 'Failed to allocate employee to project'));
   }
 
   return response.json();

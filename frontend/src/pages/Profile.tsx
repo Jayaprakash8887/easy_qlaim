@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { User, Mail, Phone, Building, Calendar, Shield, Bell, Loader2, Check, AlertCircle, Camera, Trash2 } from 'lucide-react';
+import { extractErrorMessage } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -135,7 +136,7 @@ export default function Profile() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to upload avatar');
+        throw new Error(extractErrorMessage(error, 'Failed to upload avatar'));
       }
 
       const data = await response.json();
@@ -170,7 +171,7 @@ export default function Profile() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to delete avatar');
+        throw new Error(extractErrorMessage(error, 'Failed to delete avatar'));
       }
 
       setAvatarUrl(null);
@@ -278,7 +279,7 @@ export default function Profile() {
       
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to change password');
+        throw new Error(extractErrorMessage(error, 'Failed to change password'));
       }
       
       toast.success('Password changed successfully');

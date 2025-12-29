@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ApprovalSkipRule, ApprovalSkipResult } from '@/types';
+import { extractErrorMessage } from '@/lib/utils';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -51,7 +52,7 @@ const createApprovalSkipRule = async (tenantId: string, data: Partial<ApprovalSk
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to create approval skip rule');
+    throw new Error(extractErrorMessage(error, 'Failed to create approval skip rule'));
   }
   return response.json();
 };
@@ -69,7 +70,7 @@ const updateApprovalSkipRule = async (
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to update approval skip rule');
+    throw new Error(extractErrorMessage(error, 'Failed to update approval skip rule'));
   }
   return response.json();
 };
@@ -82,7 +83,7 @@ const deleteApprovalSkipRule = async (ruleId: string, tenantId: string): Promise
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to delete approval skip rule');
+    throw new Error(extractErrorMessage(error, 'Failed to delete approval skip rule'));
   }
 };
 

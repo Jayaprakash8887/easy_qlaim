@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
+import { extractErrorMessage } from '@/lib/utils';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -114,7 +115,7 @@ async function createIBU(data: IBUCreate, tenantId: string): Promise<IBU> {
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to create IBU');
+    throw new Error(extractErrorMessage(error, 'Failed to create IBU'));
   }
   return response.json();
 }
@@ -127,7 +128,7 @@ async function updateIBU(ibuId: string, data: IBUUpdate, tenantId: string): Prom
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to update IBU');
+    throw new Error(extractErrorMessage(error, 'Failed to update IBU'));
   }
   return response.json();
 }
@@ -139,7 +140,7 @@ async function deleteIBU(ibuId: string, tenantId: string): Promise<void> {
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to delete IBU');
+    throw new Error(extractErrorMessage(error, 'Failed to delete IBU'));
   }
 }
 

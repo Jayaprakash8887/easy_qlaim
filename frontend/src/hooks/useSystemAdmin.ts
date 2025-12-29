@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
+import { extractErrorMessage } from '@/lib/utils';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -111,7 +112,7 @@ async function createTenant(data: TenantCreate): Promise<Tenant> {
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to create tenant');
+        throw new Error(extractErrorMessage(error, 'Failed to create tenant'));
     }
     return response.json();
 }
@@ -156,7 +157,7 @@ async function createDesignation(data: DesignationCreate, tenantId?: string): Pr
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to create designation');
+        throw new Error(extractErrorMessage(error, 'Failed to create designation'));
     }
     return response.json();
 }
@@ -197,7 +198,7 @@ async function createTenantAdminByEmail(tenantId: string, email: string, designa
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to add tenant admin');
+        throw new Error(extractErrorMessage(error, 'Failed to add tenant admin'));
     }
     return response.json();
 }
@@ -209,7 +210,7 @@ async function removeTenantAdmin(tenantId: string, userId: string): Promise<any>
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to remove tenant admin');
+        throw new Error(extractErrorMessage(error, 'Failed to remove tenant admin'));
     }
     return response.json();
 }
@@ -243,7 +244,7 @@ async function uploadBrandingFile(tenantId: string, fileType: string, file: File
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to upload branding file');
+        throw new Error(extractErrorMessage(error, 'Failed to upload branding file'));
     }
     return response.json();
 }
@@ -255,7 +256,7 @@ async function deleteBrandingFile(tenantId: string, fileType: string): Promise<a
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to delete branding file');
+        throw new Error(extractErrorMessage(error, 'Failed to delete branding file'));
     }
     return response.json();
 }
@@ -268,7 +269,7 @@ async function updateBrandingColors(tenantId: string, colors: BrandingColors): P
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to update branding colors');
+        throw new Error(extractErrorMessage(error, 'Failed to update branding colors'));
     }
     return response.json();
 }
@@ -281,7 +282,7 @@ async function updateBrandingSettings(tenantId: string, settings: Partial<Brandi
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to update branding settings');
+        throw new Error(extractErrorMessage(error, 'Failed to update branding settings'));
     }
     return response.json();
 }

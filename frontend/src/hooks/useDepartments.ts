@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { extractErrorMessage } from '@/lib/utils';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -76,7 +77,7 @@ async function createDepartment(tenantId: string, data: DepartmentCreate): Promi
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to create department');
+        throw new Error(extractErrorMessage(error, 'Failed to create department'));
     }
     return response.json();
 }
@@ -91,7 +92,7 @@ async function updateDepartment(id: string, data: DepartmentUpdate, tenantId?: s
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to update department');
+        throw new Error(extractErrorMessage(error, 'Failed to update department'));
     }
     return response.json();
 }
@@ -105,7 +106,7 @@ async function deleteDepartment(id: string, tenantId?: string): Promise<void> {
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to delete department');
+        throw new Error(extractErrorMessage(error, 'Failed to delete department'));
     }
 }
 

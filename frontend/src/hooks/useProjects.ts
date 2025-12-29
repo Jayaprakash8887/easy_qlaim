@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Project } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { extractErrorMessage } from '@/lib/utils';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -92,7 +93,7 @@ async function createProject(project: Omit<Project, 'id'>): Promise<Project> {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.detail || 'Failed to create project');
+    throw new Error(extractErrorMessage(error, 'Failed to create project'));
   }
 
   const data = await response.json();
@@ -173,7 +174,7 @@ async function updateProject(id: string, project: Partial<Project>): Promise<Pro
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.detail || 'Failed to update project');
+    throw new Error(extractErrorMessage(error, 'Failed to update project'));
   }
 
   const data = await response.json();

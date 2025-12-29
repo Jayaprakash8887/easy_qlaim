@@ -2,6 +2,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Region } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { extractErrorMessage } from '@/lib/utils';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -71,7 +72,7 @@ async function createRegion(region: Partial<Region>, tenantId?: string): Promise
 
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to create region');
+        throw new Error(extractErrorMessage(error, 'Failed to create region'));
     }
 
     const data = await response.json();
@@ -106,7 +107,7 @@ async function updateRegion({ id, data, tenantId }: { id: string; data: Partial<
 
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to update region');
+        throw new Error(extractErrorMessage(error, 'Failed to update region'));
     }
 
     const result = await response.json();
@@ -134,7 +135,7 @@ async function deleteRegion({ id, tenantId }: { id: string; tenantId?: string })
 
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to delete region');
+        throw new Error(extractErrorMessage(error, 'Failed to delete region'));
     }
 }
 

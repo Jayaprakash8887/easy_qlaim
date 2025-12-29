@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef } from 'react';
 import { Plus, Search, Upload, MoreHorizontal, Mail, Phone, Download, FileDown, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { extractErrorMessage } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDepartments } from '@/hooks/useDepartments';
@@ -319,7 +320,7 @@ export default function Employees() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Bulk import failed');
+        throw new Error(extractErrorMessage(error, 'Bulk import failed'));
       }
 
       const result = await response.json();

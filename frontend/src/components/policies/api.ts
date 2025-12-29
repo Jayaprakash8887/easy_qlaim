@@ -6,6 +6,7 @@ import type {
     CustomClaim,
     CustomClaimListItem,
 } from './types';
+import { extractErrorMessage } from '@/lib/utils';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -60,7 +61,7 @@ export async function uploadPolicy(data: FormData): Promise<PolicyUpload> {
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to upload policy');
+        throw new Error(extractErrorMessage(error, 'Failed to upload policy'));
     }
     return response.json();
 }
@@ -77,7 +78,7 @@ export async function approvePolicy(
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to approve policy');
+        throw new Error(extractErrorMessage(error, 'Failed to approve policy'));
     }
     return response.json();
 }
@@ -90,7 +91,7 @@ export async function rejectPolicy(id: string, review_notes: string, tenantId: s
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to reject policy');
+        throw new Error(extractErrorMessage(error, 'Failed to reject policy'));
     }
     return response.json();
 }
@@ -102,7 +103,7 @@ export async function reExtractPolicy(id: string, tenantId: string): Promise<{ m
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to re-extract policy');
+        throw new Error(extractErrorMessage(error, 'Failed to re-extract policy'));
     }
     return response.json();
 }
@@ -118,7 +119,7 @@ export async function uploadNewVersion(id: string, formData: FormData, tenantId:
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to upload new version');
+        throw new Error(extractErrorMessage(error, 'Failed to upload new version'));
     }
     return response.json();
 }
@@ -156,7 +157,7 @@ export async function createCustomClaim(
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to create custom claim');
+        throw new Error(extractErrorMessage(error, 'Failed to create custom claim'));
     }
     return response.json();
 }
@@ -174,7 +175,7 @@ export async function updateCustomClaim(
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to update custom claim');
+        throw new Error(extractErrorMessage(error, 'Failed to update custom claim'));
     }
     return response.json();
 }
@@ -186,7 +187,7 @@ export async function deleteCustomClaim(id: string, tenantId: string): Promise<v
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to delete custom claim');
+        throw new Error(extractErrorMessage(error, 'Failed to delete custom claim'));
     }
 }
 
@@ -204,7 +205,7 @@ export async function toggleCustomClaimStatus(
     );
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to toggle custom claim status');
+        throw new Error(extractErrorMessage(error, 'Failed to toggle custom claim status'));
     }
     return response.json();
 }

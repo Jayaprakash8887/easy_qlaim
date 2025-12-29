@@ -32,7 +32,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, extractErrorMessage } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
@@ -362,7 +362,7 @@ export default function ClaimDetails() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to save HR edits');
+        throw new Error(extractErrorMessage(error, 'Failed to save HR edits'));
       }
 
       toast({ title: 'Claim updated successfully' });
