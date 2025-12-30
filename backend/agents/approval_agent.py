@@ -168,16 +168,65 @@ class ApprovalAgent(BaseAgent):
         tenant_settings: Dict[str, Any]
     ) -> str:
         """
-        Determine next status based on confidence, recommendation, and tenant settings.
+        Determine next status based on confidence, recommendation, tenant settings,
+        and approval skip rules.
         
-        Routing Logic:
-        1. If auto-approval enabled AND confidence >= AI threshold AND confidence >= Policy threshold 
+        Routing Logic (in priority order):
+        1. FIRST: Check if Approval Skip Rules were applied at claim creation
+           - If skip rules exist, respect them (don't override with auto-approval)
+           - Return the claim's current status (already set by skip rules)
+        2. If auto-approval enabled AND confidence >= AI threshold AND confidence >= Policy threshold 
            AND amount <= max AND APPROVE recommendation → FINANCE_APPROVED
-        2. If policy exceptions exist → PENDING_HR
-        3. If confidence < 60% → REJECTED
-        4. Default → PENDING_MANAGER
+        3. If policy exceptions exist → PENDING_HR
+        4. If confidence < 60% → REJECTED
+        5. Default → PENDING_MANAGER
         """
         
+        # ============ CHECK APPROVAL SKIP RULES FIRST ============
+        # Approval skip rules are applied at claim creation based on employee designation/email
+        # If skip rules were applied, we should respect them and not override with auto-approval logic
+        approval_skip_info = claim.claim_payload.get("approval_skip_info", {})
+        
+        if approval_skip_info.get("applied_rule_id"):
+            # Skip rules were applied - respect them
+            skip_manager = approval_skip_info.get("skip_manager", False)
+            skip_hr = approval_skip_info.get("skip_hr", False)
+            skip_finance = approval_skip_info.get("skip_finance", False)
+            rule_name = approval_skip_info.get("applied_rule_name", "Unknown")
+            
+            self.logger.info(
+                f"Approval skip rule '{rule_name}' was applied for claim {claim.id}. "
+                f"Skip levels - Manager: {skip_manager}, HR: {skip_hr}, Finance: {skip_finance}"
+            )
+            
+            # Check for policy exceptions - even with skip rules, policy violations may need HR review
+            validation = claim.claim_payload.get("validation", {})
+            failed_rules = [r for r in validation.get("rules_checked", []) 
+                           if r.get("result") == "fail"]
+            
+            if failed_rules and not skip_hr:
+                # Policy violations exist and HR is not skipped - route to HR
+                self.logger.info(
+                    f"Claim {claim.id} has {len(failed_rules)} policy violations, "
+                    f"routing to HR despite skip rules"
+                )
+                return "PENDING_HR"
+            
+            # Determine status based on skip rules
+            if skip_manager and skip_hr and skip_finance:
+                self.logger.info(f"Claim {claim.id} auto-settled via skip rule '{rule_name}'")
+                return "SETTLED"
+            elif skip_manager and skip_hr:
+                self.logger.info(f"Claim {claim.id} routed to Finance via skip rule '{rule_name}'")
+                return "PENDING_FINANCE"
+            elif skip_manager:
+                self.logger.info(f"Claim {claim.id} routed to HR via skip rule '{rule_name}'")
+                return "PENDING_HR"
+            else:
+                # No skips - follow normal flow but log that rule was checked
+                self.logger.info(f"Skip rule '{rule_name}' matched but no levels skipped for claim {claim.id}")
+        
+        # ============ AUTO-APPROVAL LOGIC (only if no skip rules applied) ============
         enable_auto_approval = tenant_settings.get("enable_auto_approval", DEFAULT_ENABLE_AUTO_APPROVAL)
         auto_approval_threshold = tenant_settings.get("auto_approval_threshold", DEFAULT_AUTO_APPROVAL_THRESHOLD) / 100.0
         max_auto_approval_amount = tenant_settings.get("max_auto_approval_amount", DEFAULT_MAX_AUTO_APPROVAL_AMOUNT)
