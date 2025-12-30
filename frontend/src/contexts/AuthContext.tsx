@@ -90,12 +90,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (storedToken && storedUser) {
         try {
-          // Verify token is still valid
+          // Verify token is still valid with timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+          
           const response = await fetch(`${API_BASE_URL}/auth/verify`, {
             headers: {
               'Authorization': `Bearer ${storedToken}`,
             },
+            signal: controller.signal,
           });
+          clearTimeout(timeoutId);
 
           if (response.ok) {
             const userData = JSON.parse(storedUser);
@@ -105,13 +110,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
             if (refreshToken) {
               try {
+                const refreshController = new AbortController();
+                const refreshTimeoutId = setTimeout(() => refreshController.abort(), 10000);
+                
                 const refreshResponse = await fetch(`${API_BASE_URL}/auth/refresh`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({ refresh_token: refreshToken }),
+                  signal: refreshController.signal,
                 });
+                clearTimeout(refreshTimeoutId);
 
                 if (refreshResponse.ok) {
                   const tokens = await refreshResponse.json();
