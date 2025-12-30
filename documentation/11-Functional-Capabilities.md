@@ -188,7 +188,7 @@ This feature allows administrators to configure rules that automatically skip ce
 - Fast-track specific individuals by email address
 
 **Configuration Location:**
-- Admin Dashboard → Settings → Approval Skip Rules
+- Admin Dashboard → Approval Rules → Skip Rules tab
 
 **Rule Types:**
 
@@ -677,19 +677,31 @@ FINANCE_APPROVED ──▶ Process Payment ──▶ Enter Reference ──▶ S
 
 ### 15.1 General Settings
 
-Admin users can configure tenant-wide settings:
+**Navigation:** Admin Dashboard → Settings → General tab
+
+Admin users can configure basic tenant-wide settings:
 
 | Setting | Description | Options |
 |---------|-------------|---------|
-| AI Processing | Enable AI for OCR and validation | On/Off |
+| Default Currency | Default currency for claims | USD, EUR, GBP, INR, AED, SGD, JPY |
+| Fiscal Year Start | When fiscal year begins | January, April, July, October |
+
+### 15.2 Approval Rules
+
+**Navigation:** Admin Dashboard → Approval Rules
+
+All approval-related settings are consolidated in a dedicated menu:
+
+#### Auto-Approval Tab
+
+| Setting | Description | Options |
+|---------|-------------|---------|
 | Auto-Approval | Automatically approve high-confidence claims | On/Off |
 | **Enable Auto-Approval (Admin)** | Master switch to enable/disable all auto-approval | On/Off |
 | **Auto-Skip After Manager** | Skip HR/Finance after manager approval if thresholds met | On/Off |
 | AI Confidence Threshold | Minimum AI confidence for auto-approval | 50% - 100% |
 | Max Auto-Approval Amount | Maximum claim amount for auto-approval | Currency amount |
 | Policy Compliance Threshold | Minimum AI confidence for policy compliance | 50% - 100% |
-| Default Currency | Default currency for claims | USD, EUR, GBP, INR, AED, SGD, JPY |
-| Fiscal Year Start | When fiscal year begins | January, April, July, October |
 
 **Enable Auto-Approval (Admin):**
 Master control for the auto-approval feature:
@@ -710,7 +722,11 @@ This setting controls when claims are flagged for review vs considered compliant
 - **Default**: 80%
 - **Use case**: Lower thresholds (e.g., 60%) allow more claims to pass; higher thresholds (e.g., 90%) require stricter compliance
 
-### 15.2 Regional Settings
+#### Skip Rules Tab
+
+Configure rules to automatically skip approval levels for designated employees. See section 4.5 for details.
+
+### 15.3 Regional Settings
 
 Each tenant can configure regional preferences:
 
@@ -753,7 +769,7 @@ Each tenant can configure regional preferences:
 - Notifications show times in tenant timezone
 - Currency amounts formatted per locale
 
-### 15.3 Working Days Configuration
+### 15.4 Working Days Configuration
 
 Configure work week preferences:
 
@@ -772,7 +788,7 @@ Configure work week preferences:
 | Monday | Europe, India |
 | Saturday | Middle East |
 
-### 15.4 Security Settings
+### 15.5 Security Settings
 
 Configure session and security preferences:
 
@@ -792,7 +808,7 @@ Configure session and security preferences:
 - **Tenant Level (Admin):** Can set tenant-specific timeout up to the platform maximum
 - Users will be logged out after inactivity based on their tenant's configured timeout
 
-### 15.5 Notification Settings
+### 15.6 Notification Settings
 
 Manage notification preferences:
 - Email notifications enable/disable
@@ -800,7 +816,7 @@ Manage notification preferences:
 - Reminder frequency
 - Integration webhooks (Slack, etc.)
 
-### 15.6 Branding Settings
+### 15.7 Branding Settings
 
 Admin users can customize the application appearance for their tenant:
 
