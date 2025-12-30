@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useDashboardSummary, useClaimsByStatus, useHRMetrics, useAdminStats } from '@/hooks/useDashboard';
 import { useFormatting } from '@/hooks/useFormatting';
 import { useTenants, useDesignations } from '@/hooks/useSystemAdmin';
+import { useEmployees } from '@/hooks/useEmployees';
 import { CardSkeleton } from '@/components/ui/loading-skeleton';
 import { Badge } from '@/components/ui/badge';
 
@@ -141,13 +142,17 @@ function EmployeeDashboard({ userName, employeeId, tenantId }: { userName: strin
 function ManagerDashboard({ userName, employeeId, tenantId }: { userName: string; employeeId: string; tenantId?: string }) {
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(undefined, tenantId);
   const { data: claimsByStatus, isLoading: statusLoading } = useClaimsByStatus(undefined, tenantId);
+  const { data: employees, isLoading: employeesLoading } = useEmployees();
   const { formatCurrency } = useFormatting();
+
+  // Count direct reports (employees where manager_id = current employeeId)
+  const teamMemberCount = employees?.filter(emp => emp.managerId === employeeId).length || 0;
 
   const pendingApprovals = claimsByStatus?.find(c => c.status === 'PENDING_MANAGER')?.count || 0;
   const teamClaimsThisMonth = summary?.approved_this_month || 0;
   const teamSpending = summary?.total_amount_claimed || 0;
 
-  if (summaryLoading || statusLoading) {
+  if (summaryLoading || statusLoading || employeesLoading) {
     return (
       <div className="space-y-8">
         <div>
@@ -196,7 +201,7 @@ function ManagerDashboard({ userName, employeeId, tenantId }: { userName: string
         />
         <SummaryCard
           title="Team Members"
-          value="12"
+          value={teamMemberCount}
           icon={Users}
           variant="default"
         />
