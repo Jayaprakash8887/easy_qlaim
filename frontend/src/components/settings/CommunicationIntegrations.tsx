@@ -45,7 +45,7 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
 
     // Find specific communication configs
     const slackConfig = communicationConfigs?.find(c => c.provider === 'slack');
-    const teamsConfig = communicationConfigs?.find(c => c.provider === 'teams');
+    const teamsConfig = communicationConfigs?.find(c => c.provider === 'microsoft_teams');
 
     // Form states
     const [slackForm, setSlackForm] = useState({
@@ -58,7 +58,7 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
     });
 
     const [teamsForm, setTeamsForm] = useState({
-        provider: 'teams',
+        provider: 'microsoft_teams',
         teams_webhook_url: '',
         teams_channel_id: '',
         notify_on_claim_submitted: true,
@@ -83,7 +83,7 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
     useEffect(() => {
         if (teamsConfig) {
             setTeamsForm({
-                provider: 'teams',
+                provider: 'microsoft_teams',
                 teams_webhook_url: teamsConfig.teams_tenant_id || '', // webhook URL stored here
                 teams_channel_id: teamsConfig.teams_channel_id || '',
                 notify_on_claim_submitted: teamsConfig.notify_on_claim_submitted ?? true,
@@ -125,7 +125,7 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
 
     const handleSaveTeams = () => {
         const data = {
-            provider: 'teams',
+            provider: 'microsoft_teams',
             teams_webhook_url: teamsForm.teams_webhook_url,
             teams_channel_id: teamsForm.teams_channel_id,
             notify_on_claim_submitted: teamsForm.notify_on_claim_submitted,
@@ -136,7 +136,7 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
 
         if (teamsConfig) {
             updateCommunicationConfigMutation.mutate(
-                { provider: 'teams', data },
+                { provider: 'microsoft_teams', data },
                 {
                     onSuccess: () => toast.success('Teams configuration updated'),
                     onError: () => toast.error('Failed to update Teams configuration'),
@@ -350,7 +350,7 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
                                             size="sm"
                                             className="gap-2"
                                             onClick={() => {
-                                                testCommunicationMutation.mutate('teams', {
+                                                testCommunicationMutation.mutate('microsoft_teams', {
                                                     onSuccess: () => toast.success('Test message sent to Teams'),
                                                     onError: () => toast.error('Failed to send test message'),
                                                 });
