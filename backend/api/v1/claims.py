@@ -30,6 +30,7 @@ from services.ai_analysis import generate_ai_analysis, generate_policy_checks
 from services.security import audit_logger, get_client_ip
 from services.redis_cache import redis_cache
 from services.email_service import get_email_service
+from services.communication_service import send_claim_notification as send_teams_notification
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -135,6 +136,27 @@ async def _send_claim_notification(
                 login_url=login_url
             )
             logger.info(f"Sent claim settled notification to {employee.email} for claim {claim.claim_number}")
+        
+        # Also send Teams/Slack notification for claim events
+        # (approval/rejection handled separately in their endpoints with more detail)
+        if notification_type == 'submitted':
+            try:
+                from database import SyncSessionLocal as SessionLocal
+                sync_db = SessionLocal()
+                try:
+                    await send_teams_notification(
+                        db=sync_db,
+                        tenant_id=claim.tenant_id,
+                        event_type='submitted',
+                        claim_number=claim.claim_number,
+                        employee_name=employee.full_name or employee.username,
+                        amount=float(claim.amount) if claim.amount else 0,
+                        currency=claim.currency or "INR"
+                    )
+                finally:
+                    sync_db.close()
+            except Exception as teams_err:
+                logger.error(f"Failed to send Teams notification for claim {claim.claim_number}: {str(teams_err)}")
             
     except Exception as e:
         logger.error(f"Failed to send email notification for claim {claim.claim_number}: {str(e)}")
@@ -934,6 +956,28 @@ async def submit_claim(
         employee_id=str(claim.employee_id) if claim.employee_id else None
     )
     
+    # Send Teams/Slack notification for claim submission
+    try:
+        employee_name = employee.full_name if employee else "Unknown"
+        
+        # Get sync db session for communication service
+        from database import SyncSessionLocal as SessionLocal
+        sync_db = SessionLocal()
+        try:
+            await send_teams_notification(
+                db=sync_db,
+                tenant_id=claim.tenant_id,
+                event_type='submitted',
+                claim_number=claim.claim_number,
+                employee_name=employee_name,
+                amount=float(claim.amount) if claim.amount else 0,
+                currency=claim.currency or "INR"
+            )
+        finally:
+            sync_db.close()
+    except Exception as e:
+        logger.error(f"Failed to send Teams notification for claim {claim.claim_number}: {str(e)}")
+    
     # Queue for processing
     has_documents = await _check_has_documents(db, claim_id)
     process_claim_task.delay(
@@ -1662,6 +1706,32 @@ async def approve_claim(
         ip_address=get_client_ip(request)
     )
     
+    # Send Teams/Slack notification for approval
+    try:
+        # Get employee name for notification
+        employee_result = await db.execute(select(User).where(User.id == claim.employee_id))
+        employee = employee_result.scalar_one_or_none()
+        employee_name = employee.full_name if employee else "Unknown"
+        
+        # Get sync db session for communication service
+        from database import SyncSessionLocal as SessionLocal
+        sync_db = SessionLocal()
+        try:
+            await send_teams_notification(
+                db=sync_db,
+                tenant_id=claim.tenant_id,
+                event_type='approved',
+                claim_number=claim.claim_number,
+                employee_name=employee_name,
+                amount=float(claim.amount) if claim.amount else 0,
+                currency=claim.currency or "INR",
+                approver_name=approver_name
+            )
+        finally:
+            sync_db.close()
+    except Exception as e:
+        logger.error(f"Failed to send Teams notification for claim {claim.claim_number}: {str(e)}")
+    
     return claim
 
 
@@ -1797,6 +1867,33 @@ async def reject_claim(
         rejected_by=rejected_by
     )
     
+    # Send Teams/Slack notification
+    try:
+        # Get employee name for notification
+        employee_result = await db.execute(select(User).where(User.id == claim.employee_id))
+        employee = employee_result.scalar_one_or_none()
+        employee_name = employee.full_name if employee else "Unknown"
+        
+        # Get sync db session for communication service
+        from database import SyncSessionLocal as SessionLocal
+        sync_db = SessionLocal()
+        try:
+            await send_teams_notification(
+                db=sync_db,
+                tenant_id=claim.tenant_id,
+                event_type='rejected',
+                claim_number=claim.claim_number,
+                employee_name=employee_name,
+                amount=float(claim.amount) if claim.amount else 0,
+                currency=claim.currency or "INR",
+                approver_name=rejected_by,
+                reason=rejection_reason
+            )
+        finally:
+            sync_db.close()
+    except Exception as e:
+        logger.error(f"Failed to send Teams notification for claim {claim.claim_number}: {str(e)}")
+    
     return claim
 
 
@@ -1904,6 +2001,30 @@ async def settle_claim(
         payment_method=settlement_data.payment_method,
         settled_date=settlement_time.strftime('%B %d, %Y')
     )
+    
+    # Send Teams/Slack notification for settlement
+    try:
+        employee_result = await db.execute(select(User).where(User.id == claim.employee_id))
+        employee = employee_result.scalar_one_or_none()
+        employee_name = employee.full_name if employee else "Unknown"
+        
+        from database import SyncSessionLocal as SessionLocal
+        sync_db = SessionLocal()
+        try:
+            await send_teams_notification(
+                db=sync_db,
+                tenant_id=claim.tenant_id,
+                event_type='settled',
+                claim_number=claim.claim_number,
+                employee_name=employee_name,
+                amount=float(claim.amount) if claim.amount else 0,
+                currency=claim.currency or "INR",
+                approver_name="Finance Team"
+            )
+        finally:
+            sync_db.close()
+    except Exception as e:
+        logger.error(f"Failed to send Teams notification for claim settlement {claim.claim_number}: {str(e)}")
     
     return claim
 
