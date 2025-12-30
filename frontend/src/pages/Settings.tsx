@@ -13,6 +13,7 @@ import {
   Upload,
   Trash2,
   Info,
+  MessageSquare,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -46,6 +47,7 @@ import {
   useUpdateBrandingSettings,
   BrandingFileSpec,
 } from '@/hooks/useSystemAdmin';
+import { CommunicationIntegrations } from '@/components/settings/CommunicationIntegrations';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -495,10 +497,14 @@ export default function Settings() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList className="grid w-full max-w-lg grid-cols-3">
           <TabsTrigger value="general" className="flex items-center gap-2">
             <SettingsIcon className="h-4 w-4" />
-            General Settings
+            General
+          </TabsTrigger>
+          <TabsTrigger value="integrations" className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4" />
+            Integrations
           </TabsTrigger>
           <TabsTrigger value="branding" className="flex items-center gap-2">
             <Palette className="h-4 w-4" />
@@ -874,6 +880,11 @@ export default function Settings() {
           </div>
         )}
           </div>
+        </TabsContent>
+
+        {/* Integrations Tab */}
+        <TabsContent value="integrations" className="space-y-4 mt-6">
+          <CommunicationIntegrations tenantId={user?.tenant_id || ''} />
         </TabsContent>
 
         {/* Branding Settings Tab */}

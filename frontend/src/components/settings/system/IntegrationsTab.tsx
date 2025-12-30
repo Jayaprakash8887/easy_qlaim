@@ -5,10 +5,8 @@ import {
     Shield,
     Users,
     Building2,
-    MessageSquare,
     Loader2,
     Save,
-    Send,
     Plus,
     Trash2,
     Copy,
@@ -59,10 +57,6 @@ import {
     useCreateERPConfig,
     useUpdateERPConfig,
     useTriggerERPExport,
-    useCommunicationConfigs,
-    useCreateCommunicationConfig,
-    useUpdateCommunicationConfig,
-    useTestCommunication,
 } from '@/hooks/useIntegrations';
 import type {
     SSOConfig,
@@ -71,7 +65,6 @@ import type {
     HRMSConfigCreate,
     ERPConfig,
     ERPConfigCreate,
-    CommunicationConfigCreate,
 } from '@/hooks/useIntegrations';
 import { useFormatting } from '@/hooks/useFormatting';
 import { WEBHOOK_EVENTS } from './types';
@@ -89,7 +82,6 @@ export function IntegrationsTab({ tenantId }: IntegrationsTabProps) {
     const { data: ssoConfig, isLoading: isLoadingSSOConfig } = useSSOConfig(tenantId);
     const { data: hrmsConfig, isLoading: isLoadingHRMSConfig } = useHRMSConfig(tenantId);
     const { data: erpConfig, isLoading: isLoadingERPConfig } = useERPConfig(tenantId);
-    const { data: communicationConfigs, isLoading: isLoadingCommunication } = useCommunicationConfigs(tenantId);
 
     // Integration mutations
     const createApiKeyMutation = useCreateApiKey(tenantId);
@@ -105,13 +97,6 @@ export function IntegrationsTab({ tenantId }: IntegrationsTabProps) {
     const createERPConfigMutation = useCreateERPConfig(tenantId);
     const updateERPConfigMutation = useUpdateERPConfig(tenantId);
     const triggerERPExportMutation = useTriggerERPExport(tenantId);
-    const createCommunicationConfigMutation = useCreateCommunicationConfig(tenantId);
-    const updateCommunicationConfigMutation = useUpdateCommunicationConfig(tenantId);
-    const testCommunicationMutation = useTestCommunication(tenantId);
-
-    // Find specific communication configs
-    const slackConfig = communicationConfigs?.find(c => c.provider === 'slack');
-    const teamsConfig = communicationConfigs?.find(c => c.provider === 'teams');
 
     // Form states
     const [newApiKeyForm, setNewApiKeyForm] = useState({ name: '', permissions: ['read'] as string[] });
@@ -122,10 +107,6 @@ export function IntegrationsTab({ tenantId }: IntegrationsTabProps) {
     const [hrmsForm, setHRMSForm] = useState<any>({ provider: 'workday', api_url: '', sync_frequency: 'daily' });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [erpForm, setERPForm] = useState<any>({ provider: 'sap', api_url: '', export_frequency: 'daily' });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [slackForm, setSlackForm] = useState<any>({ provider: 'slack', slack_bot_token: '', slack_channel_id: '', notify_on_claim_submitted: true, notify_on_claim_approved: true, notify_on_claim_rejected: true });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [teamsForm, setTeamsForm] = useState<any>({ provider: 'teams', teams_webhook_url: '', teams_channel_id: '', notify_on_claim_submitted: true, notify_on_claim_approved: true, notify_on_claim_rejected: true });
 
     // Modal states
     const [showNewApiKeyModal, setShowNewApiKeyModal] = useState(false);
@@ -800,250 +781,6 @@ export function IntegrationsTab({ tenantId }: IntegrationsTabProps) {
                                 )}
                             </div>
                         </div>
-                    )}
-                </CardContent>
-            </Card>
-
-            {/* Communication Integrations Card */}
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <MessageSquare className="h-5 w-5" />
-                        Communication Integrations
-                    </CardTitle>
-                    <CardDescription>
-                        Send claim notifications to Slack or Microsoft Teams channels
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    {isLoadingCommunication ? (
-                        <div className="flex items-center justify-center py-4">
-                            <Loader2 className="h-5 w-5 animate-spin" />
-                        </div>
-                    ) : (
-                        <>
-                            {/* Slack Integration */}
-                            <div className="space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 bg-[#4A154B] rounded flex items-center justify-center">
-                                            <span className="text-white font-bold text-sm">#</span>
-                                        </div>
-                                        <div className="space-y-0.5">
-                                            <Label>Slack</Label>
-                                            <p className="text-sm text-muted-foreground">
-                                                Post notifications to Slack channels
-                                            </p>
-                                        </div>
-                                    </div>
-                                    {slackConfig && (
-                                        <Badge variant={slackConfig.is_active ? "default" : "secondary"}>
-                                            {slackConfig.is_active ? 'Active' : 'Inactive'}
-                                        </Badge>
-                                    )}
-                                </div>
-                                <div className="space-y-4 p-4 border rounded-md bg-muted/30 ml-11">
-                                    <div className="space-y-2">
-                                        <Label>Webhook URL</Label>
-                                        <Input
-                                            placeholder="https://hooks.slack.com/services/..."
-                                            value={slackForm.slack_bot_token || slackConfig?.slack_workspace_id || ''}
-                                            onChange={(e) => setSlackForm({ ...slackForm, webhook_url: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>Default Channel</Label>
-                                        <Input
-                                            placeholder="#expense-notifications"
-                                            value={slackForm.slack_channel_id || slackConfig?.slack_channel_id || ''}
-                                            onChange={(e) => setSlackForm({ ...slackForm, default_channel: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="space-y-3">
-                                        <Label>Notification Events</Label>
-                                        <div className="flex items-center gap-2">
-                                            <Switch
-                                                checked={slackForm.notify_on_claim_submitted ?? slackConfig?.notify_on_claim_submitted ?? true}
-                                                onCheckedChange={(checked) => setSlackForm({ ...slackForm, notify_on_new_claim: checked })}
-                                            />
-                                            <Label className="font-normal">New claim submitted</Label>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Switch
-                                                checked={slackForm.notify_on_claim_approved ?? slackConfig?.notify_on_claim_approved ?? true}
-                                                onCheckedChange={(checked) => setSlackForm({ ...slackForm, notify_on_approval: checked })}
-                                            />
-                                            <Label className="font-normal">Claim approved</Label>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Switch
-                                                checked={slackForm.notify_on_claim_rejected ?? slackConfig?.notify_on_claim_rejected ?? true}
-                                                onCheckedChange={(checked) => setSlackForm({ ...slackForm, notify_on_rejection: checked })}
-                                            />
-                                            <Label className="font-normal">Claim rejected</Label>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => {
-                                                if (slackConfig) {
-                                                    updateCommunicationConfigMutation.mutate(
-                                                        { provider: 'slack', data: slackForm },
-                                                        {
-                                                            onSuccess: () => toast.success('Slack configuration updated'),
-                                                            onError: () => toast.error('Failed to update Slack configuration'),
-                                                        }
-                                                    );
-                                                } else {
-                                                    createCommunicationConfigMutation.mutate(
-                                                        { ...slackForm, provider: 'slack' } as CommunicationConfigCreate,
-                                                        {
-                                                            onSuccess: () => toast.success('Slack configuration created'),
-                                                            onError: () => toast.error('Failed to create Slack configuration'),
-                                                        }
-                                                    );
-                                                }
-                                            }}
-                                            disabled={updateCommunicationConfigMutation.isPending || createCommunicationConfigMutation.isPending}
-                                        >
-                                            {(updateCommunicationConfigMutation.isPending || createCommunicationConfigMutation.isPending) ? (
-                                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                                            ) : (
-                                                <Save className="h-4 w-4 mr-2" />
-                                            )}
-                                            Save
-                                        </Button>
-                                        {slackConfig && (
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="gap-2"
-                                                onClick={() => {
-                                                    testCommunicationMutation.mutate('slack', {
-                                                        onSuccess: () => toast.success('Test message sent to Slack'),
-                                                        onError: () => toast.error('Failed to send test message'),
-                                                    });
-                                                }}
-                                                disabled={testCommunicationMutation.isPending}
-                                            >
-                                                {testCommunicationMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                                                Test
-                                            </Button>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <Separator />
-
-                            {/* Microsoft Teams Integration */}
-                            <div className="space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 bg-[#6264A7] rounded flex items-center justify-center">
-                                            <span className="text-white font-bold text-sm">T</span>
-                                        </div>
-                                        <div className="space-y-0.5">
-                                            <Label>Microsoft Teams</Label>
-                                            <p className="text-sm text-muted-foreground">
-                                                Post notifications to Teams channels
-                                            </p>
-                                        </div>
-                                    </div>
-                                    {teamsConfig && (
-                                        <Badge variant={teamsConfig.is_active ? "default" : "secondary"}>
-                                            {teamsConfig.is_active ? 'Active' : 'Inactive'}
-                                        </Badge>
-                                    )}
-                                </div>
-                                <div className="space-y-4 p-4 border rounded-md bg-muted/30 ml-11">
-                                    <div className="space-y-2">
-                                        <Label>Incoming Webhook URL</Label>
-                                        <Input
-                                            placeholder="https://outlook.office.com/webhook/..."
-                                            value={teamsForm.teams_webhook_url || teamsConfig?.teams_channel_id || ''}
-                                            onChange={(e) => setTeamsForm({ ...teamsForm, webhook_url: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="space-y-3">
-                                        <Label>Notification Events</Label>
-                                        <div className="flex items-center gap-2">
-                                            <Switch
-                                                checked={teamsForm.notify_on_claim_submitted ?? teamsConfig?.notify_on_claim_submitted ?? true}
-                                                onCheckedChange={(checked) => setTeamsForm({ ...teamsForm, notify_on_new_claim: checked })}
-                                            />
-                                            <Label className="font-normal">New claim submitted</Label>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Switch
-                                                checked={teamsForm.notify_on_claim_approved ?? teamsConfig?.notify_on_claim_approved ?? true}
-                                                onCheckedChange={(checked) => setTeamsForm({ ...teamsForm, notify_on_approval: checked })}
-                                            />
-                                            <Label className="font-normal">Claim approved</Label>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Switch
-                                                checked={teamsForm.notify_on_claim_rejected ?? teamsConfig?.notify_on_claim_rejected ?? true}
-                                                onCheckedChange={(checked) => setTeamsForm({ ...teamsForm, notify_on_rejection: checked })}
-                                            />
-                                            <Label className="font-normal">Claim rejected</Label>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => {
-                                                if (teamsConfig) {
-                                                    updateCommunicationConfigMutation.mutate(
-                                                        { provider: 'teams', data: teamsForm },
-                                                        {
-                                                            onSuccess: () => toast.success('Teams configuration updated'),
-                                                            onError: () => toast.error('Failed to update Teams configuration'),
-                                                        }
-                                                    );
-                                                } else {
-                                                    createCommunicationConfigMutation.mutate(
-                                                        { ...teamsForm, provider: 'teams' } as CommunicationConfigCreate,
-                                                        {
-                                                            onSuccess: () => toast.success('Teams configuration created'),
-                                                            onError: () => toast.error('Failed to create Teams configuration'),
-                                                        }
-                                                    );
-                                                }
-                                            }}
-                                            disabled={updateCommunicationConfigMutation.isPending || createCommunicationConfigMutation.isPending}
-                                        >
-                                            {(updateCommunicationConfigMutation.isPending || createCommunicationConfigMutation.isPending) ? (
-                                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                                            ) : (
-                                                <Save className="h-4 w-4 mr-2" />
-                                            )}
-                                            Save
-                                        </Button>
-                                        {teamsConfig && (
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="gap-2"
-                                                onClick={() => {
-                                                    testCommunicationMutation.mutate('teams', {
-                                                        onSuccess: () => toast.success('Test message sent to Teams'),
-                                                        onError: () => toast.error('Failed to send test message'),
-                                                    });
-                                                }}
-                                                disabled={testCommunicationMutation.isPending}
-                                            >
-                                                {testCommunicationMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                                                Test
-                                            </Button>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </>
                     )}
                 </CardContent>
             </Card>
