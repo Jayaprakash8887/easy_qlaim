@@ -308,11 +308,26 @@ export default function ClaimDetails() {
     if (!claim) return;
     setIsHrEditing(true);
     // Initialize edited fields with current claim values
-    // Find matching category from options (compare case-insensitively)
+    // Find matching category from options (compare case-insensitively with flexible matching)
     const claimCategory = claim.category?.toLowerCase() || '';
-    const matchedCategory = categoryOptions.find(
-      opt => opt.value === claimCategory || opt.categoryCode.toLowerCase() === claimCategory
-    );
+    const claimCategoryNormalized = claimCategory.replace(/[_\-\s]+/g, ''); // Remove separators for fuzzy matching
+    
+    const matchedCategory = categoryOptions.find(opt => {
+      const optValue = opt.value.toLowerCase();
+      const optCode = opt.categoryCode.toLowerCase();
+      const optValueNormalized = optValue.replace(/[_\-\s]+/g, '');
+      const optCodeNormalized = optCode.replace(/[_\-\s]+/g, '');
+      
+      // Exact match
+      if (optValue === claimCategory || optCode === claimCategory) return true;
+      // Normalized match (ignore underscores, hyphens, spaces)
+      if (optValueNormalized === claimCategoryNormalized || optCodeNormalized === claimCategoryNormalized) return true;
+      // Partial match - if one contains the other
+      if (claimCategoryNormalized && (optCodeNormalized.includes(claimCategoryNormalized) || claimCategoryNormalized.includes(optCodeNormalized))) return true;
+      
+      return false;
+    });
+    
     setEditedFields({
       amount: claim.amount,
       vendor: claim.vendor || '',
