@@ -237,12 +237,87 @@ In addition to auto-approval based on confidence scores, the system supports **A
 # Result: Specific person's claims skip manager and HR
 ```
 
+### Priority Resolution
+
+When multiple rules could match an employee, the system uses the following resolution:
+
+| Priority | Order | Example |
+|----------|-------|---------|
+| 1 | Highest (checked first) | CEO Full Skip |
+| 10 | High | VP Manager Skip |
+| 100 | Default | General rules |
+
+**If two rules have the same priority:**
+- Rules are sorted alphabetically by `rule_name`
+- This ensures deterministic behavior
+
+**First Match Wins:**
+- Once a rule matches, no further rules are evaluated
+- The matched rule's skip configuration is applied
+
+### Integration with Auto-Approval Rules
+
+**Important:** Skip Rules and Auto-Approval Rules serve different purposes and are evaluated at different stages:
+
+| Feature | Skip Rules | Auto-Approval Rules |
+|---------|------------|---------------------|
+| **Based On** | Employee designation/email | AI confidence score |
+| **Evaluated At** | Claim creation | After AI validation |
+| **Purpose** | CXO/Executive fast-track | High-confidence automation |
+| **Checks** | Designation, amount threshold | Confidence, policy, amount |
+
+**Conflict Resolution (Priority Order):**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    APPROVAL ROUTING PRIORITY ORDER                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. APPROVAL SKIP RULES (Highest Priority)                                  │
+│     │                                                                       │
+│     └── If skip rule was applied at claim creation:                         │
+│         ├── Respect the skip configuration                                   │
+│         ├── Check for policy violations (may override to PENDING_HR)        │
+│         └── Return status based on skip levels                               │
+│                                                                              │
+│  2. AUTO-APPROVAL RULES (Only if no skip rules applied)                     │
+│     │                                                                       │
+│     └── Evaluate AI confidence and amount thresholds:                       │
+│         ├── If ALL conditions met → FINANCE_APPROVED                        │
+│         └── Otherwise → Continue to step 3                                  │
+│                                                                              │
+│  3. POLICY EXCEPTIONS                                                       │
+│     │                                                                       │
+│     └── If policy violations exist → PENDING_HR                             │
+│                                                                              │
+│  4. CONFIDENCE CHECK                                                        │
+│     │                                                                       │
+│     └── If confidence < 60% → REJECTED                                      │
+│                                                                              │
+│  5. DEFAULT                                                                 │
+│     │                                                                       │
+│     └── PENDING_MANAGER                                                     │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Scenarios:**
+
+| Employee | Claim | Skip Rule | AI Confidence | Result |
+|----------|-------|-----------|---------------|--------|
+| CEO | ₹50,000 | CXO Fast Track (skip all) | 85% | `PENDING_FINANCE` ✓ |
+| CEO | ₹50,000 with policy violation | CXO Fast Track | 85% | `PENDING_HR` (violations override) |
+| Regular | ₹1,000 | None | 98% | `FINANCE_APPROVED` (auto-approval) |
+| Regular | ₹1,000 | None | 75% | `PENDING_MANAGER` |
+| VP | ₹100,000 | VP Skip (limit ₹50k) | 95% | `FINANCE_APPROVED` (auto-approval, skip rule limit exceeded) |
+
 ### Integration with Standard Routing
 
 1. **Skip rules are checked FIRST** before any standard routing logic
 2. If no skip rule matches, standard routing (Section 4.1/4.2) applies
 3. Skip rules **do not** bypass AI validation or fraud detection
 4. All skipped approvals are logged for audit compliance
+5. **Policy violations can override skip rules** to ensure compliance
 
 ### Database Table
 
