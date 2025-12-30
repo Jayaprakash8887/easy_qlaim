@@ -29,6 +29,7 @@ const Departments = lazy(() => import('./pages/Departments'));
 const Policies = lazy(() => import('./pages/Policies'));
 const ClaimManagement = lazy(() => import('./pages/ClaimManagement'));
 const RegionManagement = lazy(() => import('./pages/RegionManagement'));
+const ApprovalRules = lazy(() => import('./pages/ApprovalRules'));
 const Settlements = lazy(() => import('./pages/Settlements'));
 const SettlementsPending = lazy(() => import('./pages/SettlementsPending'));
 const SettlementsCompleted = lazy(() => import('./pages/SettlementsCompleted'));
@@ -242,6 +243,16 @@ const App = () => (
                   <Suspense fallback={<PageLoader />}>
                     <ProtectedRoute allowedRoles={['admin']}>
                       <ClaimManagement />
+                    </ProtectedRoute>
+                  </Suspense>
+                }
+              />
+              <Route
+                path="/approval-rules"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <ApprovalRules />
                     </ProtectedRoute>
                   </Suspense>
                 }

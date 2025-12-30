@@ -13,7 +13,6 @@ import {
   Upload,
   Trash2,
   Info,
-  ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +20,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { Slider } from '@/components/ui/slider';
 import {
   Select,
   SelectContent,
@@ -30,35 +28,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
 import { toast as sonnerToast } from 'sonner';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
-import { ApprovalSkipRulesManager } from '@/components/ApprovalSkipRulesManager';
 import {
   useTenantBranding,
   useUploadBrandingFile,
@@ -72,12 +51,6 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 // Types
 interface GeneralSettings {
-  auto_approval: boolean;
-  enable_auto_approval: boolean;
-  auto_skip_after_manager: boolean;
-  auto_approval_threshold: number;
-  max_auto_approval_amount: number;
-  policy_compliance_threshold: number;
   default_currency: string;
   fiscal_year_start: string;
   email_notifications: boolean;
@@ -362,12 +335,6 @@ export default function Settings() {
 
   // Local state for form
   const [formData, setFormData] = useState<GeneralSettings>({
-    auto_approval: true,
-    enable_auto_approval: true,
-    auto_skip_after_manager: true,
-    auto_approval_threshold: 95,
-    max_auto_approval_amount: 5000,
-    policy_compliance_threshold: 80,
     default_currency: 'inr',
     fiscal_year_start: 'apr',
     email_notifications: true,
@@ -528,14 +495,10 @@ export default function Settings() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-lg grid-cols-3">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
           <TabsTrigger value="general" className="flex items-center gap-2">
             <SettingsIcon className="h-4 w-4" />
             General Settings
-          </TabsTrigger>
-          <TabsTrigger value="approvals" className="flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4" />
-            Approval Rules
           </TabsTrigger>
           <TabsTrigger value="branding" className="flex items-center gap-2">
             <Palette className="h-4 w-4" />
@@ -583,116 +546,6 @@ export default function Settings() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Auto-Approval</Label>
-                <p className="text-sm text-muted-foreground">
-                  Automatically approve claims that meet threshold criteria
-                </p>
-              </div>
-              <Switch
-                checked={formData.auto_approval}
-                onCheckedChange={(checked) => handleChange('auto_approval', checked)}
-              />
-            </div>
-            {formData.auto_approval && (
-              <>
-                <div className="space-y-3 pl-4 border-l-2 border-muted">
-                  {/* Admin Toggle for Enable/Disable Auto-Approval Feature */}
-                  <div className="flex items-center justify-between bg-amber-50 dark:bg-amber-900/20 p-3 rounded-md">
-                    <div className="space-y-0.5">
-                      <Label className="flex items-center gap-2">
-                        <Shield className="h-4 w-4 text-amber-600" />
-                        Enable Auto-Approval Feature (Admin)
-                      </Label>
-                      <p className="text-sm text-muted-foreground">
-                        Master switch to enable/disable all auto-approval functionality
-                      </p>
-                    </div>
-                    <Switch
-                      checked={formData.enable_auto_approval}
-                      onCheckedChange={(checked) => handleChange('enable_auto_approval', checked)}
-                    />
-                  </div>
-                  {formData.enable_auto_approval && (
-                    <>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <Label>AI Confidence Threshold</Label>
-                          <span className="text-sm font-medium">{formData.auto_approval_threshold}%</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          Minimum AI confidence score required for auto-approval
-                        </p>
-                        <Slider
-                          value={[formData.auto_approval_threshold]}
-                          onValueChange={(value) => handleChange('auto_approval_threshold', value[0])}
-                          min={50}
-                          max={100}
-                          step={5}
-                          className="w-full"
-                        />
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>50%</span>
-                          <span>75%</span>
-                          <span>100%</span>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Maximum Auto-Approval Amount</Label>
-                        <p className="text-sm text-muted-foreground">
-                          Claims above this amount require manual approval
-                        </p>
-                        <Input
-                          type="number"
-                          value={formData.max_auto_approval_amount}
-                          onChange={(e) => handleChange('max_auto_approval_amount', parseFloat(e.target.value) || 0)}
-                          className="w-[200px]"
-                        />
-                      </div>
-                      <Separator />
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Label>Policy Compliance Threshold</Label>
-                          <span className="text-sm font-medium">{formData.policy_compliance_threshold}%</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          Minimum AI confidence score for policy compliance. Claims must meet both this AND the AI Confidence Threshold for auto-approval.
-                        </p>
-                        <Slider
-                          value={[formData.policy_compliance_threshold]}
-                          onValueChange={(value) => handleChange('policy_compliance_threshold', value[0])}
-                          min={50}
-                          max={100}
-                          step={5}
-                          className="w-full"
-                        />
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>50%</span>
-                          <span>75%</span>
-                          <span>100%</span>
-                        </div>
-                      </div>
-                      <Separator />
-                      {/* Auto-Skip HR/Finance Toggle */}
-                      <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
-                        <div className="space-y-0.5">
-                          <Label>Auto-Skip HR/Finance After Manager Approval</Label>
-                          <p className="text-sm text-muted-foreground">
-                            When enabled, claims that pass manager approval will skip HR and Finance review if confidence and amount thresholds are met
-                          </p>
-                        </div>
-                        <Switch
-                          checked={formData.auto_skip_after_manager}
-                          onCheckedChange={(checked) => handleChange('auto_skip_after_manager', checked)}
-                        />
-                      </div>
-                    </>
-                  )}
-                </div>
-              </>
-            )}
-            <Separator />
             <div className="space-y-2">
               <Label>Default Currency</Label>
               <Select

@@ -19,6 +19,7 @@ import {
   Building2,
   Briefcase,
   Globe,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -54,6 +55,7 @@ const iconMap: Record<string, LucideIcon> = {
   Building2,
   Briefcase,
   Globe,
+  ShieldCheck,
 };
 
 interface SidebarProps {
