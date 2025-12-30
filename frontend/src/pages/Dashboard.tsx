@@ -6,7 +6,7 @@ import { RecentActivity } from '@/components/dashboard/RecentActivity';
 import { AISuggestionsCard } from '@/components/dashboard/AISuggestionsCard';
 import { AllowanceOverviewCards, AllowancePolicyAlerts } from '@/components/dashboard/AllowanceWidgets';
 import { useAuth } from '@/contexts/AuthContext';
-import { useDashboardSummary, useClaimsByStatus, useHRMetrics, useAdminStats } from '@/hooks/useDashboard';
+import { useDashboardSummary, useClaimsByStatus, useHRMetrics, useAdminStats, useFinanceMetrics } from '@/hooks/useDashboard';
 import { useFormatting } from '@/hooks/useFormatting';
 import { useTenants, useDesignations } from '@/hooks/useSystemAdmin';
 import { useEmployees } from '@/hooks/useEmployees';
@@ -343,13 +343,18 @@ function HRDashboard({ userName, employeeId, tenantId }: { userName: string; emp
 function FinanceDashboard({ userName, employeeId, tenantId }: { userName: string; employeeId: string; tenantId?: string }) {
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(undefined, tenantId);
   const { data: claimsByStatus, isLoading: statusLoading } = useClaimsByStatus(undefined, tenantId);
+  const { data: financeMetrics, isLoading: financeLoading } = useFinanceMetrics(tenantId);
   const { formatCurrency } = useFormatting();
 
   const financePending = claimsByStatus?.find(c => c.status === 'PENDING_FINANCE')?.count || 0;
-  const approved = claimsByStatus?.find(c => c.status === 'FINANCE_APPROVED')?.count || 0;
-  const totalAmount = summary?.total_amount_claimed || 0;
+  const approvedUnpaidAmount = financeMetrics?.ready_for_settlement?.amount || 0;
+  const settledAmount = financeMetrics?.settled_this_period?.amount || 0;
+  const totalAmount = financeMetrics?.total_this_period?.amount || summary?.total_amount_claimed || 0;
+  
+  // Calculate budget utilization based on settled vs total
+  const budgetUtilization = totalAmount > 0 ? Math.round((settledAmount / totalAmount) * 100) : 0;
 
-  if (summaryLoading || statusLoading) {
+  if (summaryLoading || statusLoading || financeLoading) {
     return (
       <div className="space-y-8">
         <div>
@@ -391,20 +396,20 @@ function FinanceDashboard({ userName, employeeId, tenantId }: { userName: string
         />
         <SummaryCard
           title="Approved (Unpaid)"
-          value={formatCurrency(totalAmount * 0.68)}
+          value={formatCurrency(approvedUnpaidAmount)}
           icon={DollarSign}
           variant="default"
         />
         <SummaryCard
           title="Paid This Month"
-          value={formatCurrency(totalAmount)}
+          value={formatCurrency(settledAmount)}
           trend={{ value: 22, isPositive: true }}
           icon={CheckCircle}
           variant="approved"
         />
         <SummaryCard
           title="Budget Utilization"
-          value="68%"
+          value={`${budgetUtilization}%`}
           trend={{ value: 12, isPositive: true }}
           icon={TrendingUp}
           variant="total"
