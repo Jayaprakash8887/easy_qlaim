@@ -1239,12 +1239,13 @@ Authorization: Bearer {token}
 Content-Type: application/json
 
 {
-    "provider": "teams",
+    "provider": "microsoft_teams",
     "teams_tenant_id": "your-teams-tenant-id",
     "teams_webhook_url": "https://outlook.office.com/webhook/...",
     "teams_channel_id": "19:abc123@thread.tacv2",
     "notify_on_claim_submitted": true,
     "notify_on_claim_approved": true,
+    "notify_on_claim_rejected": true,
     "is_active": true
 }
 ```
@@ -1258,4 +1259,4 @@ Authorization: Bearer {token}
 
 ---
 
-*Document Version: 1.2 | Last Updated: December 2025*
+*Document Version: 1.3 | Last Updated: December 2025*

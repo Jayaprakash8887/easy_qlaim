@@ -653,6 +653,52 @@ FINANCE_APPROVED ──▶ Process Payment ──▶ Enter Reference ──▶ S
 - SAML/OIDC protocols
 - Automatic user provisioning
 
+### 13.4 Communication Integrations (Slack/Teams)
+
+Real-time notifications to team communication channels when claim events occur.
+
+**Supported Providers:**
+| Provider | Webhook Types | Notes |
+|----------|---------------|-------|
+| Slack | Incoming Webhooks | Standard Slack webhook URL |
+| Microsoft Teams | Office 365 Connector, Power Automate | Supports both direct webhooks and Power Automate workflows |
+
+**Notification Events:**
+| Event | Description | Notification Content |
+|-------|-------------|---------------------|
+| Claim Submitted | New claim submitted | Claim #, employee, amount, category |
+| Claim Approved | Claim approved by approver | Claim #, employee, amount, approved by |
+| Claim Rejected | Claim rejected | Claim #, employee, amount, rejected by, reason |
+| Claim Settled | Payment processed | Claim #, employee, amount, payment date |
+
+**Configuration:**
+
+**Navigation:** Admin Dashboard → Settings → Communication Integrations tab
+
+| Field | Description |
+|-------|-------------|
+| Provider | Select Slack or Microsoft Teams |
+| Webhook URL | Incoming webhook URL from your chat platform |
+| Channel Name | Display name for the channel (reference only) |
+| Notify on Submitted | Enable notifications when claims are submitted |
+| Notify on Approved | Enable notifications when claims are approved |
+| Notify on Rejected | Enable notifications when claims are rejected |
+| Enable Integration | Master toggle to activate/deactivate notifications |
+
+**Teams Power Automate Support:**
+The system automatically detects Microsoft Power Automate webhook URLs and sends notifications in Adaptive Card format, which provides rich formatting in Teams channels.
+
+**Example Teams Notification:**
+```
+🟢 Claim Approved
+━━━━━━━━━━━━━━━━━━━━━━
+Claim #: CLM-2025-0042
+Employee: John Doe
+Amount: ₹5,000.00
+Category: Certification
+Approved by: Jane Manager
+```
+
 ---
 
 ## 14. Mobile Responsiveness
@@ -814,9 +860,33 @@ Manage notification preferences:
 - Email notifications enable/disable
 - System notification email address
 - Reminder frequency
-- Integration webhooks (Slack, etc.)
 
-### 15.7 Branding Settings
+### 15.7 Communication Integrations
+
+**Navigation:** Admin Dashboard → Settings → Communication Integrations tab
+
+Configure Slack or Microsoft Teams to receive real-time claim notifications:
+
+| Setting | Description |
+|---------|-------------|
+| Provider | Slack or Microsoft Teams |
+| Webhook URL | Your platform's incoming webhook URL |
+| Channel Name | Channel identifier (for display) |
+| Notification Events | Select which events trigger notifications |
+| Enable Integration | Toggle to activate/deactivate |
+
+**Setup Steps:**
+1. Create an incoming webhook in Slack or Teams (or Power Automate workflow)
+2. Copy the webhook URL
+3. Navigate to Settings → Communication Integrations
+4. Select your provider and paste the webhook URL
+5. Enable desired notification events
+6. Toggle "Enable Integration" ON
+7. Click Save, then Test to verify
+
+**Note:** Test button sends a sample notification to verify the webhook is working correctly.
+
+### 15.8 Branding Settings
 
 Admin users can customize the application appearance for their tenant:
 
@@ -871,4 +941,4 @@ All actions are logged:
 
 ---
 
-*Document Version: 1.1 | Last Updated: December 2025*
+*Document Version: 1.2 | Last Updated: December 2025*
