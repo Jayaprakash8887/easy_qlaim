@@ -39,6 +39,12 @@ def get_approval_skip_for_employee(
     Check if any approval skip rules apply to the given employee.
     Returns which approval levels should be skipped.
     
+    Priority Logic:
+    - Rules are sorted by priority (lower number = higher priority, checked first)
+    - If two rules have the same priority, they are sorted by rule_name alphabetically
+    - The FIRST matching rule wins and is applied
+    - If an employee matches multiple rules, only the highest priority rule is used
+    
     Args:
         db: Database session
         tenant_id: Tenant UUID
@@ -50,13 +56,15 @@ def get_approval_skip_for_employee(
     Returns:
         ApprovalSkipResult with which levels to skip and reason
     """
-    # Get all active rules for this tenant, ordered by priority
+    # Get all active rules for this tenant, ordered by priority (then by name for deterministic order)
     rules = db.query(ApprovalSkipRule).filter(
         and_(
             ApprovalSkipRule.tenant_id == tenant_id,
             ApprovalSkipRule.is_active == True
         )
-    ).order_by(ApprovalSkipRule.priority).all()
+    ).order_by(ApprovalSkipRule.priority, ApprovalSkipRule.rule_name).all()
+    
+    logger.debug(f"Evaluating {len(rules)} skip rules for employee '{employee_email}' (designation: {employee_designation}, amount: {claim_amount})")
     
     for rule in rules:
         # Check if rule applies to this employee
