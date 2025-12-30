@@ -6,7 +6,7 @@ import { RecentActivity } from '@/components/dashboard/RecentActivity';
 import { AISuggestionsCard } from '@/components/dashboard/AISuggestionsCard';
 import { AllowanceOverviewCards, AllowancePolicyAlerts } from '@/components/dashboard/AllowanceWidgets';
 import { useAuth } from '@/contexts/AuthContext';
-import { useDashboardSummary, useClaimsByStatus, useHRMetrics, useAdminStats, useFinanceMetrics } from '@/hooks/useDashboard';
+import { useDashboardSummary, useClaimsByStatus, useHRMetrics, useAdminStats, useFinanceMetrics, usePendingApprovals } from '@/hooks/useDashboard';
 import { useFormatting } from '@/hooks/useFormatting';
 import { useTenants, useDesignations } from '@/hooks/useSystemAdmin';
 import { useEmployees } from '@/hooks/useEmployees';
@@ -239,10 +239,9 @@ function ManagerDashboard({ userName, employeeId, tenantId }: { userName: string
   );
 }
 
-// HR Dashboard - Company-wide employee claims
-function HRDashboard({ userName, employeeId, tenantId }: { userName: string; employeeId: string; tenantId?: string }) {
+// HR Dashboard - Company-wide employee claims (tenant-wide statistics)
+function HRDashboard({ userName, tenantId }: { userName: string; tenantId?: string }) {
   const { data: hrMetrics, isLoading: hrMetricsLoading } = useHRMetrics(tenantId);
-  const { data: claimsByStatus, isLoading: statusLoading } = useClaimsByStatus(undefined, tenantId);
   const { formatCurrency } = useFormatting();
 
   const hrPending = hrMetrics?.hr_pending || 0;
@@ -250,7 +249,7 @@ function HRDashboard({ userName, employeeId, tenantId }: { userName: string; emp
   const activeClaims = hrMetrics?.active_claims || 0;
   const monthlyValue = hrMetrics?.monthly_claims_value || 0;
 
-  if (hrMetricsLoading || statusLoading) {
+  if (hrMetricsLoading) {
     return (
       <div className="space-y-8">
         <div>
@@ -339,22 +338,21 @@ function HRDashboard({ userName, employeeId, tenantId }: { userName: string; emp
   );
 }
 
-// Finance Dashboard - Payment processing and budgets
-function FinanceDashboard({ userName, employeeId, tenantId }: { userName: string; employeeId: string; tenantId?: string }) {
-  const { data: summary, isLoading: summaryLoading } = useDashboardSummary(undefined, tenantId);
-  const { data: claimsByStatus, isLoading: statusLoading } = useClaimsByStatus(undefined, tenantId);
+// Finance Dashboard - Payment processing and budgets (tenant-wide statistics)
+function FinanceDashboard({ userName, tenantId }: { userName: string; tenantId?: string }) {
+  const { data: pendingApprovals, isLoading: approvalsLoading } = usePendingApprovals(tenantId);
   const { data: financeMetrics, isLoading: financeLoading } = useFinanceMetrics(tenantId);
   const { formatCurrency } = useFormatting();
 
-  const financePending = claimsByStatus?.find(c => c.status === 'PENDING_FINANCE')?.count || 0;
+  const financePending = pendingApprovals?.finance_pending || 0;
   const approvedUnpaidAmount = financeMetrics?.ready_for_settlement?.amount || 0;
   const settledAmount = financeMetrics?.settled_this_period?.amount || 0;
-  const totalAmount = financeMetrics?.total_this_period?.amount || summary?.total_amount_claimed || 0;
+  const totalAmount = financeMetrics?.total_this_period?.amount || 0;
   
   // Calculate budget utilization based on settled vs total
   const budgetUtilization = totalAmount > 0 ? Math.round((settledAmount / totalAmount) * 100) : 0;
 
-  if (summaryLoading || statusLoading || financeLoading) {
+  if (approvalsLoading || financeLoading) {
     return (
       <div className="space-y-8">
         <div>
@@ -740,9 +738,9 @@ export default function Dashboard() {
     case 'manager':
       return <ManagerDashboard userName={userName} employeeId={employeeId} tenantId={tenantId} />;
     case 'hr':
-      return <HRDashboard userName={userName} employeeId={employeeId} tenantId={tenantId} />;
+      return <HRDashboard userName={userName} tenantId={tenantId} />;
     case 'finance':
-      return <FinanceDashboard userName={userName} employeeId={employeeId} tenantId={tenantId} />;
+      return <FinanceDashboard userName={userName} tenantId={tenantId} />;
     case 'admin':
       return <AdminDashboard userName={userName} employeeId={employeeId} tenantId={tenantId} />;
     case 'employee':
