@@ -876,11 +876,6 @@ export default function Settings() {
           </div>
         </TabsContent>
 
-        {/* Approval Rules Tab */}
-        <TabsContent value="approvals" className="space-y-4 mt-6">
-          <ApprovalSkipRulesManager />
-        </TabsContent>
-
         {/* Branding Settings Tab */}
         <TabsContent value="branding" className="space-y-4 mt-6">
           {/* Save/Cancel buttons for branding */}
