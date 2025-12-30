@@ -1381,7 +1381,7 @@ export default function ClaimDetails() {
           </DialogHeader>
           <div className="py-4">
             <Textarea
-              placeholder={actionDialog.action === 'return' ? 'Instructions for correction...' : 'Add a comment (optional)...'}
+              placeholder={actionDialog.action === 'return' ? 'Instructions for correction...' : actionDialog.action === 'reject' ? 'Reason for rejection (required)...' : 'Add a comment (optional)...'}
               value={actionComment}
               onChange={(e) => setActionComment(e.target.value)}
               rows={3}
@@ -1394,7 +1394,7 @@ export default function ClaimDetails() {
             <Button
               variant={actionDialog.action === 'reject' ? 'destructive' : actionDialog.action === 'return' ? 'outline' : 'default'}
               onClick={confirmAction}
-              disabled={actionDialog.action === 'return' && actionComment.length < 10}
+              disabled={(actionDialog.action === 'return' || actionDialog.action === 'reject') && actionComment.trim().length < 10}
             >
               {actionDialog.action === 'approve' && 'Confirm Approve'}
               {actionDialog.action === 'reject' && 'Confirm Reject'}
