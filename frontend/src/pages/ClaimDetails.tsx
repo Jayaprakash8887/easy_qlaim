@@ -315,8 +315,10 @@ export default function ClaimDetails() {
     const matchedCategory = categoryOptions.find(opt => {
       const optValue = opt.value.toLowerCase();
       const optCode = opt.categoryCode.toLowerCase();
+      const optLabel = opt.label.toLowerCase();
       const optValueNormalized = optValue.replace(/[_\-\s]+/g, '');
       const optCodeNormalized = optCode.replace(/[_\-\s]+/g, '');
+      const optLabelNormalized = optLabel.replace(/[_\-\s()\/]+/g, '');
       
       // Exact match
       if (optValue === claimCategory || optCode === claimCategory) return true;
@@ -324,6 +326,11 @@ export default function ClaimDetails() {
       if (optValueNormalized === claimCategoryNormalized || optCodeNormalized === claimCategoryNormalized) return true;
       // Partial match - if one contains the other
       if (claimCategoryNormalized && (optCodeNormalized.includes(claimCategoryNormalized) || claimCategoryNormalized.includes(optCodeNormalized))) return true;
+      // Match by label - check if claim category words appear in label
+      if (claimCategoryNormalized && optLabelNormalized.includes(claimCategoryNormalized)) return true;
+      // Match specific patterns like "conveyance_auto" -> "conveyance allowance (auto/taxi...)"
+      const claimParts = claimCategory.split('_').filter(p => p.length > 2);
+      if (claimParts.length > 0 && claimParts.every(part => optLabelNormalized.includes(part))) return true;
       
       return false;
     });
