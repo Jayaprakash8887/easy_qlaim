@@ -584,6 +584,8 @@ class HREdit(BaseModel):
     """Schema for HR editing claim fields"""
     amount: Optional[float] = Field(None, gt=0)
     description: Optional[str] = None
+    category: Optional[str] = None
+    project_code: Optional[str] = None
     claim_payload: Optional[Dict[str, Any]] = None
     hr_edited_fields: List[str] = []  # List of field names edited by HR
 

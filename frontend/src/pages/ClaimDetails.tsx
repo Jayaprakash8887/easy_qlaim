@@ -49,10 +49,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ClaimStatusBadge } from '@/components/claims/ClaimStatusBadge';
 import { useClaim, useClaims } from '@/hooks/useClaims';
 import { useDocuments, getDocumentViewUrl, getDocumentDownloadUrl, useDocumentSignedUrl } from '@/hooks/useDocuments';
 import { useComments, useCreateComment } from '@/hooks/useComments';
+import { useProjects } from '@/hooks/useProjects';
+import { useReimbursementsByRegion } from '@/hooks/usePolicies';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFormatting } from '@/hooks/useFormatting';
 import { toast } from '@/hooks/use-toast';
@@ -85,6 +94,21 @@ export default function ClaimDetails() {
   const { data: documents = [], isLoading: documentsLoading } = useDocuments(id || '');
   const { data: comments = [], isLoading: commentsLoading } = useComments(id || '');
   const createCommentMutation = useCreateComment();
+  
+  // Fetch projects and categories for HR editing
+  const { data: projects = [] } = useProjects();
+  const { data: reimbursementCategories = [] } = useReimbursementsByRegion(user?.region);
+  
+  // Create category options with 'Other' at the end
+  const categoryOptions = useMemo(() => {
+    const apiCategories = reimbursementCategories.map(cat => ({
+      value: cat.category_code.toLowerCase(),
+      label: cat.category_name,
+      categoryCode: cat.category_code,
+    }));
+    // Add 'Other' category at the end
+    return [...apiCategories, { value: 'other', label: 'Other', categoryCode: 'OTHER' }];
+  }, [reimbursementCategories]);
 
   // Fetch all claims for navigation (only for approvers)
   const { data: allClaims = [] } = useClaims();
@@ -288,6 +312,8 @@ export default function ClaimDetails() {
       vendor: claim.vendor || '',
       description: claim.description || '',
       transactionRef: claim.transactionRef || '',
+      category: claim.category?.toLowerCase() || 'other',
+      projectCode: claim.projectCode || '',
     });
     setHrEditedFields(new Set());
   };
@@ -339,6 +365,16 @@ export default function ClaimDetails() {
       }
       if (hrEditedFields.has('description')) {
         payloadUpdate.description_source = 'hr';
+      }
+      if (hrEditedFields.has('category')) {
+        // Find the category code from the selected value
+        const selectedCategory = categoryOptions.find(c => c.value === editedFields.category);
+        updatePayload.category = selectedCategory?.categoryCode || editedFields.category?.toUpperCase();
+        payloadUpdate.category_source = 'hr';
+      }
+      if (hrEditedFields.has('projectCode')) {
+        updatePayload.project_code = editedFields.projectCode || null;
+        payloadUpdate.project_code_source = 'hr';
       }
 
       if (Object.keys(payloadUpdate).length > 0) {
@@ -646,17 +682,70 @@ export default function ClaimDetails() {
                     <div>
                       <p className="text-sm text-muted-foreground">Category</p>
                       <div className="flex items-center gap-2 mt-1">
-                        <Badge variant="outline">
-                          {formatCategory(typeof claim.category === 'string' ? claim.category : claim.category?.name || 'Other')}
-                        </Badge>
-                        {getDataSourceBadge(claim.dataSource?.category || 'manual')}
+                        {isHrEditing ? (
+                          <div className={cn(
+                            "flex items-center gap-2 w-full",
+                            hrEditedFields.has('category') && "bg-purple-50 dark:bg-purple-900/20 rounded-md p-1 -m-1"
+                          )}>
+                            <Select
+                              value={editedFields.category || 'other'}
+                              onValueChange={(value) => handleHrFieldChange('category', value)}
+                            >
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Select category" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {categoryOptions.map((cat) => (
+                                  <SelectItem key={cat.value} value={cat.value}>
+                                    {cat.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {hrEditedFields.has('category') && getDataSourceBadge('hr')}
+                          </div>
+                        ) : (
+                          <>
+                            <Badge variant="outline">
+                              {formatCategory(typeof claim.category === 'string' ? claim.category : claim.category?.name || 'Other')}
+                            </Badge>
+                            {getDataSourceBadge(claim.dataSource?.category || 'manual')}
+                          </>
+                        )}
                       </div>
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground">Project</p>
                       <div className="flex items-center gap-2 mt-1">
-                        <p className="font-medium">{claim.projectName || claim.projectCode || 'N/A'}</p>
-                        {getDataSourceBadge('manual')}
+                        {isHrEditing ? (
+                          <div className={cn(
+                            "flex items-center gap-2 w-full",
+                            hrEditedFields.has('projectCode') && "bg-purple-50 dark:bg-purple-900/20 rounded-md p-1 -m-1"
+                          )}>
+                            <Select
+                              value={editedFields.projectCode || '_none_'}
+                              onValueChange={(value) => handleHrFieldChange('projectCode', value === '_none_' ? '' : value)}
+                            >
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Select project" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="_none_">No Project</SelectItem>
+                                {projects.map((proj) => (
+                                  <SelectItem key={proj.project_code} value={proj.project_code}>
+                                    {proj.project_name} ({proj.project_code})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {hrEditedFields.has('projectCode') && getDataSourceBadge('hr')}
+                          </div>
+                        ) : (
+                          <>
+                            <p className="font-medium">{claim.projectName || claim.projectCode || 'N/A'}</p>
+                            {getDataSourceBadge('manual')}
+                          </>
+                        )}
                       </div>
                     </div>
                     <div>

@@ -1270,6 +1270,10 @@ async def hr_edit_claim(
         claim.amount = hr_edit.amount
     if hr_edit.description is not None:
         claim.description = hr_edit.description
+    if hr_edit.category is not None:
+        claim.category = hr_edit.category
+    if hr_edit.project_code is not None:
+        claim.project_code = hr_edit.project_code if hr_edit.project_code else None
     
     # Update claim_payload with HR edits and source tracking
     if hr_edit.claim_payload is not None:
@@ -1290,6 +1294,8 @@ async def hr_edit_claim(
             'transactionRef': 'transaction_ref_source',
             'transaction_ref': 'transaction_ref_source',
             'payment_method': 'payment_method_source',
+            'projectCode': 'project_code_source',
+            'project_code': 'project_code_source',
         }
         
         for field in hr_edit.hr_edited_fields:
