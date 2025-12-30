@@ -561,6 +561,7 @@ class CategoryCacheService:
         Build optimized category list for LLM prompt.
         
         Format is concise to minimize tokens while being clear.
+        Includes keywords to help LLM match expenses to categories.
         """
         if not categories:
             return self._get_default_categories_prompt()
@@ -571,12 +572,39 @@ class CategoryCacheService:
             line = f"- {cat.code}: {cat.name}"
             if cat.max_amount:
                 line += f" (max: ₹{cat.max_amount:,.0f})"
+            
+            # Add keyword hints for better matching
+            name_lower = cat.name.lower()
+            keywords = []
+            
+            if 'certification' in name_lower or 'cert' in cat.code.lower():
+                keywords.extend(['coursera', 'udemy', 'linkedin learning', 'google certificate', 'aws certification', 'azure certification', 'pmp', 'scrum', 'exam fee', 'certification fee'])
+            if 'training' in name_lower or 'train' in cat.code.lower():
+                keywords.extend(['workshop', 'course', 'bootcamp', 'training program', 'learning platform', 'online course', 'specialization'])
+            if 'conference' in name_lower or 'seminar' in name_lower:
+                keywords.extend(['tech conference', 'summit', 'meetup', 'webinar', 'symposium'])
+            if 'membership' in name_lower:
+                keywords.extend(['professional body', 'ieee', 'acm', 'association', 'annual membership'])
+            if 'travel' in name_lower or 'conveyance' in name_lower:
+                keywords.extend(['ola', 'uber', 'rapido', 'cab', 'taxi', 'ride', 'commute'])
+            if 'toll' in name_lower or 'parking' in name_lower:
+                keywords.extend(['fastag', 'toll plaza', 'parking fee', 'parking ticket'])
+            if 'fuel' in name_lower or 'diesel' in name_lower:
+                keywords.extend(['petrol', 'diesel', 'fuel station', 'hp', 'indian oil', 'bharat petroleum'])
+            if 'airport' in name_lower or 'airfare' in name_lower:
+                keywords.extend(['flight', 'airline', 'indigo', 'air india', 'vistara', 'spicejet'])
+            if 'visa' in name_lower or 'passport' in name_lower:
+                keywords.extend(['vfs', 'embassy', 'consulate', 'immigration'])
+            
+            if keywords:
+                line += f" [keywords: {', '.join(keywords[:5])}]"
+            
             lines.append(line)
         
         # Always add 'other' as fallback
         lines.append("- other: Other expenses (use when no category matches)")
         
-        lines.append("\nIMPORTANT: Use ONLY the category codes listed above. If the expense doesn't match any category, use 'other'.")
+        lines.append("\nIMPORTANT: Use ONLY the category codes listed above. Match the expense to the most appropriate category based on the vendor, description, and keywords. If the expense doesn't clearly match any category, use 'other'.")
         
         return "\n".join(lines)
     
