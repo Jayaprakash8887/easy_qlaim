@@ -146,7 +146,8 @@ export default function ClaimDetails() {
     }
   };
 
-  const showNavigation = currentQueueIndex >= 0 && pendingClaimsQueue.length > 0;
+  // Show navigation if there are pending claims in the queue (even if current claim is not in queue)
+  const showNavigation = pendingClaimsQueue.length > 0 && ['manager', 'hr', 'finance', 'admin'].includes(user?.role || '');
 
   // Refetch claim data on window focus to ensure fresh status
   useEffect(() => {
@@ -483,19 +484,29 @@ export default function ClaimDetails() {
               size="icon"
               className="h-8 w-8"
               onClick={() => navigateToClaim('prev')}
-              disabled={currentQueueIndex === 0}
+              disabled={currentQueueIndex <= 0}
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <span className="text-sm text-muted-foreground px-2 min-w-[50px] text-center">
-              {currentQueueIndex + 1} / {pendingClaimsQueue.length}
+              {currentQueueIndex >= 0 
+                ? `${currentQueueIndex + 1} / ${pendingClaimsQueue.length}`
+                : `${pendingClaimsQueue.length} pending`
+              }
             </span>
             <Button
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={() => navigateToClaim('next')}
-              disabled={currentQueueIndex === pendingClaimsQueue.length - 1}
+              onClick={() => {
+                // If current claim is not in queue, go to first pending claim
+                if (currentQueueIndex < 0 && pendingClaimsQueue.length > 0) {
+                  navigate(`/claims/${pendingClaimsQueue[0].id}`);
+                } else {
+                  navigateToClaim('next');
+                }
+              }}
+              disabled={currentQueueIndex >= 0 && currentQueueIndex === pendingClaimsQueue.length - 1}
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
