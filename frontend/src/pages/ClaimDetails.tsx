@@ -732,8 +732,8 @@ export default function ClaimDetails() {
                               <SelectContent>
                                 <SelectItem value="_none_">No Project</SelectItem>
                                 {projects.map((proj) => (
-                                  <SelectItem key={proj.project_code} value={proj.project_code}>
-                                    {proj.project_name} ({proj.project_code})
+                                  <SelectItem key={proj.code} value={proj.code}>
+                                    {proj.name} ({proj.code})
                                   </SelectItem>
                                 ))}
                               </SelectContent>
