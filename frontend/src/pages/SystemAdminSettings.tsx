@@ -9,14 +9,12 @@ import {
     Users,
     Building2,
     Activity,
-    Plug,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { useTenants, useDesignations } from '@/hooks/useSystemAdmin';
 import { useQuery } from '@tanstack/react-query';
-import { useIntegrationsOverview } from '@/hooks/useIntegrations';
 
 // Import extracted tab components
 import {
@@ -24,7 +22,6 @@ import {
     SecurityTab,
     EmailTab,
     DatabaseTab,
-    IntegrationsTab,
     SystemInfo,
     PlatformSettings,
     DEFAULT_PLATFORM_SETTINGS,
@@ -45,10 +42,6 @@ async function fetchSystemInfo(): Promise<SystemInfo> {
 }
 
 export default function SystemAdminSettings() {
-    // Platform Tenant ID - used for system-wide settings (not tenant-specific)
-    // This is a special "virtual" tenant that holds platform-level configurations
-    const PLATFORM_TENANT_ID = '00000000-0000-0000-0000-000000000000';
-
     // Shared state for platform settings (if needed across tabs)
     const [platformSettings, setPlatformSettings] = useState<PlatformSettings>(DEFAULT_PLATFORM_SETTINGS);
 
@@ -62,12 +55,6 @@ export default function SystemAdminSettings() {
         queryFn: fetchSystemInfo,
         staleTime: 30000,
     });
-
-    // Integrations overview for stats
-    const { data: integrationsOverview } = useIntegrationsOverview(PLATFORM_TENANT_ID);
-
-    // Calculate stats
-    const activeIntegrations = integrationsOverview?.active_integrations || 0;
 
     return (
         <div className="space-y-6 p-6">
@@ -89,7 +76,7 @@ export default function SystemAdminSettings() {
             </div>
 
             {/* Stats Overview */}
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-3">
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Active Tenants</CardTitle>
@@ -122,16 +109,6 @@ export default function SystemAdminSettings() {
                         <p className="text-xs text-muted-foreground">Job titles configured</p>
                     </CardContent>
                 </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Integrations</CardTitle>
-                        <Plug className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{activeIntegrations}</div>
-                        <p className="text-xs text-muted-foreground">Active connections</p>
-                    </CardContent>
-                </Card>
             </div>
 
             {/* Settings Tabs */}
@@ -148,10 +125,6 @@ export default function SystemAdminSettings() {
                     <TabsTrigger value="email" className="gap-2">
                         <Mail className="h-4 w-4" />
                         Email
-                    </TabsTrigger>
-                    <TabsTrigger value="integrations" className="gap-2">
-                        <Plug className="h-4 w-4" />
-                        Integrations
                     </TabsTrigger>
                     <TabsTrigger value="database" className="gap-2">
                         <Database className="h-4 w-4" />
@@ -178,11 +151,6 @@ export default function SystemAdminSettings() {
                 {/* Email Settings Tab */}
                 <TabsContent value="email">
                     <EmailTab />
-                </TabsContent>
-
-                {/* Integrations Tab */}
-                <TabsContent value="integrations">
-                    <IntegrationsTab tenantId={PLATFORM_TENANT_ID} />
                 </TabsContent>
 
                 {/* Database Settings Tab */}
