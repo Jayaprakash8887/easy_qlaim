@@ -47,7 +47,7 @@ import {
   useUpdateBrandingSettings,
   BrandingFileSpec,
 } from '@/hooks/useSystemAdmin';
-import { CommunicationIntegrations } from '@/components/settings/CommunicationIntegrations';
+import { TenantIntegrations } from '@/components/settings/TenantIntegrations';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -884,7 +884,7 @@ export default function Settings() {
 
         {/* Integrations Tab */}
         <TabsContent value="integrations" className="space-y-4 mt-6">
-          <CommunicationIntegrations tenantId={user?.tenant_id || ''} />
+          <TenantIntegrations tenantId={user?.tenant_id || ''} />
         </TabsContent>
 
         {/* Branding Settings Tab */}
