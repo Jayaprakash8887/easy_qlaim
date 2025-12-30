@@ -308,12 +308,17 @@ export default function ClaimDetails() {
     if (!claim) return;
     setIsHrEditing(true);
     // Initialize edited fields with current claim values
+    // Find matching category from options (compare case-insensitively)
+    const claimCategory = claim.category?.toLowerCase() || '';
+    const matchedCategory = categoryOptions.find(
+      opt => opt.value === claimCategory || opt.categoryCode.toLowerCase() === claimCategory
+    );
     setEditedFields({
       amount: claim.amount,
       vendor: claim.vendor || '',
       description: claim.description || '',
       transactionRef: claim.transactionRef || '',
-      category: claim.category?.toLowerCase() || 'other',
+      category: matchedCategory?.value || 'other',
       projectCode: claim.projectCode || '',
     });
     setHrEditedFields(new Set());
