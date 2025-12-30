@@ -38,7 +38,7 @@ export function AppLayout() {
           !isMobile && (sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64')
         )}
       >
-        <div className="container mx-auto p-6">
+        <div className="container mx-auto px-6 py-4">
           <Breadcrumbs />
           <Outlet />
         </div>
