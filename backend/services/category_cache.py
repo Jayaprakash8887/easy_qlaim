@@ -561,7 +561,7 @@ class CategoryCacheService:
         Build optimized category list for LLM prompt.
         
         Format is concise to minimize tokens while being clear.
-        Includes keywords to help LLM match expenses to categories.
+        Includes descriptions and keywords to help LLM match expenses to categories.
         """
         if not categories:
             return self._get_default_categories_prompt()
@@ -573,31 +573,49 @@ class CategoryCacheService:
             if cat.max_amount:
                 line += f" (max: ₹{cat.max_amount:,.0f})"
             
+            # Add description if available - this helps LLM understand the category better
+            if cat.description:
+                # Truncate long descriptions to keep prompt concise
+                desc = cat.description.strip()
+                if len(desc) > 150:
+                    desc = desc[:147] + "..."
+                line += f"\n    Description: {desc}"
+            
             # Add keyword hints for better matching
             name_lower = cat.name.lower()
+            desc_lower = (cat.description or "").lower()
             keywords = []
             
-            if 'certification' in name_lower or 'cert' in cat.code.lower():
-                keywords.extend(['coursera', 'udemy', 'linkedin learning', 'google certificate', 'aws certification', 'azure certification', 'pmp', 'scrum', 'exam fee', 'certification fee'])
-            if 'training' in name_lower or 'train' in cat.code.lower():
-                keywords.extend(['workshop', 'course', 'bootcamp', 'training program', 'learning platform', 'online course', 'specialization'])
-            if 'conference' in name_lower or 'seminar' in name_lower:
+            # Check both name and description for keyword category matching
+            combined_text = f"{name_lower} {desc_lower}"
+            
+            if 'certification' in combined_text or 'cert' in cat.code.lower() or 'professional development' in combined_text:
+                keywords.extend(['coursera', 'udemy', 'linkedin learning', 'google certificate', 'aws certification', 'azure certification', 'pmp', 'scrum', 'exam fee', 'certification fee', 'professional course'])
+            if 'training' in combined_text or 'train' in cat.code.lower() or 'learning' in combined_text or 'skill' in combined_text:
+                keywords.extend(['workshop', 'course', 'bootcamp', 'training program', 'learning platform', 'online course', 'specialization', 'upskilling'])
+            if 'conference' in combined_text or 'seminar' in combined_text or 'event' in combined_text:
                 keywords.extend(['tech conference', 'summit', 'meetup', 'webinar', 'symposium'])
-            if 'membership' in name_lower:
+            if 'membership' in combined_text or 'subscription' in combined_text:
                 keywords.extend(['professional body', 'ieee', 'acm', 'association', 'annual membership'])
-            if 'travel' in name_lower or 'conveyance' in name_lower:
+            if 'travel' in combined_text or 'conveyance' in combined_text or 'transport' in combined_text:
                 keywords.extend(['ola', 'uber', 'rapido', 'cab', 'taxi', 'ride', 'commute'])
-            if 'toll' in name_lower or 'parking' in name_lower:
+            if 'toll' in combined_text or 'parking' in combined_text:
                 keywords.extend(['fastag', 'toll plaza', 'parking fee', 'parking ticket'])
-            if 'fuel' in name_lower or 'diesel' in name_lower:
+            if 'fuel' in combined_text or 'diesel' in combined_text or 'petrol' in combined_text:
                 keywords.extend(['petrol', 'diesel', 'fuel station', 'hp', 'indian oil', 'bharat petroleum'])
-            if 'airport' in name_lower or 'airfare' in name_lower:
+            if 'airport' in combined_text or 'airfare' in combined_text or 'flight' in combined_text:
                 keywords.extend(['flight', 'airline', 'indigo', 'air india', 'vistara', 'spicejet'])
-            if 'visa' in name_lower or 'passport' in name_lower:
+            if 'visa' in combined_text or 'passport' in combined_text:
                 keywords.extend(['vfs', 'embassy', 'consulate', 'immigration'])
+            if 'book' in combined_text or 'publication' in combined_text or 'journal' in combined_text:
+                keywords.extend(['technical book', 'o\'reilly', 'safari books', 'academic journal', 'research paper'])
+            if 'equipment' in combined_text or 'hardware' in combined_text:
+                keywords.extend(['laptop', 'monitor', 'keyboard', 'mouse', 'headphone', 'webcam'])
+            if 'software' in combined_text or 'license' in combined_text:
+                keywords.extend(['jetbrains', 'github', 'adobe', 'microsoft 365', 'slack', 'figma'])
             
             if keywords:
-                line += f" [keywords: {', '.join(keywords[:5])}]"
+                line += f"\n    Keywords: {', '.join(keywords[:8])}"
             
             lines.append(line)
         
