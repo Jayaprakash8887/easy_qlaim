@@ -140,9 +140,10 @@ async function fetchPendingApprovals(tenantId?: string, userId?: string, role?: 
 }
 
 // Hooks
-export function useDashboardSummary(employeeId?: string, tenantId?: string) {
+export function useDashboardSummary(employeeId?: string | null, tenantId?: string) {
   const { user } = useAuth();
-  const effectiveEmployeeId = employeeId || user?.id;
+  // Pass null to skip employee filtering, undefined will default to current user
+  const effectiveEmployeeId = employeeId === null ? undefined : (employeeId || user?.id);
   const effectiveTenantId = tenantId || user?.tenantId;
 
   return useQuery({
@@ -154,9 +155,10 @@ export function useDashboardSummary(employeeId?: string, tenantId?: string) {
   });
 }
 
-export function useClaimsByStatus(employeeId?: string, tenantId?: string) {
+export function useClaimsByStatus(employeeId?: string | null, tenantId?: string) {
   const { user } = useAuth();
-  const effectiveEmployeeId = employeeId || user?.id;
+  // Pass null to skip employee filtering, undefined will default to current user
+  const effectiveEmployeeId = employeeId === null ? undefined : (employeeId || user?.id);
   const effectiveTenantId = tenantId || user?.tenantId;
 
   return useQuery({

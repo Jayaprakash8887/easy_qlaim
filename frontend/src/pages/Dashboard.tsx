@@ -140,19 +140,20 @@ function EmployeeDashboard({ userName, employeeId, tenantId }: { userName: strin
 
 // Manager Dashboard - Team oversight and approvals
 function ManagerDashboard({ userName, employeeId, tenantId }: { userName: string; employeeId: string; tenantId?: string }) {
-  const { data: summary, isLoading: summaryLoading } = useDashboardSummary(undefined, tenantId);
-  const { data: claimsByStatus, isLoading: statusLoading } = useClaimsByStatus(undefined, tenantId);
+  const { data: pendingApprovalsData, isLoading: approvalsLoading } = usePendingApprovals(tenantId);
   const { data: employees, isLoading: employeesLoading } = useEmployees();
   const { formatCurrency } = useFormatting();
 
   // Count direct reports (employees where manager_id = current employeeId)
   const teamMemberCount = employees?.filter(emp => emp.managerId === employeeId).length || 0;
 
-  const pendingApprovals = claimsByStatus?.find(c => c.status === 'PENDING_MANAGER')?.count || 0;
-  const teamClaimsThisMonth = summary?.approved_this_month || 0;
-  const teamSpending = summary?.total_amount_claimed || 0;
+  // Get manager's pending approvals (claims from their direct reports)
+  const pendingApprovals = pendingApprovalsData?.manager_pending || 0;
+  // Calculate team claims this month from direct reports
+  const teamClaimsThisMonth = employees?.filter(emp => emp.managerId === employeeId).length || 0;
+  const teamSpending = 0; // TODO: Add proper team spending calculation
 
-  if (summaryLoading || statusLoading || employeesLoading) {
+  if (approvalsLoading || employeesLoading) {
     return (
       <div className="space-y-8">
         <div>
@@ -439,18 +440,17 @@ function FinanceDashboard({ userName, tenantId }: { userName: string; tenantId?:
   );
 }
 
-// Admin Dashboard - System overview and all metrics
-function AdminDashboard({ userName, employeeId, tenantId }: { userName: string; employeeId: string; tenantId?: string }) {
-  const { data: summary, isLoading: summaryLoading } = useDashboardSummary(undefined, tenantId);
-  const { data: claimsByStatus, isLoading: statusLoading } = useClaimsByStatus(undefined, tenantId);
+// Admin Dashboard - System overview and all metrics (tenant-wide statistics)
+function AdminDashboard({ userName, tenantId }: { userName: string; tenantId?: string }) {
   const { data: adminStats, isLoading: adminStatsLoading } = useAdminStats(tenantId);
+  const { data: pendingApprovals, isLoading: approvalsLoading } = usePendingApprovals(tenantId);
   const { formatCurrency } = useFormatting();
 
-  const totalClaims = summary?.total_claims || 0;
-  const pendingTotal = summary?.pending_claims || 0;
-  const financePending = claimsByStatus?.find(c => c.status === 'PENDING_FINANCE')?.count || 0;
+  const totalClaims = adminStats?.total_claims || 0;
+  const pendingTotal = pendingApprovals?.total_pending || 0;
+  const financePending = pendingApprovals?.finance_pending || 0;
 
-  if (summaryLoading || statusLoading || adminStatsLoading) {
+  if (adminStatsLoading || approvalsLoading) {
     return (
       <div className="space-y-8">
         <div>
@@ -742,7 +742,7 @@ export default function Dashboard() {
     case 'finance':
       return <FinanceDashboard userName={userName} tenantId={tenantId} />;
     case 'admin':
-      return <AdminDashboard userName={userName} employeeId={employeeId} tenantId={tenantId} />;
+      return <AdminDashboard userName={userName} tenantId={tenantId} />;
     case 'employee':
     default:
       return <EmployeeDashboard userName={userName} employeeId={employeeId} tenantId={tenantId} />;

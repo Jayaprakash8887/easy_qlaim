@@ -87,7 +87,7 @@ export default function Reports() {
   const { data: claimsTrend, isLoading: loadingTrend } = useClaimsTrend(undefined, dateRange);
   const { data: expenseBreakdown, isLoading: loadingBreakdown } = useExpenseBreakdown(undefined, period);
   const { data: topClaimants, isLoading: loadingClaimants } = useTopClaimants(undefined, 10, period);
-  const { data: claimsByStatus } = useClaimsByStatus();
+  const { data: claimsByStatus } = useClaimsByStatus(null); // Pass null to get tenant-wide data
 
   // Handle export
   const handleExport = () => {
