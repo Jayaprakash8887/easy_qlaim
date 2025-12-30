@@ -1272,18 +1272,24 @@ async def hr_edit_claim(
         claim.description = hr_edit.description
     if hr_edit.category is not None:
         claim.category = hr_edit.category
-    if hr_edit.project_code is not None:
-        claim.project_code = hr_edit.project_code if hr_edit.project_code else None
     
     # Update claim_payload with HR edits and source tracking
+    payload = dict(claim.claim_payload or {})
+    payload_modified = False
+    
+    # Handle project_code - stored in claim_payload
+    if hr_edit.project_code is not None:
+        payload['project_code'] = hr_edit.project_code if hr_edit.project_code else None
+        payload_modified = True
+    
     if hr_edit.claim_payload is not None:
-        payload = dict(claim.claim_payload or {})
-        
         # Merge the new payload data
         for key, value in hr_edit.claim_payload.items():
             payload[key] = value
-        
-        # Update source fields for HR-edited fields
+        payload_modified = True
+    
+    # Update source fields for HR-edited fields
+    if hr_edit.hr_edited_fields:
         source_field_map = {
             'amount': 'amount_source',
             'date': 'date_source',
@@ -1302,7 +1308,9 @@ async def hr_edit_claim(
             source_key = source_field_map.get(field)
             if source_key:
                 payload[source_key] = 'hr'
-        
+                payload_modified = True
+    
+    if payload_modified:
         claim.claim_payload = payload
         flag_modified(claim, 'claim_payload')
     
