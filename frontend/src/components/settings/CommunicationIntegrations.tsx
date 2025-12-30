@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
     MessageSquare,
     Loader2,
@@ -55,6 +55,7 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
         notify_on_claim_submitted: true,
         notify_on_claim_approved: true,
         notify_on_claim_rejected: true,
+        is_active: true,
     });
 
     const [teamsForm, setTeamsForm] = useState({
@@ -64,6 +65,7 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
         notify_on_claim_submitted: true,
         notify_on_claim_approved: true,
         notify_on_claim_rejected: true,
+        is_active: true,
     });
 
     // Initialize forms when configs load
@@ -76,6 +78,7 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
                 notify_on_claim_submitted: slackConfig.notify_on_claim_submitted ?? true,
                 notify_on_claim_approved: slackConfig.notify_on_claim_approved ?? true,
                 notify_on_claim_rejected: slackConfig.notify_on_claim_rejected ?? true,
+                is_active: slackConfig.is_active ?? true,
             });
         }
     }, [slackConfig]);
@@ -84,14 +87,46 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
         if (teamsConfig) {
             setTeamsForm({
                 provider: 'microsoft_teams',
-                teams_webhook_url: teamsConfig.teams_tenant_id || '', // webhook URL stored here
+                teams_webhook_url: teamsConfig.teams_webhook_url || '',
                 teams_channel_id: teamsConfig.teams_channel_id || '',
                 notify_on_claim_submitted: teamsConfig.notify_on_claim_submitted ?? true,
                 notify_on_claim_approved: teamsConfig.notify_on_claim_approved ?? true,
                 notify_on_claim_rejected: teamsConfig.notify_on_claim_rejected ?? true,
+                is_active: teamsConfig.is_active ?? true,
             });
         }
     }, [teamsConfig]);
+
+    // Track if forms have unsaved changes
+    const hasSlackChanges = useMemo(() => {
+        if (!slackConfig) {
+            // For new config, check if any field has been filled
+            return slackForm.webhook_url !== '' || slackForm.slack_channel_id !== '';
+        }
+        return (
+            slackForm.webhook_url !== (slackConfig.slack_workspace_id || '') ||
+            slackForm.slack_channel_id !== (slackConfig.slack_channel_id || '') ||
+            slackForm.notify_on_claim_submitted !== slackConfig.notify_on_claim_submitted ||
+            slackForm.notify_on_claim_approved !== slackConfig.notify_on_claim_approved ||
+            slackForm.notify_on_claim_rejected !== slackConfig.notify_on_claim_rejected ||
+            slackForm.is_active !== slackConfig.is_active
+        );
+    }, [slackForm, slackConfig]);
+
+    const hasTeamsChanges = useMemo(() => {
+        if (!teamsConfig) {
+            // For new config, check if any field has been filled
+            return teamsForm.teams_webhook_url !== '' || teamsForm.teams_channel_id !== '';
+        }
+        return (
+            teamsForm.teams_webhook_url !== (teamsConfig.teams_webhook_url || '') ||
+            teamsForm.teams_channel_id !== (teamsConfig.teams_channel_id || '') ||
+            teamsForm.notify_on_claim_submitted !== teamsConfig.notify_on_claim_submitted ||
+            teamsForm.notify_on_claim_approved !== teamsConfig.notify_on_claim_approved ||
+            teamsForm.notify_on_claim_rejected !== teamsConfig.notify_on_claim_rejected ||
+            teamsForm.is_active !== teamsConfig.is_active
+        );
+    }, [teamsForm, teamsConfig]);
 
     const handleSaveSlack = () => {
         const data = {
@@ -101,7 +136,7 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
             notify_on_claim_submitted: slackForm.notify_on_claim_submitted,
             notify_on_claim_approved: slackForm.notify_on_claim_approved,
             notify_on_claim_rejected: slackForm.notify_on_claim_rejected,
-            is_active: true,
+            is_active: slackForm.is_active,
         };
 
         if (slackConfig) {
@@ -131,7 +166,7 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
             notify_on_claim_submitted: teamsForm.notify_on_claim_submitted,
             notify_on_claim_approved: teamsForm.notify_on_claim_approved,
             notify_on_claim_rejected: teamsForm.notify_on_claim_rejected,
-            is_active: true,
+            is_active: teamsForm.is_active,
         };
 
         if (teamsConfig) {
@@ -232,12 +267,23 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
                                         />
                                     </div>
                                 </div>
+                                <Separator />
+                                <div className="flex items-center justify-between">
+                                    <div className="space-y-0.5">
+                                        <Label>Enable Integration</Label>
+                                        <p className="text-xs text-muted-foreground">Turn on to start receiving notifications</p>
+                                    </div>
+                                    <Switch
+                                        checked={slackForm.is_active}
+                                        onCheckedChange={(checked) => setSlackForm({ ...slackForm, is_active: checked })}
+                                    />
+                                </div>
                                 <div className="flex gap-2">
                                     <Button
                                         size="sm"
                                         className="gap-2"
                                         onClick={handleSaveSlack}
-                                        disabled={createCommunicationConfigMutation.isPending || updateCommunicationConfigMutation.isPending}
+                                        disabled={!hasSlackChanges || createCommunicationConfigMutation.isPending || updateCommunicationConfigMutation.isPending}
                                     >
                                         {(createCommunicationConfigMutation.isPending || updateCommunicationConfigMutation.isPending) ? (
                                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -253,11 +299,17 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
                                             className="gap-2"
                                             onClick={() => {
                                                 testCommunicationMutation.mutate('slack', {
-                                                    onSuccess: () => toast.success('Test message sent to Slack'),
+                                                    onSuccess: (result) => {
+                                                        if (result.success) {
+                                                            toast.success(result.message || 'Test message sent to Slack');
+                                                        } else {
+                                                            toast.error(result.error || 'Failed to send test message');
+                                                        }
+                                                    },
                                                     onError: () => toast.error('Failed to send test message'),
                                                 });
                                             }}
-                                            disabled={testCommunicationMutation.isPending}
+                                            disabled={testCommunicationMutation.isPending || hasSlackChanges || !slackConfig.is_active}
                                         >
                                             {testCommunicationMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                                             Test
@@ -330,12 +382,23 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
                                         />
                                     </div>
                                 </div>
+                                <Separator />
+                                <div className="flex items-center justify-between">
+                                    <div className="space-y-0.5">
+                                        <Label>Enable Integration</Label>
+                                        <p className="text-xs text-muted-foreground">Turn on to start receiving notifications</p>
+                                    </div>
+                                    <Switch
+                                        checked={teamsForm.is_active}
+                                        onCheckedChange={(checked) => setTeamsForm({ ...teamsForm, is_active: checked })}
+                                    />
+                                </div>
                                 <div className="flex gap-2">
                                     <Button
                                         size="sm"
                                         className="gap-2"
                                         onClick={handleSaveTeams}
-                                        disabled={createCommunicationConfigMutation.isPending || updateCommunicationConfigMutation.isPending}
+                                        disabled={!hasTeamsChanges || createCommunicationConfigMutation.isPending || updateCommunicationConfigMutation.isPending}
                                     >
                                         {(createCommunicationConfigMutation.isPending || updateCommunicationConfigMutation.isPending) ? (
                                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -351,11 +414,17 @@ export function CommunicationIntegrations({ tenantId }: CommunicationIntegration
                                             className="gap-2"
                                             onClick={() => {
                                                 testCommunicationMutation.mutate('microsoft_teams', {
-                                                    onSuccess: () => toast.success('Test message sent to Teams'),
+                                                    onSuccess: (result) => {
+                                                        if (result.success) {
+                                                            toast.success(result.message || 'Test message sent to Teams');
+                                                        } else {
+                                                            toast.error(result.error || 'Failed to send test message');
+                                                        }
+                                                    },
                                                     onError: () => toast.error('Failed to send test message'),
                                                 });
                                             }}
-                                            disabled={testCommunicationMutation.isPending}
+                                            disabled={testCommunicationMutation.isPending || hasTeamsChanges || !teamsConfig.is_active}
                                         >
                                             {testCommunicationMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                                             Test

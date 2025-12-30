@@ -241,6 +241,7 @@ export interface CommunicationConfig {
   slack_workspace_id: string | null;
   slack_channel_id: string | null;
   teams_tenant_id: string | null;
+  teams_webhook_url: string | null;
   teams_channel_id: string | null;
   notify_on_claim_submitted: boolean;
   notify_on_claim_approved: boolean;
