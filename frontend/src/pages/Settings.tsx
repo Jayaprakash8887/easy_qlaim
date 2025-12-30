@@ -884,7 +884,7 @@ export default function Settings() {
 
         {/* Integrations Tab */}
         <TabsContent value="integrations" className="space-y-4 mt-6">
-          <TenantIntegrations tenantId={user?.tenant_id || ''} />
+          <TenantIntegrations tenantId={user?.tenantId || ''} />
         </TabsContent>
 
         {/* Branding Settings Tab */}

@@ -82,6 +82,16 @@ interface TenantIntegrationsProps {
 export function TenantIntegrations({ tenantId }: TenantIntegrationsProps) {
     const { formatDate } = useFormatting();
 
+    // Guard: Don't fetch or render if tenantId is not available
+    if (!tenantId) {
+        return (
+            <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-muted-foreground">Loading integrations...</span>
+            </div>
+        );
+    }
+
     // Webhooks
     const { data: webhooks, isLoading: isLoadingWebhooks } = useWebhooks(tenantId);
     const createWebhookMutation = useCreateWebhook(tenantId);

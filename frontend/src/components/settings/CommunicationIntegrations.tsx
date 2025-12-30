@@ -26,6 +26,18 @@ interface CommunicationIntegrationsProps {
 }
 
 export function CommunicationIntegrations({ tenantId }: CommunicationIntegrationsProps) {
+    // Guard: Don't fetch or render if tenantId is not available
+    if (!tenantId) {
+        return (
+            <Card>
+                <CardContent className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    <span className="ml-2 text-muted-foreground">Loading...</span>
+                </CardContent>
+            </Card>
+        );
+    }
+
     const { data: communicationConfigs, isLoading } = useCommunicationConfigs(tenantId);
     const createCommunicationConfigMutation = useCreateCommunicationConfig(tenantId);
     const updateCommunicationConfigMutation = useUpdateCommunicationConfig(tenantId);
