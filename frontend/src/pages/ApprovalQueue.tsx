@@ -94,8 +94,9 @@ export default function ApprovalQueue() {
         case 'confidence':
           return (b.aiConfidence || 0) - (a.aiConfidence || 0);
         default:
-          const aDate = a.submissionDate || new Date();
-          const bDate = b.submissionDate || new Date();
+          // Sort by updated_at (latest modified first) for approval queue
+          const aDate = a.updatedAt ? new Date(a.updatedAt) : (a.submissionDate || new Date());
+          const bDate = b.updatedAt ? new Date(b.updatedAt) : (b.submissionDate || new Date());
           return bDate.getTime() - aDate.getTime();
       }
     });
