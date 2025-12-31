@@ -5,6 +5,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { format as dateFnsFormat, parse } from 'date-fns';
+import { toZonedTime, format as formatTz } from 'date-fns-tz';
 import { useCallback, useMemo } from 'react';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
@@ -33,6 +34,20 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
   aed: 'د.إ',
   sgd: 'S$',
   jpy: '¥',
+};
+
+// Timezone code to IANA timezone mapping
+const TIMEZONE_MAP: Record<string, string> = {
+  'IST': 'Asia/Kolkata',
+  'UTC': 'UTC',
+  'EST': 'America/New_York',
+  'PST': 'America/Los_Angeles',
+  'GMT': 'Europe/London',
+  'CET': 'Europe/Paris',
+  'JST': 'Asia/Tokyo',
+  'AEST': 'Australia/Sydney',
+  'SGT': 'Asia/Singapore',
+  'GST': 'Asia/Dubai',
 };
 
 // Date format mapping from settings to date-fns format strings
@@ -164,8 +179,13 @@ export function useFormatting() {
 
   const currentSettings = settings || DEFAULT_SETTINGS;
 
+  // Get the IANA timezone from settings timezone code
+  const ianaTimezone = useMemo(() => {
+    return TIMEZONE_MAP[currentSettings.timezone] || 'Asia/Kolkata';
+  }, [currentSettings.timezone]);
+
   /**
-   * Format a date according to tenant settings
+   * Format a date according to tenant settings (date only, no timezone conversion needed)
    */
   const formatDate = useCallback((date: Date | string | null | undefined): string => {
     if (!date) return '-';
@@ -175,14 +195,16 @@ export function useFormatting() {
       if (isNaN(dateObj.getTime())) return '-';
       
       const formatStr = DATE_FORMAT_MAP[currentSettings.date_format] || 'dd/MM/yyyy';
-      return dateFnsFormat(dateObj, formatStr);
+      // Convert to tenant timezone for display
+      const zonedDate = toZonedTime(dateObj, ianaTimezone);
+      return dateFnsFormat(zonedDate, formatStr);
     } catch {
       return '-';
     }
-  }, [currentSettings.date_format]);
+  }, [currentSettings.date_format, ianaTimezone]);
 
   /**
-   * Format a date with time according to tenant settings
+   * Format a date with time according to tenant settings and timezone
    */
   const formatDateTime = useCallback((date: Date | string | null | undefined): string => {
     if (!date) return '-';
@@ -192,11 +214,13 @@ export function useFormatting() {
       if (isNaN(dateObj.getTime())) return '-';
       
       const formatStr = DATE_FORMAT_MAP[currentSettings.date_format] || 'dd/MM/yyyy';
-      return dateFnsFormat(dateObj, `${formatStr} HH:mm`);
+      // Convert to tenant timezone for display
+      const zonedDate = toZonedTime(dateObj, ianaTimezone);
+      return dateFnsFormat(zonedDate, `${formatStr} HH:mm`);
     } catch {
       return '-';
     }
-  }, [currentSettings.date_format]);
+  }, [currentSettings.date_format, ianaTimezone]);
 
   /**
    * Format a number according to tenant settings

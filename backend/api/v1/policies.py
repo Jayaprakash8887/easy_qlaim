@@ -901,6 +901,119 @@ async def update_category(
     )
 
 
+@router.delete("/categories/{category_id}")
+async def delete_category(
+    category_id: UUID,
+    background_tasks: BackgroundTasks,
+    tenant_id: str,  # Required - must be provided
+    deleted_by: UUID = None,
+    db: Session = Depends(get_sync_db)
+):
+    """Delete a policy category"""
+    # Validate tenant_id
+    require_tenant_id(tenant_id)
+    tenant_uuid = UUID(tenant_id)
+    
+    category = db.query(PolicyCategory).filter(
+        and_(
+            PolicyCategory.id == category_id,
+            PolicyCategory.tenant_id == tenant_uuid
+        )
+    ).first()
+    
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    # Store info for audit log
+    category_name = category.category_name
+    policy_upload_id = category.policy_upload_id
+    
+    # Get the policy to find its region for cache invalidation
+    policy = db.query(PolicyUpload).filter(PolicyUpload.id == policy_upload_id).first()
+    region = policy.region if policy else None
+    
+    # Delete the category
+    db.delete(category)
+    db.commit()
+    
+    # Log the deletion
+    if deleted_by:
+        log_policy_action(
+            db, tenant_uuid, "POLICY_CATEGORY", category_id, "DELETE",
+            deleted_by, {"category_name": category_name}, None,
+            f"Category deleted: {category_name}"
+        )
+        db.commit()
+    
+    # Invalidate cache in background
+    background_tasks.add_task(_invalidate_policy_cache, policy_upload_id, region)
+    
+    return {"message": f"Category '{category_name}' deleted successfully"}
+
+
+# ==================== POLICY DELETE ENDPOINT ====================
+
+@router.delete("/{policy_id}")
+async def delete_policy(
+    policy_id: UUID,
+    background_tasks: BackgroundTasks,
+    tenant_id: str,  # Required - must be provided
+    deleted_by: UUID = None,
+    db: Session = Depends(get_sync_db)
+):
+    """Delete a policy and all its associated categories"""
+    # Validate tenant_id
+    require_tenant_id(tenant_id)
+    tenant_uuid = UUID(tenant_id)
+    
+    policy = db.query(PolicyUpload).filter(
+        and_(
+            PolicyUpload.id == policy_id,
+            PolicyUpload.tenant_id == tenant_uuid
+        )
+    ).first()
+    
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    
+    # Store info for audit log
+    policy_name = policy.policy_name
+    policy_number = policy.policy_number
+    region = policy.region
+    storage_path = policy.storage_path
+    
+    # Delete associated categories first
+    categories_deleted = db.query(PolicyCategory).filter(
+        PolicyCategory.policy_upload_id == policy_id
+    ).delete(synchronize_session=False)
+    
+    # Delete the policy
+    db.delete(policy)
+    db.commit()
+    
+    # Try to delete the physical file
+    if storage_path and os.path.exists(storage_path):
+        try:
+            os.remove(storage_path)
+            logger.info(f"Deleted policy file: {storage_path}")
+        except Exception as e:
+            logger.warning(f"Failed to delete policy file {storage_path}: {e}")
+    
+    # Log the deletion
+    if deleted_by:
+        log_policy_action(
+            db, tenant_uuid, "POLICY_UPLOAD", policy_id, "DELETE",
+            deleted_by, {"policy_name": policy_name, "policy_number": policy_number}, None,
+            f"Policy deleted: {policy_name} ({policy_number}), {categories_deleted} categories removed"
+        )
+        db.commit()
+    
+    # Invalidate cache in background
+    background_tasks.add_task(_invalidate_policy_cache, policy_id, region)
+    
+    return {"message": f"Policy '{policy_name}' and {categories_deleted} categories deleted successfully"}
+
+
 # ==================== APPROVAL ENDPOINTS ====================
 
 @router.post("/{policy_id}/approve", response_model=PolicyUploadResponse)

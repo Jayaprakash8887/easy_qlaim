@@ -35,6 +35,7 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
 import {
     Loader2,
     AlertCircle,
@@ -43,7 +44,8 @@ import {
     CheckCircle,
     XCircle,
     FileCheck,
-    Search
+    Search,
+    Trash2
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/hooks/use-toast';
@@ -105,6 +107,21 @@ async function updateCategory(id: string, updates: Partial<ExtractedClaim>, tena
     return response.json();
 }
 
+async function deleteCategory(id: string, tenantId: string, deletedBy?: string): Promise<{ message: string }> {
+    const params = new URLSearchParams({ tenant_id: tenantId });
+    if (deletedBy) params.append('deleted_by', deletedBy);
+    const token = localStorage.getItem('access_token');
+    const response = await fetch(`${API_BASE_URL}/policies/categories/${id}?${params.toString()}`, {
+        method: 'DELETE',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(extractErrorMessage(error, 'Failed to delete category'));
+    }
+    return response.json();
+}
+
 function getPolicyStatusBadge(status: string) {
     switch (status) {
         case 'PENDING':
@@ -156,6 +173,8 @@ export default function ClaimManagement() {
     const [selectedCategory, setSelectedCategory] = useState<ExtractedClaim | null>(null);
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [editForm, setEditForm] = useState<Partial<ExtractedClaim>>({});
+    const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+    const [categoryToDelete, setCategoryToDelete] = useState<ExtractedClaim | null>(null);
 
     const { data: claims, isLoading, error } = useQuery({
         queryKey: ['extracted-claims', user?.tenantId],
@@ -179,6 +198,21 @@ export default function ClaimManagement() {
         },
     });
 
+    const deleteMutation = useMutation({
+        mutationFn: (id: string) => deleteCategory(id, user?.tenantId || '', user?.id),
+        onSuccess: () => {
+            toast({ title: 'Success', description: 'Category deleted successfully.' });
+            setIsDeleteOpen(false);
+            setCategoryToDelete(null);
+            queryClient.invalidateQueries({ queryKey: ['extracted-claims'] });
+            queryClient.invalidateQueries({ queryKey: ['policy'] });
+            queryClient.invalidateQueries({ queryKey: ['policies'] });
+        },
+        onError: (error: Error) => {
+            toast({ title: 'Error', description: error.message, variant: 'destructive' });
+        },
+    });
+
     const handleEditClick = (category: ExtractedClaim) => {
         setSelectedCategory(category);
         setEditForm({
@@ -188,6 +222,7 @@ export default function ClaimManagement() {
             max_amount: category.max_amount,
             requires_receipt: category.requires_receipt,
             description: category.description,
+            is_active: category.is_active,
         });
         setIsEditOpen(true);
     };
@@ -274,6 +309,7 @@ export default function ClaimManagement() {
                                 <TableHead>Type</TableHead>
                                 <TableHead>Max Amount</TableHead>
                                 <TableHead>Receipt</TableHead>
+                                <TableHead>Category Status</TableHead>
                                 <TableHead>Policy Status</TableHead>
                                 <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
@@ -314,6 +350,11 @@ export default function ClaimManagement() {
                                         </span>
                                     </TableCell>
                                     <TableCell>
+                                        <Badge variant={claim.is_active ? "default" : "secondary"} className={claim.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}>
+                                            {claim.is_active ? 'Active' : 'Inactive'}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell>
                                         {getPolicyStatusBadge(claim.policy_status)}
                                     </TableCell>
                                     <TableCell className="text-right border-l pl-4">
@@ -325,12 +366,24 @@ export default function ClaimManagement() {
                                         >
                                             <Edit className="h-4 w-4" />
                                         </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => {
+                                                setCategoryToDelete(claim);
+                                                setIsDeleteOpen(true);
+                                            }}
+                                            title="Delete Category"
+                                            className="text-red-500 hover:text-red-700"
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
                                     </TableCell>
                                 </TableRow>
                             ))}
                             {filteredClaims?.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                                         No claims found matching your search.
                                     </TableCell>
                                 </TableRow>
@@ -432,6 +485,29 @@ export default function ClaimManagement() {
                                 className="col-span-3"
                             />
                         </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">
+                                Status
+                            </Label>
+                            <div className="col-span-3 flex items-center space-x-3">
+                                <Switch
+                                    id="is_active"
+                                    checked={editForm.is_active ?? true}
+                                    onCheckedChange={(checked) => setEditForm({ ...editForm, is_active: checked })}
+                                />
+                                <label
+                                    htmlFor="is_active"
+                                    className={`text-sm font-medium leading-none ${editForm.is_active ? 'text-green-600' : 'text-gray-500'}`}
+                                >
+                                    {editForm.is_active ? 'Active' : 'Inactive'}
+                                </label>
+                                {!editForm.is_active && (
+                                    <span className="text-xs text-muted-foreground">
+                                        (Will not appear in claim options)
+                                    </span>
+                                )}
+                            </div>
+                        </div>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsEditOpen(false)}>
@@ -440,6 +516,43 @@ export default function ClaimManagement() {
                         <Button onClick={handleSaveEdit} disabled={updateMutation.isPending}>
                             {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             Save Changes
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete Claim Category</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to delete this claim category? This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {categoryToDelete && (
+                        <div className="py-4">
+                            <div className="rounded-lg border p-4 space-y-2">
+                                <p><span className="font-medium">Category:</span> {categoryToDelete.category_name}</p>
+                                <p><span className="font-medium">Code:</span> {categoryToDelete.category_code}</p>
+                                <p><span className="font-medium">Policy:</span> {categoryToDelete.policy_name}</p>
+                                {categoryToDelete.max_amount && (
+                                    <p><span className="font-medium">Max Amount:</span> ${categoryToDelete.max_amount.toLocaleString()}</p>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsDeleteOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button 
+                            variant="destructive" 
+                            onClick={() => categoryToDelete && deleteMutation.mutate(categoryToDelete.id)}
+                            disabled={deleteMutation.isPending}
+                        >
+                            {deleteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Delete Category
                         </Button>
                     </DialogFooter>
                 </DialogContent>

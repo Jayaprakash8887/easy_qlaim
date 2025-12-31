@@ -124,6 +124,34 @@ export async function uploadNewVersion(id: string, formData: FormData, tenantId:
     return response.json();
 }
 
+export async function deletePolicy(id: string, tenantId: string, deletedBy?: string): Promise<{ message: string }> {
+    const params = new URLSearchParams({ tenant_id: tenantId });
+    if (deletedBy) params.append('deleted_by', deletedBy);
+    const response = await fetch(`${API_BASE_URL}/policies/${id}?${params.toString()}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(extractErrorMessage(error, 'Failed to delete policy'));
+    }
+    return response.json();
+}
+
+export async function deletePolicyCategory(id: string, tenantId: string, deletedBy?: string): Promise<{ message: string }> {
+    const params = new URLSearchParams({ tenant_id: tenantId });
+    if (deletedBy) params.append('deleted_by', deletedBy);
+    const response = await fetch(`${API_BASE_URL}/policies/categories/${id}?${params.toString()}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(extractErrorMessage(error, 'Failed to delete category'));
+    }
+    return response.json();
+}
+
 // Custom Claims API Functions
 export async function fetchCustomClaims(tenantId: string): Promise<CustomClaimListItem[]> {
     const response = await fetch(`${API_BASE_URL}/custom-claims/?tenant_id=${tenantId}`, {

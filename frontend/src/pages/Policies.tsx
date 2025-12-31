@@ -77,6 +77,7 @@ import {
   rejectPolicy,
   reExtractPolicy,
   uploadNewVersion,
+  deletePolicy,
   fetchCustomClaims,
   fetchCustomClaim,
   createCustomClaim,
@@ -123,6 +124,8 @@ export default function Policies() {
   const [isApproveOpen, setIsApproveOpen] = useState(false);
   const [isRejectOpen, setIsRejectOpen] = useState(false);
   const [isNewVersionOpen, setIsNewVersionOpen] = useState(false);
+  const [isDeletePolicyOpen, setIsDeletePolicyOpen] = useState(false);
+  const [policyToDelete, setPolicyToDelete] = useState<PolicyUploadListItem | null>(null);
   const [selectedPolicyId, setSelectedPolicyId] = useState<string | null>(null);
   const [selectedPolicyName, setSelectedPolicyName] = useState<string>('');
   const [regionFilter, setRegionFilter] = useState<string>('');
@@ -276,6 +279,20 @@ export default function Policies() {
     onSuccess: () => {
       toast({ title: 'Success', description: 'Re-extraction started. Refresh in a moment.' });
       queryClient.invalidateQueries({ queryKey: ['policies'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const deletePolicyMutation = useMutation({
+    mutationFn: (id: string) => deletePolicy(id, user?.tenantId || '', user?.id),
+    onSuccess: () => {
+      toast({ title: 'Success', description: 'Policy deleted successfully.' });
+      setIsDeletePolicyOpen(false);
+      setPolicyToDelete(null);
+      queryClient.invalidateQueries({ queryKey: ['policies'] });
+      queryClient.invalidateQueries({ queryKey: ['extracted-claims'] });
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -872,6 +889,18 @@ export default function Policies() {
                               <Edit className="h-4 w-4" />
                             </Button>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            title="Delete policy"
+                            onClick={() => {
+                              setPolicyToDelete(policy);
+                              setIsDeletePolicyOpen(true);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -2184,6 +2213,45 @@ export default function Policies() {
             <Button onClick={handleEditCustomClaim} disabled={updateCustomClaimMutation.isPending}>
               {updateCustomClaimMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Update Custom Claim
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Policy Confirmation Dialog */}
+      <Dialog open={isDeletePolicyOpen} onOpenChange={setIsDeletePolicyOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Policy</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this policy? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {policyToDelete && (
+            <div className="py-4">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p className="font-medium text-red-800">{policyToDelete.policy_name}</p>
+                <p className="text-sm text-red-600">{policyToDelete.policy_number}</p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  This will also delete <strong>{policyToDelete.categories_count} categories</strong> associated with this policy.
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setIsDeletePolicyOpen(false);
+              setPolicyToDelete(null);
+            }}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => policyToDelete && deletePolicyMutation.mutate(policyToDelete.id)}
+              disabled={deletePolicyMutation.isPending}
+            >
+              {deletePolicyMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Delete Policy
             </Button>
           </DialogFooter>
         </DialogContent>
