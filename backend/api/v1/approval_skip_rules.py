@@ -1,6 +1,6 @@
 """
 Approval Skip Rules API endpoints.
-Allows admins to configure rules for skipping approval levels based on designation or email.
+Allows admins to configure rules for skipping approval levels based on designation, email, or project.
 """
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -11,7 +11,7 @@ from decimal import Decimal
 import logging
 
 from database import get_sync_db
-from models import ApprovalSkipRule, User, Designation
+from models import ApprovalSkipRule, User, Designation, Project
 from schemas import (
     ApprovalSkipRuleCreate,
     ApprovalSkipRuleUpdate,
@@ -33,7 +33,8 @@ def get_approval_skip_for_employee(
     employee_email: str,
     employee_designation: Optional[str],
     claim_amount: float,
-    category_code: Optional[str] = None
+    category_code: Optional[str] = None,
+    project_code: Optional[str] = None
 ) -> ApprovalSkipResult:
     """
     Check if any approval skip rules apply to the given employee.
@@ -52,6 +53,7 @@ def get_approval_skip_for_employee(
         employee_designation: Employee's designation code
         claim_amount: Amount of the claim
         category_code: Optional category code for the claim
+        project_code: Optional project code for the claim
         
     Returns:
         ApprovalSkipResult with which levels to skip and reason
@@ -64,7 +66,7 @@ def get_approval_skip_for_employee(
         )
     ).order_by(ApprovalSkipRule.priority, ApprovalSkipRule.rule_name).all()
     
-    logger.debug(f"Evaluating {len(rules)} skip rules for employee '{employee_email}' (designation: {employee_designation}, amount: {claim_amount})")
+    logger.debug(f"Evaluating {len(rules)} skip rules for employee '{employee_email}' (designation: {employee_designation}, amount: {claim_amount}, project: {project_code})")
     
     for rule in rules:
         # Check if rule applies to this employee
@@ -82,6 +84,12 @@ def get_approval_skip_for_employee(
             if employee_designation and employee_designation.upper() in [d.upper() for d in rule.designations]:
                 matches = True
                 match_reason = f"Designation '{employee_designation}' matches rule"
+        
+        elif rule.match_type == "project" and rule.project_codes:
+            # Match by project code
+            if project_code and project_code.upper() in [p.upper() for p in rule.project_codes]:
+                matches = True
+                match_reason = f"Project '{project_code}' matches rule"
         
         if not matches:
             continue
@@ -169,6 +177,31 @@ async def list_available_designations(
     ]
 
 
+@router.get("/projects/list", response_model=List[dict])
+async def list_available_projects(
+    tenant_id: str,
+    db: Session = Depends(get_sync_db)
+):
+    """List all available projects for creating skip rules"""
+    require_tenant_id(tenant_id)
+    tenant_uuid = UUID(tenant_id)
+    
+    projects = db.query(Project).filter(
+        and_(
+            Project.tenant_id == tenant_uuid,
+            Project.status == "active"
+        )
+    ).order_by(Project.project_name).all()
+    
+    return [
+        {
+            "code": p.project_code,
+            "name": p.project_name
+        }
+        for p in projects
+    ]
+
+
 @router.get("/{rule_id}", response_model=ApprovalSkipRuleResponse)
 async def get_approval_skip_rule(
     rule_id: UUID,
@@ -207,10 +240,10 @@ async def create_approval_skip_rule(
     tenant_uuid = UUID(tenant_id)
     
     # Validate match_type
-    if rule_data.match_type not in ["designation", "email"]:
+    if rule_data.match_type not in ["designation", "email", "project"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="match_type must be 'designation' or 'email'"
+            detail="match_type must be 'designation', 'email', or 'project'"
         )
     
     # Validate that appropriate field is provided based on match_type
@@ -223,6 +256,11 @@ async def create_approval_skip_rule(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="At least one email is required when match_type is 'email'"
+        )
+    if rule_data.match_type == "project" and not rule_data.project_codes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one project code is required when match_type is 'project'"
         )
     
     # Check for duplicate rule name
@@ -247,6 +285,7 @@ async def create_approval_skip_rule(
         match_type=rule_data.match_type,
         designations=rule_data.designations or [],
         emails=[e.lower() for e in (rule_data.emails or [])],  # Normalize emails to lowercase
+        project_codes=[p.upper() for p in (rule_data.project_codes or [])],  # Normalize project codes to uppercase
         skip_manager_approval=rule_data.skip_manager_approval,
         skip_hr_approval=rule_data.skip_hr_approval,
         skip_finance_approval=rule_data.skip_finance_approval,
@@ -292,10 +331,10 @@ async def update_approval_skip_rule(
         )
     
     # Validate match_type if provided
-    if rule_data.match_type is not None and rule_data.match_type not in ["designation", "email"]:
+    if rule_data.match_type is not None and rule_data.match_type not in ["designation", "email", "project"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="match_type must be 'designation' or 'email'"
+            detail="match_type must be 'designation', 'email', or 'project'"
         )
     
     # Check for duplicate rule name if name is being changed
@@ -320,6 +359,8 @@ async def update_approval_skip_rule(
     for field, value in update_data.items():
         if field == "emails" and value is not None:
             value = [e.lower() for e in value]  # Normalize emails
+        if field == "project_codes" and value is not None:
+            value = [p.upper() for p in value]  # Normalize project codes
         if field == "max_amount_threshold" and value is not None:
             value = Decimal(str(value))
         setattr(rule, field, value)
@@ -373,6 +414,7 @@ async def check_approval_skip(
     claim_amount: float,
     employee_designation: Optional[str] = None,
     category_code: Optional[str] = None,
+    project_code: Optional[str] = None,
     db: Session = Depends(get_sync_db)
 ):
     """
@@ -388,7 +430,8 @@ async def check_approval_skip(
         employee_email=employee_email,
         employee_designation=employee_designation,
         claim_amount=claim_amount,
-        category_code=category_code
+        category_code=category_code,
+        project_code=project_code
     )
     
     return result

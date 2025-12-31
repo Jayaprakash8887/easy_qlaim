@@ -1516,10 +1516,11 @@ class ApprovalSkipRule(Base):
     rule_name = Column(String(100), nullable=False)  # e.g., "CXO Fast Track"
     description = Column(Text)
     
-    # Rule criteria - can match by designation OR specific emails
-    match_type = Column(String(20), nullable=False, default="designation")  # "designation" or "email"
+    # Rule criteria - can match by designation, email, OR project
+    match_type = Column(String(20), nullable=False, default="designation")  # "designation", "email", or "project"
     designations = Column(ARRAY(String), default=[])  # List of designation codes, e.g., ["CEO", "CFO", "CTO"]
     emails = Column(ARRAY(String), default=[])  # Specific email addresses
+    project_codes = Column(ARRAY(String), default=[])  # Project codes for project-based skip rules
     
     # Approval levels to skip (these won't be required for matching employees)
     skip_manager_approval = Column(Boolean, default=False)

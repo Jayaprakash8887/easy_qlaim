@@ -10,6 +10,7 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  FolderKanban,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,15 +63,17 @@ import {
   useUpdateApprovalSkipRule,
   useDeleteApprovalSkipRule,
   useAvailableDesignations,
+  useAvailableProjects,
 } from '@/hooks/useApprovalSkipRules';
 import type { ApprovalSkipRule } from '@/types';
 
 interface ApprovalSkipRuleFormData {
   rule_name: string;
   description: string;
-  match_type: 'designation' | 'email';
+  match_type: 'designation' | 'email' | 'project';
   designations: string[];
   emails: string[];
+  project_codes: string[];
   skip_manager_approval: boolean;
   skip_hr_approval: boolean;
   skip_finance_approval: boolean;
@@ -86,6 +89,7 @@ const defaultFormData: ApprovalSkipRuleFormData = {
   match_type: 'designation',
   designations: [],
   emails: [],
+  project_codes: [],
   skip_manager_approval: true,
   skip_hr_approval: false,
   skip_finance_approval: false,
@@ -107,6 +111,7 @@ export function ApprovalSkipRulesManager() {
   
   const { data: rules = [], isLoading, error } = useApprovalSkipRules(tenantId, true);
   const { data: designations = [] } = useAvailableDesignations(tenantId);
+  const { data: projects = [] } = useAvailableProjects(tenantId);
   const createMutation = useCreateApprovalSkipRule();
   const updateMutation = useUpdateApprovalSkipRule();
   const deleteMutation = useDeleteApprovalSkipRule();
@@ -120,6 +125,7 @@ export function ApprovalSkipRulesManager() {
         match_type: rule.match_type,
         designations: rule.designations || [],
         emails: rule.emails || [],
+        project_codes: rule.project_codes || [],
         skip_manager_approval: rule.skip_manager_approval,
         skip_hr_approval: rule.skip_hr_approval,
         skip_finance_approval: rule.skip_finance_approval,
@@ -159,6 +165,11 @@ export function ApprovalSkipRulesManager() {
       return;
     }
 
+    if (formData.match_type === 'project' && formData.project_codes.length === 0) {
+      toast.error('Please select at least one project');
+      return;
+    }
+
     if (!formData.skip_manager_approval && !formData.skip_hr_approval && !formData.skip_finance_approval) {
       toast.error('Please select at least one approval level to skip');
       return;
@@ -170,6 +181,7 @@ export function ApprovalSkipRulesManager() {
       match_type: formData.match_type,
       designations: formData.match_type === 'designation' ? formData.designations : [],
       emails: formData.match_type === 'email' ? formData.emails : [],
+      project_codes: formData.match_type === 'project' ? formData.project_codes : [],
       skip_manager_approval: formData.skip_manager_approval,
       skip_hr_approval: formData.skip_hr_approval,
       skip_finance_approval: formData.skip_finance_approval,
@@ -244,6 +256,15 @@ export function ApprovalSkipRulesManager() {
       designations: prev.designations.includes(code)
         ? prev.designations.filter(d => d !== code)
         : [...prev.designations, code],
+    }));
+  };
+
+  const toggleProject = (code: string) => {
+    setFormData(prev => ({
+      ...prev,
+      project_codes: prev.project_codes.includes(code)
+        ? prev.project_codes.filter(p => p !== code)
+        : [...prev.project_codes, code],
     }));
   };
 
@@ -323,6 +344,8 @@ export function ApprovalSkipRulesManager() {
                     <Badge variant="outline" className="capitalize">
                       {rule.match_type === 'designation' ? (
                         <User className="h-3 w-3 mr-1" />
+                      ) : rule.match_type === 'project' ? (
+                        <FolderKanban className="h-3 w-3 mr-1" />
                       ) : (
                         <Mail className="h-3 w-3 mr-1" />
                       )}
@@ -333,6 +356,8 @@ export function ApprovalSkipRulesManager() {
                     <div className="text-sm">
                       {rule.match_type === 'designation' ? (
                         <span>{rule.designations?.join(', ') || 'None'}</span>
+                      ) : rule.match_type === 'project' ? (
+                        <span>{rule.project_codes?.join(', ') || 'None'}</span>
                       ) : (
                         <span>{rule.emails?.length || 0} email(s)</span>
                       )}
@@ -453,8 +478,8 @@ export function ApprovalSkipRulesManager() {
                 <Label>Match Type *</Label>
                 <Select
                   value={formData.match_type}
-                  onValueChange={(value: 'designation' | 'email') => 
-                    setFormData(prev => ({ ...prev, match_type: value, designations: [], emails: [] }))
+                  onValueChange={(value: 'designation' | 'email' | 'project') => 
+                    setFormData(prev => ({ ...prev, match_type: value, designations: [], emails: [], project_codes: [] }))
                   }
                 >
                   <SelectTrigger>
@@ -471,6 +496,12 @@ export function ApprovalSkipRulesManager() {
                       <div className="flex items-center">
                         <Mail className="h-4 w-4 mr-2" />
                         By Email
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="project">
+                      <div className="flex items-center">
+                        <FolderKanban className="h-4 w-4 mr-2" />
+                        By Project
                       </div>
                     </SelectItem>
                   </SelectContent>
@@ -545,6 +576,56 @@ export function ApprovalSkipRulesManager() {
                           <button
                             className="ml-2 hover:text-red-500"
                             onClick={() => removeEmail(email)}
+                          >
+                            ×
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Project Selection */}
+              {formData.match_type === 'project' && (
+                <div className="space-y-3">
+                  <Label>Select Projects *</Label>
+                  <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto border rounded-md p-3">
+                    {projects.length > 0 ? (
+                      projects.map((p) => (
+                        <div
+                          key={p.code}
+                          className={`flex items-center gap-2 p-2 rounded cursor-pointer hover:bg-muted ${
+                            formData.project_codes.includes(p.code) ? 'bg-primary/10 border border-primary' : 'border'
+                          }`}
+                          onClick={() => toggleProject(p.code)}
+                        >
+                          <CheckCircle
+                            className={`h-4 w-4 ${
+                              formData.project_codes.includes(p.code) ? 'text-primary' : 'text-transparent'
+                            }`}
+                          />
+                          <div>
+                            <div className="font-medium text-sm">{p.name}</div>
+                            <div className="text-xs text-muted-foreground">{p.code}</div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="col-span-2 text-center py-4 text-muted-foreground">
+                        No active projects found.
+                      </div>
+                    )}
+                  </div>
+                  {formData.project_codes.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {formData.project_codes.map((p) => (
+                        <Badge key={p} variant="secondary">
+                          <FolderKanban className="h-3 w-3 mr-1" />
+                          {p}
+                          <button
+                            className="ml-1 hover:text-red-500"
+                            onClick={() => toggleProject(p)}
                           >
                             ×
                           </button>

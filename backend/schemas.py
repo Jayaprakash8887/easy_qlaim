@@ -1140,9 +1140,10 @@ class ApprovalSkipRuleBase(BaseModel):
     """Base schema for approval skip rules"""
     rule_name: str = Field(..., min_length=1, max_length=100, description="Name of the rule")
     description: Optional[str] = Field(None, description="Description of when/why this rule applies")
-    match_type: str = Field("designation", description="'designation' or 'email'")
+    match_type: str = Field("designation", description="'designation', 'email', or 'project'")
     designations: List[str] = Field(default=[], description="List of designation codes to match")
     emails: List[str] = Field(default=[], description="List of specific email addresses to match")
+    project_codes: List[str] = Field(default=[], description="List of project codes to match")
     skip_manager_approval: bool = Field(False, description="Skip manager approval level")
     skip_hr_approval: bool = Field(False, description="Skip HR approval level")
     skip_finance_approval: bool = Field(False, description="Skip finance approval (usually False)")
@@ -1164,6 +1165,7 @@ class ApprovalSkipRuleUpdate(BaseModel):
     match_type: Optional[str] = None
     designations: Optional[List[str]] = None
     emails: Optional[List[str]] = None
+    project_codes: Optional[List[str]] = None
     skip_manager_approval: Optional[bool] = None
     skip_hr_approval: Optional[bool] = None
     skip_finance_approval: Optional[bool] = None

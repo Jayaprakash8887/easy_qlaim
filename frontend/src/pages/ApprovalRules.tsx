@@ -488,7 +488,7 @@ export default function ApprovalRules() {
                     How Skip Rules Work
                   </p>
                   <p className="text-sm text-green-700 dark:text-green-300">
-                    Skip Rules allow executives (CXOs, VPs) to bypass certain approval levels based on their designation or email.
+                    Skip Rules allow claims to bypass certain approval levels based on employee designation, email, or project.
                     Rules are checked by priority (lower number = higher priority). The first matching rule is applied.
                   </p>
                 </div>

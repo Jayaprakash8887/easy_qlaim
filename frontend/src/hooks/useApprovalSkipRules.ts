@@ -123,6 +123,17 @@ const fetchAvailableDesignations = async (tenantId: string): Promise<{ code: str
   return response.json();
 };
 
+const fetchAvailableProjects = async (tenantId: string): Promise<{ code: string; name: string }[]> => {
+  const params = new URLSearchParams({ tenant_id: tenantId });
+  const response = await fetch(`${API_BASE_URL}/approval-skip-rules/projects/list?${params}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch projects');
+  }
+  return response.json();
+};
+
 // Hooks
 export const useApprovalSkipRules = (tenantId: string, includeInactive = false) => {
   return useQuery({
@@ -196,6 +207,14 @@ export const useAvailableDesignations = (tenantId: string) => {
   return useQuery({
     queryKey: ['available-designations', tenantId],
     queryFn: () => fetchAvailableDesignations(tenantId),
+    enabled: !!tenantId,
+  });
+};
+
+export const useAvailableProjects = (tenantId: string) => {
+  return useQuery({
+    queryKey: ['available-projects-skip-rules', tenantId],
+    queryFn: () => fetchAvailableProjects(tenantId),
     enabled: !!tenantId,
   });
 };

@@ -223,9 +223,10 @@ export interface ApprovalSkipRule {
   tenant_id: string;
   rule_name: string;
   description?: string;
-  match_type: 'designation' | 'email';
+  match_type: 'designation' | 'email' | 'project';
   designations: string[];
   emails: string[];
+  project_codes: string[];
   skip_manager_approval: boolean;
   skip_hr_approval: boolean;
   skip_finance_approval: boolean;
