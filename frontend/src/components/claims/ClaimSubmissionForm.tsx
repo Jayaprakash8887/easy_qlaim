@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -11,12 +11,22 @@ import { Badge } from "@/components/ui/badge";
 import { CategoryGrid, Category } from "./CategoryGrid";
 import { SmartClaimForm, ExtractedClaim, FieldSources, PolicyCheckItem } from "./SmartClaimForm";
 import { ClaimReview } from "./ClaimReview";
+import { ComplianceScore } from "./ComplianceScore";
+import { PolicyChecks } from "./PolicyChecks";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCreateBatchClaimsWithDocument, BatchClaimItem } from "@/hooks/useClaims";
 import { UploadedFile } from "./DocumentUpload";
 import { useAllowancesByRegion, ExtractedClaimCategory } from "@/hooks/usePolicies";
 import { useFormatting } from "@/hooks/useFormatting";
+import { useProjects } from "@/hooks/useProjects";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const claimSchema = z.object({
   category: z.string().optional(),
@@ -94,6 +104,9 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
   // Fetch allowances filtered by user's region
   const { data: allowancePolicies = [], isLoading: isLoadingAllowances } = useAllowancesByRegion(user?.region);
   
+  // Fetch available projects for dropdown
+  const { data: projects = [] } = useProjects();
+  
   const { formatCurrency, getCurrencySymbol, formatDate } = useFormatting();
   
   const [allowanceData, setAllowanceData] = useState({
@@ -123,6 +136,87 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
   const selectedPolicy = selectedAllowanceId
     ? allowancePolicies.find((p) => p.id === selectedAllowanceId)
     : null;
+
+  // Calculate allowance form completeness score
+  const allowanceFormCompleteness = useMemo(() => {
+    if (!selectedPolicy) return 0;
+    let score = 0;
+    const totalFields = 4; // amount, periodStart, periodEnd, projectCode are required
+    
+    if (allowanceData.amount && parseFloat(allowanceData.amount) > 0) score += 1;
+    if (allowanceData.periodStart) score += 1;
+    if (allowanceData.periodEnd) score += 1;
+    if (allowanceData.projectCode) score += 1;
+    
+    return Math.round((score / totalFields) * 100);
+  }, [allowanceData, selectedPolicy]);
+  
+  // Generate policy checks for allowance form
+  const allowancePolicyChecks = useMemo(() => {
+    if (!selectedPolicy) return [];
+    
+    const checks: PolicyCheckItem[] = [];
+    const amount = parseFloat(allowanceData.amount) || 0;
+    
+    // Amount limit check
+    if (selectedPolicy.max_amount) {
+      checks.push({
+        id: 'amount-limit',
+        label: 'Amount Limit',
+        status: amount > 0 && amount <= selectedPolicy.max_amount ? 'pass' : amount > selectedPolicy.max_amount ? 'fail' : 'warning',
+        message: amount > selectedPolicy.max_amount 
+          ? `Amount exceeds maximum of ${formatCurrency(selectedPolicy.max_amount)}`
+          : amount > 0 
+            ? `Within limit of ${formatCurrency(selectedPolicy.max_amount)}`
+            : 'Enter an amount'
+      });
+    }
+    
+    // Period validity check
+    const startDate = allowanceData.periodStart ? new Date(allowanceData.periodStart) : null;
+    const endDate = allowanceData.periodEnd ? new Date(allowanceData.periodEnd) : null;
+    const today = new Date();
+    
+    if (startDate && endDate) {
+      const isValidPeriod = startDate <= endDate;
+      const isFuturePeriod = endDate > today;
+      checks.push({
+        id: 'period-validity',
+        label: 'Period Validity',
+        status: isValidPeriod && !isFuturePeriod ? 'pass' : 'fail',
+        message: !isValidPeriod 
+          ? 'End date must be after start date'
+          : isFuturePeriod
+            ? 'Period end date cannot be in the future'
+            : 'Valid claim period'
+      });
+    } else {
+      checks.push({
+        id: 'period-validity',
+        label: 'Period Validity',
+        status: 'warning',
+        message: 'Select claim period dates'
+      });
+    }
+    
+    // Required amount check
+    checks.push({
+      id: 'amount-required',
+      label: 'Amount Required',
+      status: amount > 0 ? 'pass' : 'warning',
+      message: amount > 0 ? 'Amount provided' : 'Enter claim amount'
+    });
+    
+    // Project code check
+    checks.push({
+      id: 'project-code',
+      label: 'Project Code',
+      status: allowanceData.projectCode ? 'pass' : 'warning',
+      message: allowanceData.projectCode ? `Project: ${allowanceData.projectCode}` : 'Select a project code'
+    });
+    
+    return checks;
+  }, [allowanceData, selectedPolicy, formatCurrency]);
 
   const handleClaimTypeSelect = (type: ClaimTypeOption) => {
     setClaimType(type);
@@ -194,6 +288,14 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
         toast({
           title: "Please enter the amount",
           description: "Amount is required to continue",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (!allowanceData.projectCode) {
+        toast({
+          title: "Please select a project",
+          description: "Project code is required to continue",
           variant: "destructive",
         });
         return;
@@ -527,7 +629,6 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                           </div>
                           <div>
                             <CardTitle className="text-base">{policy.category_name}</CardTitle>
-                            <Badge variant="outline" className="text-xs mt-1">{policy.category_code}</Badge>
                           </div>
                         </div>
                       </CardHeader>
@@ -561,96 +662,135 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
 
         {/* Step 3: Allowance Details Form */}
         {currentStep === 3 && claimType === 'allowance' && selectedAllowanceId && selectedPolicy && (
-          <div className="max-w-3xl mx-auto">
-            <Card>
-              <CardHeader>
-                <CardTitle>Enter Allowance Details</CardTitle>
-                <CardDescription>
-                  Complete the form below to submit your {selectedPolicy.category_name.toLowerCase()}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Amount */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Amount *</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">{getCurrencySymbol()}</span>
-                    <input
-                      type="number"
-                      className="w-full pl-8 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
-                      placeholder="0.00"
-                      value={allowanceData.amount}
-                      onChange={(e) => setAllowanceData({ ...allowanceData, amount: e.target.value })}
-                      max={selectedPolicy.max_amount || undefined}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+            {/* Main Form - Left side */}
+            <div className="lg:col-span-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Enter Allowance Details</CardTitle>
+                  <CardDescription>
+                    Complete the form below to submit your {selectedPolicy.category_name.toLowerCase()}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Amount */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Amount *</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">{getCurrencySymbol()}</span>
+                      <input
+                        type="number"
+                        className="w-full pl-8 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
+                        placeholder="0.00"
+                        value={allowanceData.amount}
+                        onChange={(e) => setAllowanceData({ ...allowanceData, amount: e.target.value })}
+                        max={selectedPolicy.max_amount || undefined}
+                      />
+                    </div>
+                    {selectedPolicy.max_amount && (
+                      <p className="text-xs text-muted-foreground">
+                        Maximum allowed: {formatCurrency(selectedPolicy.max_amount)}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Period */}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Period Start *</label>
+                      <input
+                        type="date"
+                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
+                        value={allowanceData.periodStart}
+                        onChange={(e) => setAllowanceData({ ...allowanceData, periodStart: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Period End *</label>
+                      <input
+                        type="date"
+                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
+                        value={allowanceData.periodEnd}
+                        onChange={(e) => setAllowanceData({ ...allowanceData, periodEnd: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Description</label>
+                    <textarea
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
+                      rows={3}
+                      placeholder="Add any additional details..."
+                      value={allowanceData.description}
+                      onChange={(e) => setAllowanceData({ ...allowanceData, description: e.target.value })}
                     />
                   </div>
-                  {selectedPolicy.max_amount && (
-                    <p className="text-xs text-muted-foreground">
-                      Maximum allowed: {formatCurrency(selectedPolicy.max_amount)}
-                    </p>
+
+                  {/* Project Code */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Project Code *</label>
+                    <Select
+                      value={allowanceData.projectCode}
+                      onValueChange={(value) => setAllowanceData({ ...allowanceData, projectCode: value })}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select a project" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {projects.filter(p => p.status === 'active').map((project) => (
+                          <SelectItem key={project.id} value={project.code}>
+                            {project.code} - {project.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Policy Info - Only show if there are eligibility requirements */}
+                  {(selectedPolicy.eligibility_criteria?.requirements || []).length > 0 && (
+                    <div className="bg-muted/50 rounded-lg p-4">
+                      <p className="text-sm font-medium mb-2">Eligibility Requirements:</p>
+                      <ul className="text-sm text-muted-foreground space-y-1">
+                        {(selectedPolicy.eligibility_criteria?.requirements || []).map((rule, idx) => (
+                          <li key={idx} className="flex items-start gap-2">
+                            <Check className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                            <span>{rule}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
-                </div>
+                </CardContent>
+              </Card>
+            </div>
 
-                {/* Period */}
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Period Start *</label>
-                    <input
-                      type="date"
-                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
-                      value={allowanceData.periodStart}
-                      onChange={(e) => setAllowanceData({ ...allowanceData, periodStart: e.target.value })}
-                    />
+            {/* Sidebar - Right side */}
+            <div className="space-y-6">
+              <div className="sticky top-24">
+                {/* Form Completeness Card */}
+                <div className="rounded-xl border border-border bg-card p-5 mb-6 overflow-hidden">
+                  <h4 className="font-semibold text-foreground flex items-center gap-2 mb-4">
+                    <span className="text-lg">📋</span>
+                    Form Completeness
+                  </h4>
+                  <div className="flex justify-center overflow-hidden">
+                    <ComplianceScore score={allowanceFormCompleteness} size="lg" />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Period End *</label>
-                    <input
-                      type="date"
-                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
-                      value={allowanceData.periodEnd}
-                      onChange={(e) => setAllowanceData({ ...allowanceData, periodEnd: e.target.value })}
-                    />
-                  </div>
+                  <p className="text-xs text-center text-muted-foreground mt-4">
+                    {allowanceFormCompleteness >= 100
+                      ? "Great! Your form is complete and ready to submit"
+                      : allowanceFormCompleteness >= 50
+                        ? "Almost there! Complete the missing fields"
+                        : "Fill in required fields to complete your claim"}
+                  </p>
                 </div>
 
-                {/* Description */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Description</label>
-                  <textarea
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
-                    rows={3}
-                    placeholder="Add any additional details..."
-                    value={allowanceData.description}
-                    onChange={(e) => setAllowanceData({ ...allowanceData, description: e.target.value })}
-                  />
-                </div>
-
-                {/* Project Code */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Project Code (Optional)</label>
-                  <input
-                    type="text"
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
-                    placeholder="PRJ-2024-XXX"
-                    value={allowanceData.projectCode}
-                    onChange={(e) => setAllowanceData({ ...allowanceData, projectCode: e.target.value })}
-                  />
-                </div>
-
-                {/* Policy Info */}
-                <div className="bg-muted/50 rounded-lg p-4">
-                  <p className="text-sm font-medium mb-2">Policy Requirements:</p>
-                  <ul className="text-sm text-muted-foreground space-y-1">
-                    {(selectedPolicy.eligibility_criteria?.requirements || []).map((rule, idx) => (
-                      <li key={idx} className="flex items-start gap-2">
-                        <Check className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                        <span>{rule}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </CardContent>
-            </Card>
+                {/* Policy Checks */}
+                <PolicyChecks checks={allowancePolicyChecks} />
+              </div>
+            </div>
           </div>
         )}
 
@@ -693,12 +833,10 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                       <span className="text-sm text-muted-foreground">{allowanceData.description}</span>
                     </div>
                   )}
-                  {allowanceData.projectCode && (
-                    <div className="flex justify-between py-2 border-b">
-                      <span className="text-sm font-medium">Project Code:</span>
-                      <span className="text-sm">{allowanceData.projectCode}</span>
-                    </div>
-                  )}
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-sm font-medium">Project Code:</span>
+                    <span className="text-sm">{allowanceData.projectCode}</span>
+                  </div>
                   <div className="flex justify-between py-2 border-b">
                     <span className="text-sm font-medium">Region:</span>
                     <Badge variant="secondary">{selectedPolicy.policy_region}</Badge>
