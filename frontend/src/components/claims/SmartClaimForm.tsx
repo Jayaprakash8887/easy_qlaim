@@ -934,16 +934,28 @@ export function SmartClaimForm({
 
   // Handle claim selection toggle
   const handleClaimToggle = (claimId: string) => {
-    setExtractedClaims(prev =>
-      prev.map(claim =>
+    setExtractedClaims(prev => {
+      const updatedClaims = prev.map(claim =>
         claim.id === claimId ? { ...claim, selected: !claim.selected } : claim
-      )
-    );
+      );
+      // Notify parent about selection change
+      if (onClaimsUpdated) {
+        onClaimsUpdated(updatedClaims);
+      }
+      return updatedClaims;
+    });
   };
 
   // Handle select all claims
   const handleSelectAll = (selected: boolean) => {
-    setExtractedClaims(prev => prev.map(claim => ({ ...claim, selected })));
+    setExtractedClaims(prev => {
+      const updatedClaims = prev.map(claim => ({ ...claim, selected }));
+      // Notify parent about selection change
+      if (onClaimsUpdated) {
+        onClaimsUpdated(updatedClaims);
+      }
+      return updatedClaims;
+    });
   };
 
   // Update a specific claim field and mark it as 'manual' since user edited it
