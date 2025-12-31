@@ -103,8 +103,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           clearTimeout(timeoutId);
 
           if (response.ok) {
-            const userData = JSON.parse(storedUser);
-            setUser(userData);
+            // Fetch fresh user data from /auth/me to get updated roles
+            try {
+              const meResponse = await fetch(`${API_BASE_URL}/auth/me`, {
+                headers: {
+                  'Authorization': `Bearer ${storedToken}`,
+                },
+              });
+              if (meResponse.ok) {
+                const meData = await meResponse.json();
+                // Map the /auth/me response to our User type with fresh roles
+                const freshUserData: User = {
+                  id: meData.id,
+                  tenantId: meData.tenant_id,
+                  email: meData.email,
+                  name: meData.full_name,
+                  firstName: meData.first_name,
+                  lastName: meData.last_name,
+                  department: meData.department,
+                  designation: meData.designation || '',
+                  role: mapBackendRolesToUserRole(meData.roles || []),
+                  avatar: meData.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${meData.first_name} ${meData.last_name}`,
+                  phone: '',
+                  mobile: '',
+                  address: '',
+                  region: meData.region?.join(', ') || '',
+                  joinDate: '',
+                  status: 'active',
+                  projectIds: [],
+                };
+                localStorage.setItem(USER_KEY, JSON.stringify(freshUserData));
+                setUser(freshUserData);
+              } else {
+                // Fallback to stored user if /me fails
+                const userData = JSON.parse(storedUser);
+                setUser(userData);
+              }
+            } catch {
+              // Fallback to stored user if /me fails
+              const userData = JSON.parse(storedUser);
+              setUser(userData);
+            }
           } else {
             // Token invalid, try to refresh
             const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
@@ -127,8 +166,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   const tokens = await refreshResponse.json();
                   localStorage.setItem(TOKEN_KEY, tokens.access_token);
                   localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token);
-                  const userData = JSON.parse(storedUser);
-                  setUser(userData);
+                  // Fetch fresh user data after token refresh
+                  try {
+                    const meResponse = await fetch(`${API_BASE_URL}/auth/me`, {
+                      headers: {
+                        'Authorization': `Bearer ${tokens.access_token}`,
+                      },
+                    });
+                    if (meResponse.ok) {
+                      const meData = await meResponse.json();
+                      const freshUserData: User = {
+                        id: meData.id,
+                        tenantId: meData.tenant_id,
+                        email: meData.email,
+                        name: meData.full_name,
+                        firstName: meData.first_name,
+                        lastName: meData.last_name,
+                        department: meData.department,
+                        designation: meData.designation || '',
+                        role: mapBackendRolesToUserRole(meData.roles || []),
+                        avatar: meData.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${meData.first_name} ${meData.last_name}`,
+                        phone: '',
+                        mobile: '',
+                        address: '',
+                        region: meData.region?.join(', ') || '',
+                        joinDate: '',
+                        status: 'active',
+                        projectIds: [],
+                      };
+                      localStorage.setItem(USER_KEY, JSON.stringify(freshUserData));
+                      setUser(freshUserData);
+                    } else {
+                      const userData = JSON.parse(storedUser);
+                      setUser(userData);
+                    }
+                  } catch {
+                    const userData = JSON.parse(storedUser);
+                    setUser(userData);
+                  }
                 } else {
                   clearAuthStorage();
                 }

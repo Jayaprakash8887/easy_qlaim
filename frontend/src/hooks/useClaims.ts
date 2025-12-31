@@ -20,7 +20,7 @@ function getAuthHeadersWithJson(): HeadersInit {
 }
 
 // API functions
-async function fetchClaims(tenantId?: string, userId?: string, role?: string): Promise<Claim[]> {
+async function fetchClaims(tenantId?: string, userId?: string, role?: string, options?: { status?: string; limit?: number; forApproval?: boolean }): Promise<Claim[]> {
   const params = new URLSearchParams();
   if (tenantId) {
     params.append('tenant_id', tenantId);
@@ -29,6 +29,18 @@ async function fetchClaims(tenantId?: string, userId?: string, role?: string): P
   if (userId && role) {
     params.append('user_id', userId);
     params.append('role', role);
+  }
+  // Add for_approval flag - backend will auto-apply role-appropriate status filter
+  if (options?.forApproval) {
+    params.append('for_approval', 'true');
+  }
+  // Add explicit status filter if provided (overrides for_approval auto-filter)
+  if (options?.status) {
+    params.append('status', options.status);
+  }
+  // Add limit if provided (default is 20 in backend)
+  if (options?.limit) {
+    params.append('limit', options.limit.toString());
   }
   const url = `${API_BASE_URL}/claims/${params.toString() ? '?' + params.toString() : ''}`;
   const response = await fetch(url, {
@@ -223,11 +235,11 @@ async function updateClaimStatus(id: string, status: ClaimStatus, tenantId: stri
 }
 
 // Custom hooks
-export function useClaims() {
+export function useClaims(options?: { status?: string; limit?: number; forApproval?: boolean }) {
   const { user } = useAuth();
   return useQuery({
-    queryKey: ['claims', user?.tenantId, user?.id, user?.role],
-    queryFn: () => fetchClaims(user?.tenantId, user?.id, user?.role),
+    queryKey: ['claims', user?.tenantId, user?.id, user?.role, options?.status, options?.limit, options?.forApproval],
+    queryFn: () => fetchClaims(user?.tenantId, user?.id, user?.role, options),
     enabled: !!user?.tenantId,
     staleTime: 30 * 1000, // 30 seconds - reduced for fresher approval data
     refetchOnWindowFocus: true, // Refetch when user returns to the tab

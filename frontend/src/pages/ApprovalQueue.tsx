@@ -44,7 +44,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { Claim, ClaimStatus } from '@/types';
 
-// Helper to get pending status based on role
+// Helper to get pending status based on role (frontend status format for client-side filtering)
 function getPendingStatusForRole(role: string): ClaimStatus | null {
   switch (role) {
     case 'manager': return 'pending_manager';
@@ -68,7 +68,11 @@ export default function ApprovalQueue() {
 
   const tenantId = user?.tenantId;
   const queryClient = useQueryClient();
-  const { data: allClaims = [], isLoading, error, refetch } = useClaims();
+  
+  // Fetch claims for approval - backend automatically filters by role-appropriate pending status
+  const { data: allClaims = [], isLoading, error, refetch } = useClaims({ 
+    forApproval: true  // Backend will auto-apply PENDING_MANAGER/HR/FINANCE based on role
+  });
   const { formatDate, formatDateTime, formatCurrency } = useFormatting();
 
   const pendingClaims = useMemo(() => {

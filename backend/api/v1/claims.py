@@ -998,16 +998,21 @@ async def list_claims(
     tenant_id: Optional[UUID] = None,
     user_id: Optional[UUID] = None,
     role: Optional[str] = None,
+    for_approval: bool = False,
     db: AsyncSession = Depends(get_async_db),
 ):
     """List claims with pagination and filters
     
     Role-based filtering:
     - manager: Only sees claims from direct reports (employees where manager_id = user_id)
-    - hr: Sees claims in PENDING_HR, MANAGER_APPROVED status
-    - finance: Sees claims in PENDING_FINANCE, HR_APPROVED status
+              When for_approval=True or no status provided, auto-filters to PENDING_MANAGER
+    - hr: When for_approval=True or no status provided, auto-filters to PENDING_HR
+    - finance: When for_approval=True or no status provided, auto-filters to PENDING_FINANCE
     - admin: Sees all claims
     - employee: Sees only their own claims
+    
+    Args:
+        for_approval: If True, automatically applies role-appropriate pending status filter
     """
     from services.category_cache import category_cache
     from services.cached_data import cached_data
@@ -1018,7 +1023,11 @@ async def list_claims(
     if tenant_id:
         query = query.where(Claim.tenant_id == tenant_id)
     
-    # Role-based filtering for managers - show claims from direct reports only
+    # Determine effective status filter based on role
+    # If status is explicitly provided, use it; otherwise apply role-based defaults for approval views
+    effective_status = status
+    
+    # Role-based filtering
     if role == 'manager' and user_id:
         # Get direct reports (employees where manager_id = current user)
         direct_reports_query = select(User.id).where(
@@ -1031,15 +1040,26 @@ async def list_claims(
         if direct_report_ids:
             # Filter claims to only those from direct reports
             query = query.where(Claim.employee_id.in_(direct_report_ids))
+            # Auto-apply PENDING_MANAGER status if for_approval or no status specified
+            if for_approval and not status:
+                effective_status = 'PENDING_MANAGER'
         else:
             # No direct reports - return empty list by filtering for impossible condition
             query = query.where(Claim.employee_id == None)
+    elif role == 'hr' and user_id:
+        # HR: auto-apply PENDING_HR status if for_approval or no status specified
+        if for_approval and not status:
+            effective_status = 'PENDING_HR'
+    elif role == 'finance' and user_id:
+        # Finance: auto-apply PENDING_FINANCE status if for_approval or no status specified
+        if for_approval and not status:
+            effective_status = 'PENDING_FINANCE'
     elif role == 'employee' and user_id:
         # Employees only see their own claims
         query = query.where(Claim.employee_id == user_id)
     
-    if status:
-        query = query.where(Claim.status == status)
+    if effective_status:
+        query = query.where(Claim.status == effective_status)
     if claim_type:
         query = query.where(Claim.claim_type == claim_type)
     
