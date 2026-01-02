@@ -186,10 +186,11 @@ async def list_available_projects(
     require_tenant_id(tenant_id)
     tenant_uuid = UUID(tenant_id)
     
+    from sqlalchemy import func
     projects = db.query(Project).filter(
         and_(
             Project.tenant_id == tenant_uuid,
-            Project.status == "active"
+            func.upper(Project.status) == "ACTIVE"
         )
     ).order_by(Project.project_name).all()
     

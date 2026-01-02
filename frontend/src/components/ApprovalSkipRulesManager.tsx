@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Plus,
   Pencil,
@@ -11,6 +11,9 @@ import {
   XCircle,
   AlertCircle,
   FolderKanban,
+  Search,
+  ChevronDown,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -54,6 +57,19 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFormatting } from '@/hooks/useFormatting';
@@ -108,6 +124,8 @@ export function ApprovalSkipRulesManager() {
   const [editingRule, setEditingRule] = useState<ApprovalSkipRule | null>(null);
   const [formData, setFormData] = useState<ApprovalSkipRuleFormData>(defaultFormData);
   const [emailInput, setEmailInput] = useState('');
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
+  const [projectSearch, setProjectSearch] = useState('');
   
   const { data: rules = [], isLoading, error } = useApprovalSkipRules(tenantId, true);
   const { data: designations = [] } = useAvailableDesignations(tenantId);
@@ -115,6 +133,15 @@ export function ApprovalSkipRulesManager() {
   const createMutation = useCreateApprovalSkipRule();
   const updateMutation = useUpdateApprovalSkipRule();
   const deleteMutation = useDeleteApprovalSkipRule();
+
+  // Filter projects based on search
+  const filteredProjects = useMemo(() => {
+    if (!projectSearch) return projects;
+    const searchLower = projectSearch.toLowerCase();
+    return projects.filter(
+      p => p.name.toLowerCase().includes(searchLower) || p.code.toLowerCase().includes(searchLower)
+    );
+  }, [projects, projectSearch]);
 
   const handleOpenDialog = (rule?: ApprovalSkipRule) => {
     if (rule) {
@@ -147,6 +174,8 @@ export function ApprovalSkipRulesManager() {
     setEditingRule(null);
     setFormData(defaultFormData);
     setEmailInput('');
+    setProjectSearch('');
+    setProjectDropdownOpen(false);
   };
 
   const handleSubmit = async () => {
@@ -590,47 +619,84 @@ export function ApprovalSkipRulesManager() {
               {formData.match_type === 'project' && (
                 <div className="space-y-3">
                   <Label>Select Projects *</Label>
-                  <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto border rounded-md p-3">
-                    {projects.length > 0 ? (
-                      projects.map((p) => (
-                        <div
-                          key={p.code}
-                          className={`flex items-center gap-2 p-2 rounded cursor-pointer hover:bg-muted ${
-                            formData.project_codes.includes(p.code) ? 'bg-primary/10 border border-primary' : 'border'
-                          }`}
-                          onClick={() => toggleProject(p.code)}
-                        >
-                          <CheckCircle
-                            className={`h-4 w-4 ${
-                              formData.project_codes.includes(p.code) ? 'text-primary' : 'text-transparent'
-                            }`}
-                          />
-                          <div>
-                            <div className="font-medium text-sm">{p.name}</div>
-                            <div className="text-xs text-muted-foreground">{p.code}</div>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="col-span-2 text-center py-4 text-muted-foreground">
-                        No active projects found.
-                      </div>
-                    )}
-                  </div>
+                  <Popover open={projectDropdownOpen} onOpenChange={setProjectDropdownOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={projectDropdownOpen}
+                        className="w-full justify-between h-auto min-h-10"
+                      >
+                        <span className="text-muted-foreground">
+                          {formData.project_codes.length > 0
+                            ? `${formData.project_codes.length} project(s) selected`
+                            : "Select projects..."}
+                        </span>
+                        <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0" align="start">
+                      <Command shouldFilter={false}>
+                        <CommandInput 
+                          placeholder="Search projects..." 
+                          value={projectSearch}
+                          onValueChange={setProjectSearch}
+                        />
+                        <CommandList>
+                          <CommandEmpty>No projects found.</CommandEmpty>
+                          <CommandGroup className="max-h-64 overflow-y-auto">
+                            {filteredProjects.map((p) => (
+                              <CommandItem
+                                key={p.code}
+                                value={p.code}
+                                onSelect={() => {
+                                  toggleProject(p.code);
+                                }}
+                              >
+                                <div className="flex items-center gap-2 w-full">
+                                  <div className={`h-4 w-4 border rounded flex items-center justify-center ${
+                                    formData.project_codes.includes(p.code) 
+                                      ? 'bg-primary border-primary' 
+                                      : 'border-input'
+                                  }`}>
+                                    {formData.project_codes.includes(p.code) && (
+                                      <CheckCircle className="h-3 w-3 text-primary-foreground" />
+                                    )}
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="font-medium">{p.name}</div>
+                                    <div className="text-xs text-muted-foreground">{p.code}</div>
+                                  </div>
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                   {formData.project_codes.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {formData.project_codes.map((p) => (
-                        <Badge key={p} variant="secondary">
-                          <FolderKanban className="h-3 w-3 mr-1" />
-                          {p}
-                          <button
-                            className="ml-1 hover:text-red-500"
-                            onClick={() => toggleProject(p)}
-                          >
-                            ×
-                          </button>
-                        </Badge>
-                      ))}
+                    <div className="flex flex-wrap gap-2">
+                      {formData.project_codes.map((code) => {
+                        const project = projects.find(p => p.code === code);
+                        return (
+                          <Badge key={code} variant="secondary" className="py-1 px-2">
+                            <FolderKanban className="h-3 w-3 mr-1" />
+                            <span className="mr-1">{project?.name || code}</span>
+                            <button
+                              className="ml-1 hover:text-red-500"
+                              onClick={() => toggleProject(code)}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {projects.length === 0 && (
+                    <div className="text-center py-4 text-muted-foreground border rounded-md">
+                      No active projects found.
                     </div>
                   )}
                 </div>

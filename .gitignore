@@ -34,7 +34,7 @@ agentsenv/
 artifacts/sample_reimbursement_bills/
 artifacts/test_tenant/
 VM-agent-007_key.pem
-artifacts/policies
+artifacts/policies/
 
 # IDEs
 .vscode/
@@ -105,3 +105,4 @@ secrets/
 # Build artifacts
 *.whl
 *.tar.gz
+vite.config.ts
