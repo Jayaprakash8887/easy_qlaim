@@ -33,7 +33,7 @@ function EmployeeDashboard({ userName, employeeId, tenantId }: { userName: strin
   // Calculate amounts
   const settledAmount = claimsByStatus?.find(c => c.status === 'SETTLED')?.amount || 0;
   const rejectedAmount = claimsByStatus?.find(c => c.status === 'REJECTED')?.amount || 0;
-  
+
   // Total claimed excluding rejected
   const totalClaimedExcludingRejected = claimsByStatus
     ?.filter(c => c.status !== 'REJECTED')
@@ -192,6 +192,7 @@ function ManagerDashboard({ userName, employeeId, tenantId }: { userName: string
           trend={{ value: 2, isPositive: false }}
           icon={AlertCircle}
           variant="pending"
+          href="/approvals"
         />
         <SummaryCard
           title="Team Claims (Month)"
@@ -349,7 +350,7 @@ function FinanceDashboard({ userName, tenantId }: { userName: string; tenantId?:
   const approvedUnpaidAmount = financeMetrics?.ready_for_settlement?.amount || 0;
   const settledAmount = financeMetrics?.settled_this_period?.amount || 0;
   const totalAmount = financeMetrics?.total_this_period?.amount || 0;
-  
+
   // Calculate budget utilization based on settled vs total
   const budgetUtilization = totalAmount > 0 ? Math.round((settledAmount / totalAmount) * 100) : 0;
 
