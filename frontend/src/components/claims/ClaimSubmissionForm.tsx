@@ -64,7 +64,7 @@ const allowanceSteps = [
 const getAllowanceIcon = (categoryCode: string, categoryName: string): React.ElementType => {
   const code = categoryCode?.toLowerCase() || '';
   const name = categoryName?.toLowerCase() || '';
-  
+
   if (code.includes('call') || name.includes('call')) return Phone;
   if (code.includes('shift') || name.includes('shift')) return Clock;
   if (code.includes('incentive') || name.includes('incentive')) return TrendingUp;
@@ -100,15 +100,15 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
   const [policyChecks, setPolicyChecks] = useState<PolicyCheckItem[]>([]);
   const { user } = useAuth();
   const createBatchClaimsWithDocument = useCreateBatchClaimsWithDocument();
-  
+
   // Fetch allowances filtered by user's region
   const { data: allowancePolicies = [], isLoading: isLoadingAllowances } = useAllowancesByRegion(user?.region);
-  
+
   // Fetch available projects for dropdown
   const { data: projects = [] } = useProjects();
-  
+
   const { formatCurrency, getCurrencySymbol, formatDate } = useFormatting();
-  
+
   const [allowanceData, setAllowanceData] = useState({
     amount: '',
     periodStart: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'),
@@ -129,7 +129,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
       costCenter: "",
     },
   });
-  
+
   // Watch all form values for reactive updates
   const watchedFormValues = form.watch();
 
@@ -142,41 +142,41 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
     if (!selectedPolicy) return 0;
     let score = 0;
     const totalFields = 4; // amount, periodStart, periodEnd, projectCode are required
-    
+
     if (allowanceData.amount && parseFloat(allowanceData.amount) > 0) score += 1;
     if (allowanceData.periodStart) score += 1;
     if (allowanceData.periodEnd) score += 1;
     if (allowanceData.projectCode) score += 1;
-    
+
     return Math.round((score / totalFields) * 100);
   }, [allowanceData, selectedPolicy]);
-  
+
   // Generate policy checks for allowance form
   const allowancePolicyChecks = useMemo(() => {
     if (!selectedPolicy) return [];
-    
+
     const checks: PolicyCheckItem[] = [];
     const amount = parseFloat(allowanceData.amount) || 0;
-    
+
     // Amount limit check
     if (selectedPolicy.max_amount) {
       checks.push({
         id: 'amount-limit',
         label: 'Amount Limit',
         status: amount > 0 && amount <= selectedPolicy.max_amount ? 'pass' : amount > selectedPolicy.max_amount ? 'fail' : 'warning',
-        message: amount > selectedPolicy.max_amount 
+        message: amount > selectedPolicy.max_amount
           ? `Amount exceeds maximum of ${formatCurrency(selectedPolicy.max_amount)}`
-          : amount > 0 
+          : amount > 0
             ? `Within limit of ${formatCurrency(selectedPolicy.max_amount)}`
             : 'Enter an amount'
       });
     }
-    
+
     // Period validity check
     const startDate = allowanceData.periodStart ? new Date(allowanceData.periodStart) : null;
     const endDate = allowanceData.periodEnd ? new Date(allowanceData.periodEnd) : null;
     const today = new Date();
-    
+
     if (startDate && endDate) {
       const isValidPeriod = startDate <= endDate;
       const isFuturePeriod = endDate > today;
@@ -184,7 +184,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
         id: 'period-validity',
         label: 'Period Validity',
         status: isValidPeriod && !isFuturePeriod ? 'pass' : 'fail',
-        message: !isValidPeriod 
+        message: !isValidPeriod
           ? 'End date must be after start date'
           : isFuturePeriod
             ? 'Period end date cannot be in the future'
@@ -198,7 +198,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
         message: 'Select claim period dates'
       });
     }
-    
+
     // Required amount check
     checks.push({
       id: 'amount-required',
@@ -206,7 +206,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
       status: amount > 0 ? 'pass' : 'warning',
       message: amount > 0 ? 'Amount provided' : 'Enter claim amount'
     });
-    
+
     // Project code check
     checks.push({
       id: 'project-code',
@@ -214,7 +214,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
       status: allowanceData.projectCode ? 'pass' : 'warning',
       message: allowanceData.projectCode ? `Project: ${allowanceData.projectCode}` : 'Select a project code'
     });
-    
+
     return checks;
   }, [allowanceData, selectedPolicy, formatCurrency]);
 
@@ -258,7 +258,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
         });
         return;
       }
-      
+
       const isValid = await form.trigger(["title", "amount", "date", "vendor"]);
       if (!isValid) {
         toast({
@@ -312,7 +312,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
 
   const handleSubmit = async () => {
     const claimTypeLabel = claimType === 'reimbursement' ? 'Reimbursement' : 'Allowance';
-    
+
     if (!user?.id) {
       toast({
         title: "Error",
@@ -323,14 +323,14 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
     }
 
     setIsSubmitting(true);
-    
+
     try {
       // Check if we have multiple claims to submit
       const selectedClaims = extractedMultipleClaims.filter(c => c.selected);
-      
+
       // Get the uploaded file if available
       const documentFile = uploadedFiles.length > 0 ? uploadedFiles[0].file : undefined;
-      
+
       if (selectedClaims.length > 0) {
         // Prepare batch claims data
         const batchClaimItems: BatchClaimItem[] = selectedClaims.map(claim => ({
@@ -365,7 +365,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
           batchData: batchPayload,
           file: documentFile,
         });
-        
+
         toast({
           title: `${response.total_claims} Claims Submitted Successfully! 🎉`,
           description: `Your ${response.total_claims} reimbursement claims totaling ${formatCurrency(response.total_amount)} have been sent for approval.${documentFile ? ' Document attached.' : ''} Claim IDs: ${response.claim_numbers.join(', ')}`,
@@ -404,13 +404,13 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
           batchData: batchPayload,
           file: documentFile,
         });
-        
+
         toast({
           title: `${claimTypeLabel} Claim Submitted Successfully! 🎉`,
           description: `Your claim (${response.claim_numbers[0]}) has been sent for approval.${documentFile ? ' Document attached.' : ''} Track it in your dashboard.`,
         });
       }
-      
+
       onClose();
     } catch (error: any) {
       console.error('Failed to submit claims:', error);
@@ -487,7 +487,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
       <main className="container mx-auto px-4 py-8">
         {/* Step 1: Claim Type Selection */}
         {currentStep === 1 && (
-          <div className="max-w-4xl mx-auto">
+          <div>
             <div className="mb-8 text-center">
               <h2 className="text-2xl font-bold text-foreground mb-2">Select Claim Type</h2>
               <p className="text-muted-foreground">Choose the type of claim you want to submit</p>
@@ -588,7 +588,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
             <div className="mb-8 text-center">
               <h2 className="text-2xl font-bold text-foreground mb-2">Select Allowance Type</h2>
               <p className="text-muted-foreground">
-                {user?.region 
+                {user?.region
                   ? `Showing allowances available for ${Array.isArray(user.region) ? user.region.join(', ') : user.region} region`
                   : 'Choose the allowance category that applies'}
               </p>
@@ -874,8 +874,8 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                   currentStep === step.id
                     ? "w-6 bg-primary"
                     : currentStep > step.id
-                    ? "bg-primary"
-                    : "bg-border"
+                      ? "bg-primary"
+                      : "bg-border"
                 )}
               />
             ))}
@@ -887,9 +887,9 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
               <ArrowRight className="h-4 w-4" />
             </Button>
           ) : (
-            <Button 
-              variant="gradient" 
-              onClick={handleSubmit} 
+            <Button
+              variant="gradient"
+              onClick={handleSubmit}
               className="gap-2"
               disabled={isSubmitting}
             >
