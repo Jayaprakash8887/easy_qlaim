@@ -664,7 +664,7 @@ Authorization: Bearer {token}
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `is_active` | boolean | Filter by active status (optional) |
-| `match_type` | string | Filter by match type: `designation` or `email` (optional) |
+| `match_type` | string | Filter by match type: `designation`, `email`, or `project` (optional) |
 
 **Response:**
 ```json
@@ -678,6 +678,7 @@ Authorization: Bearer {token}
             "match_type": "designation",
             "designations": ["CEO"],
             "emails": [],
+            "project_codes": [],
             "skip_manager_approval": true,
             "skip_hr_approval": true,
             "skip_finance_approval": true,
@@ -691,6 +692,37 @@ Authorization: Bearer {token}
     ],
     "total": 1
 }
+```
+
+### 10.5.1a List Available Designations
+
+```http
+GET /api/v1/approval-skip-rules/designations
+Authorization: Bearer {token}
+```
+
+**Response:**
+```json
+[
+    {"code": "CEO", "name": "Chief Executive Officer", "level": 10},
+    {"code": "CTO", "name": "Chief Technology Officer", "level": 9},
+    {"code": "VP", "name": "Vice President", "level": 7}
+]
+```
+
+### 10.5.1b List Available Projects
+
+```http
+GET /api/v1/approval-skip-rules/projects/list
+Authorization: Bearer {token}
+```
+
+**Response:**
+```json
+[
+    {"code": "PROJ-001", "name": "Project Alpha"},
+    {"code": "PROJ-002", "name": "Project Beta"}
+]
 ```
 
 ### 10.5.2 Create Approval Skip Rule
@@ -720,9 +752,10 @@ Content-Type: application/json
 |-------|------|----------|-------------|
 | `rule_name` | string | Yes | Unique name for the rule (per tenant) |
 | `description` | string | No | Human-readable description |
-| `match_type` | string | Yes | `designation` or `email` |
+| `match_type` | string | Yes | `designation`, `email`, or `project` |
 | `designations` | array | No* | List of designation codes to match |
 | `emails` | array | No* | List of email addresses to match |
+| `project_codes` | array | No* | List of project codes to match |
 | `skip_manager_approval` | boolean | No | Skip manager level (default: false) |
 | `skip_hr_approval` | boolean | No | Skip HR level (default: false) |
 | `skip_finance_approval` | boolean | No | Skip finance level (default: false) |
@@ -731,7 +764,7 @@ Content-Type: application/json
 | `priority` | integer | No | Lower = higher priority (default: 100) |
 | `is_active` | boolean | No | Enable/disable rule (default: true) |
 
-*Required based on match_type: designations required if match_type is "designation", emails required if match_type is "email"
+*Required based on match_type: designations required if match_type is "designation", emails required if match_type is "email", project_codes required if match_type is "project"
 
 **Response:** `201 Created`
 ```json

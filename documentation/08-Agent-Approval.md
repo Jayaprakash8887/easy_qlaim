@@ -138,11 +138,12 @@ The approval agent reads tenant-specific settings from the database:
 
 ## 4.3 Approval Skip Rules (CXO/Executive Fast-Track)
 
-In addition to auto-approval based on confidence scores, the system supports **Approval Skip Rules** that allow administrators to configure rules for skipping approval levels based on employee designation or email.
+In addition to auto-approval based on confidence scores, the system supports **Approval Skip Rules** that allow administrators to configure rules for skipping approval levels based on employee designation, email, or project.
 
 ### Purpose
 
 - Enable faster reimbursement processing for senior executives (CXOs, VPs)
+- Skip approval levels for specific high-priority projects
 - Reduce unnecessary approval overhead for trusted employees
 - Maintain audit trail while streamlining workflow
 
@@ -161,7 +162,8 @@ In addition to auto-approval based on confidence scores, the system supports **A
 │       ▼                                                                     │
 │  Any matching rule found?                                                   │
 │  ├── Match by designation: employee.designation IN rule.designations       │
-│  └── Match by email: employee.email IN rule.emails                         │
+│  ├── Match by email: employee.email IN rule.emails                         │
+│  └── Match by project: claim.project_code IN rule.project_codes            │
 │       │                                                                     │
 │       ├── NO MATCH ──▶ Standard routing (Section 4.1/4.2)                  │
 │       │                                                                     │

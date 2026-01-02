@@ -753,7 +753,7 @@ CREATE INDEX idx_webhook_logs_status ON webhook_delivery_logs(status);
 
 ### 3.17 Approval Skip Rules
 
-Stores configurable rules for skipping approval levels based on employee designation or email (for CXOs, executives, etc.).
+Stores configurable rules for skipping approval levels based on employee designation, email, or project (for CXOs, executives, specific projects, etc.).
 
 ```sql
 CREATE TABLE approval_skip_rules (
@@ -764,14 +764,17 @@ CREATE TABLE approval_skip_rules (
     rule_name VARCHAR(100) NOT NULL,
     description TEXT,
     
-    -- Match criteria: 'designation' or 'email'
-    match_type VARCHAR(20) NOT NULL CHECK (match_type IN ('designation', 'email')),
+    -- Match criteria: 'designation', 'email', or 'project'
+    match_type VARCHAR(20) NOT NULL CHECK (match_type IN ('designation', 'email', 'project')),
     
     -- Designations to match (e.g., ['CEO', 'CTO', 'CFO'])
     designations TEXT[] DEFAULT '{}',
     
     -- Emails to match (e.g., ['ceo@company.com'])
     emails TEXT[] DEFAULT '{}',
+    
+    -- Project codes to match (e.g., ['PROJ-001', 'PROJ-002'])
+    project_codes TEXT[] DEFAULT '{}',
     
     -- Which approval levels to skip
     skip_manager_approval BOOLEAN DEFAULT FALSE,

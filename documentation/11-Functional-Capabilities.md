@@ -267,6 +267,15 @@ This feature allows administrators to configure rules that automatically skip ce
    - Skip HR: ✅
    - Skip Finance: ❌
 
+4. **Project-Based Skip:**
+   - Rule Name: `High Priority Projects`
+   - Match Type: `project`
+   - Project Codes: `['PROJ-001', 'PROJ-002']`
+   - Skip Manager: ✅
+   - Skip HR: ❌
+   - Skip Finance: ❌
+   - Description: Skip manager approval for high-priority projects
+
 **API Endpoints:**
 
 | Method | Endpoint | Description |
