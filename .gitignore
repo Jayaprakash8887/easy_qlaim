@@ -105,4 +105,3 @@ secrets/
 # Build artifacts
 *.whl
 *.tar.gz
-vite.config.ts
