@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -19,7 +19,7 @@ import { useCreateBatchClaimsWithDocument, BatchClaimItem } from "@/hooks/useCla
 import { UploadedFile } from "./DocumentUpload";
 import { useAllowancesByRegion, ExtractedClaimCategory } from "@/hooks/usePolicies";
 import { useFormatting } from "@/hooks/useFormatting";
-import { useProjects } from "@/hooks/useProjects";
+import { useEmployeeProjectHistory } from "@/hooks/useEmployees";
 import {
   Select,
   SelectContent,
@@ -104,18 +104,81 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
   // Fetch allowances filtered by user's region
   const { data: allowancePolicies = [], isLoading: isLoadingAllowances } = useAllowancesByRegion(user?.region);
 
-  // Fetch available projects for dropdown
-  const { data: projects = [] } = useProjects();
+  // Fetch employee's project history (assigned projects) - same as SmartClaimForm
+  const { data: projectHistory = [] } = useEmployeeProjectHistory(user?.id);
 
   const { formatCurrency, getCurrencySymbol, formatDate } = useFormatting();
 
   const [allowanceData, setAllowanceData] = useState({
-    amount: '',
+    perDayRate: '',
     periodStart: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'),
     periodEnd: format(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0), 'yyyy-MM-dd'),
     description: '',
     projectCode: '',
   });
+
+  // Map project history to dropdown format and get active projects
+  const activeProjects = useMemo(() => {
+    const mappedProjects = projectHistory.map(allocation => ({
+      id: allocation.project_id,
+      code: allocation.project_code,
+      name: allocation.project_name,
+      status: allocation.status, // ACTIVE, COMPLETED, or REMOVED
+    }));
+    // Filter to only show active project assignments
+    const active = mappedProjects.filter(p => p.status === 'ACTIVE');
+    console.log('Employee projects:', mappedProjects.length, 'Active:', active.length, active.map(p => p.code));
+    return active;
+  }, [projectHistory]);
+
+  // Auto-select project if user has only one active project assigned
+  useEffect(() => {
+    // Only auto-select if:
+    // 1. There's exactly one active project
+    // 2. projectCode hasn't been set yet (empty string)
+    // 3. activeProjects array has loaded (length > 0 check is implicit in === 1)
+    if (activeProjects.length === 1 && allowanceData.projectCode === '') {
+      console.log('Auto-selecting project:', activeProjects[0].code);
+      setAllowanceData(prev => ({
+        ...prev,
+        projectCode: activeProjects[0].code
+      }));
+    }
+  }, [activeProjects, allowanceData.projectCode]);
+
+  // Helper function to calculate working days (excluding weekends - Saturday & Sunday)
+  const calculateWorkingDays = (startDate: string, endDate: string): number => {
+    if (!startDate || !endDate) return 0;
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (start > end) return 0;
+
+    let workingDays = 0;
+    const current = new Date(start);
+
+    while (current <= end) {
+      const dayOfWeek = current.getDay();
+      // 0 = Sunday, 6 = Saturday
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        workingDays++;
+      }
+      current.setDate(current.getDate() + 1);
+    }
+
+    return workingDays;
+  };
+
+  // Calculate working days and total allowance amount
+  const workingDaysCount = useMemo(() => {
+    return calculateWorkingDays(allowanceData.periodStart, allowanceData.periodEnd);
+  }, [allowanceData.periodStart, allowanceData.periodEnd]);
+
+  const calculatedTotalAmount = useMemo(() => {
+    const perDayRate = parseFloat(allowanceData.perDayRate) || 0;
+    return workingDaysCount * perDayRate;
+  }, [workingDaysCount, allowanceData.perDayRate]);
 
   const form = useForm<ClaimFormData>({
     resolver: zodResolver(claimSchema),
@@ -141,9 +204,9 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
   const allowanceFormCompleteness = useMemo(() => {
     if (!selectedPolicy) return 0;
     let score = 0;
-    const totalFields = 4; // amount, periodStart, periodEnd, projectCode are required
+    const totalFields = 4; // perDayRate, periodStart, periodEnd, projectCode are required
 
-    if (allowanceData.amount && parseFloat(allowanceData.amount) > 0) score += 1;
+    if (allowanceData.perDayRate && parseFloat(allowanceData.perDayRate) > 0) score += 1;
     if (allowanceData.periodStart) score += 1;
     if (allowanceData.periodEnd) score += 1;
     if (allowanceData.projectCode) score += 1;
@@ -156,21 +219,46 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
     if (!selectedPolicy) return [];
 
     const checks: PolicyCheckItem[] = [];
-    const amount = parseFloat(allowanceData.amount) || 0;
 
-    // Amount limit check
+    // Per day rate check (validate against max_amount which is the per-day limit)
+    const perDayRate = parseFloat(allowanceData.perDayRate) || 0;
     if (selectedPolicy.max_amount) {
       checks.push({
-        id: 'amount-limit',
-        label: 'Amount Limit',
-        status: amount > 0 && amount <= selectedPolicy.max_amount ? 'pass' : amount > selectedPolicy.max_amount ? 'fail' : 'warning',
-        message: amount > selectedPolicy.max_amount
-          ? `Amount exceeds maximum of ${formatCurrency(selectedPolicy.max_amount)}`
-          : amount > 0
-            ? `Within limit of ${formatCurrency(selectedPolicy.max_amount)}`
-            : 'Enter an amount'
+        id: 'per-day-rate',
+        label: 'Per Day Rate',
+        status: perDayRate > 0 && perDayRate <= selectedPolicy.max_amount ? 'pass' : perDayRate > selectedPolicy.max_amount ? 'fail' : 'warning',
+        message: perDayRate > selectedPolicy.max_amount
+          ? `${formatCurrency(perDayRate)}/day exceeds maximum of ${formatCurrency(selectedPolicy.max_amount)}/day`
+          : perDayRate > 0
+            ? `${formatCurrency(perDayRate)}/day (max: ${formatCurrency(selectedPolicy.max_amount)}/day)`
+            : `Enter per day rate (max: ${formatCurrency(selectedPolicy.max_amount)}/day)`
+      });
+    } else {
+      checks.push({
+        id: 'per-day-rate',
+        label: 'Per Day Rate',
+        status: perDayRate > 0 ? 'pass' : 'warning',
+        message: perDayRate > 0 ? `${formatCurrency(perDayRate)} per day` : 'Enter per day rate'
       });
     }
+
+    // Working days check
+    checks.push({
+      id: 'working-days',
+      label: 'Working Days',
+      status: workingDaysCount > 0 ? 'pass' : 'warning',
+      message: workingDaysCount > 0 ? `${workingDaysCount} working days selected` : 'Select valid period'
+    });
+
+    // Calculated total display (no limit on total since per-day rate is already validated)
+    checks.push({
+      id: 'calculated-total',
+      label: 'Calculated Total',
+      status: calculatedTotalAmount > 0 ? 'pass' : 'warning',
+      message: calculatedTotalAmount > 0
+        ? `Total: ${formatCurrency(calculatedTotalAmount)} (${workingDaysCount} days × ${formatCurrency(perDayRate)}/day)`
+        : 'Enter rate and period to calculate total'
+    });
 
     // Period validity check
     const startDate = allowanceData.periodStart ? new Date(allowanceData.periodStart) : null;
@@ -199,14 +287,6 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
       });
     }
 
-    // Required amount check
-    checks.push({
-      id: 'amount-required',
-      label: 'Amount Required',
-      status: amount > 0 ? 'pass' : 'warning',
-      message: amount > 0 ? 'Amount provided' : 'Enter claim amount'
-    });
-
     // Project code check
     checks.push({
       id: 'project-code',
@@ -216,7 +296,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
     });
 
     return checks;
-  }, [allowanceData, selectedPolicy, formatCurrency]);
+  }, [allowanceData, selectedPolicy, formatCurrency, workingDaysCount, calculatedTotalAmount]);
 
   const handleClaimTypeSelect = (type: ClaimTypeOption) => {
     setClaimType(type);
@@ -284,10 +364,10 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
 
     // For allowances: Step 3 is Form Validation
     if (claimType === 'allowance' && currentStep === 3) {
-      if (!allowanceData.amount) {
+      if (!allowanceData.perDayRate || parseFloat(allowanceData.perDayRate) <= 0) {
         toast({
-          title: "Please enter the amount",
-          description: "Amount is required to continue",
+          title: "Please enter the per day rate",
+          description: "Per day rate is required to calculate the allowance",
           variant: "destructive",
         });
         return;
@@ -370,8 +450,44 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
           title: `${response.total_claims} Claims Submitted Successfully! 🎉`,
           description: `Your ${response.total_claims} reimbursement claims totaling ${formatCurrency(response.total_amount)} have been sent for approval.${documentFile ? ' Document attached.' : ''} Claim IDs: ${response.claim_numbers.join(', ')}`,
         });
+      } else if (claimType === 'allowance' && selectedPolicy) {
+        // Allowance claim - use calculated total from working days x per day rate
+        const allowanceClaimItems: BatchClaimItem[] = [{
+          category: selectedPolicy.category_code || selectedPolicy.category_name || 'allowance',
+          amount: calculatedTotalAmount,
+          claim_date: allowanceData.periodEnd || format(new Date(), 'yyyy-MM-dd'),
+          title: `${selectedPolicy.category_name} - ${allowanceData.periodStart} to ${allowanceData.periodEnd} (${workingDaysCount} days)`,
+          vendor: undefined,
+          transaction_ref: undefined,
+          description: allowanceData.description || `${selectedPolicy.category_name} allowance claim for period ${allowanceData.periodStart} to ${allowanceData.periodEnd}. Working days: ${workingDaysCount}, Per day rate: ${formatCurrency(parseFloat(allowanceData.perDayRate) || 0)}`,
+          // Allowance claims are manually entered
+          category_source: 'manual',
+          title_source: 'manual',
+          amount_source: 'manual',
+          date_source: 'manual',
+          vendor_source: 'manual',
+          description_source: 'manual',
+          transaction_ref_source: 'manual',
+        }];
+
+        const batchPayload = {
+          employee_id: user.id,
+          claim_type: 'ALLOWANCE' as const,
+          project_code: allowanceData.projectCode || undefined,
+          claims: allowanceClaimItems,
+        };
+
+        const response = await createBatchClaimsWithDocument.mutateAsync({
+          batchData: batchPayload,
+          file: undefined, // Allowance claims typically don't require documents
+        });
+
+        toast({
+          title: `Allowance Claim Submitted Successfully! 🎉`,
+          description: `Your ${selectedPolicy.category_name} claim (${response.claim_numbers[0]}) has been sent for approval. Track it in your dashboard.`,
+        });
       } else {
-        // Single claim from form data - use actual field sources from state
+        // Single reimbursement claim from form data - use actual field sources from state
         const formData = form.getValues();
         const singleClaimItems: BatchClaimItem[] = [{
           category: formData.category || selectedCategory || 'miscellaneous',
@@ -395,7 +511,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
 
         const batchPayload = {
           employee_id: user.id,
-          claim_type: claimType === 'reimbursement' ? 'REIMBURSEMENT' as const : 'ALLOWANCE' as const,
+          claim_type: 'REIMBURSEMENT' as const,
           project_code: formData.projectCode || undefined,
           claims: singleClaimItems,
         };
@@ -406,7 +522,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
         });
 
         toast({
-          title: `${claimTypeLabel} Claim Submitted Successfully! 🎉`,
+          title: `Reimbursement Claim Submitted Successfully! 🎉`,
           description: `Your claim (${response.claim_numbers[0]}) has been sent for approval.${documentFile ? ' Document attached.' : ''} Track it in your dashboard.`,
         });
       }
@@ -584,7 +700,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
 
         {/* Step 2: Category Selection for Allowance */}
         {currentStep === 2 && claimType === 'allowance' && (
-          <div className="max-w-4xl mx-auto">
+          <div>
             <div className="mb-8 text-center">
               <h2 className="text-2xl font-bold text-foreground mb-2">Select Allowance Type</h2>
               <p className="text-muted-foreground">
@@ -662,7 +778,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
 
         {/* Step 3: Allowance Details Form */}
         {currentStep === 3 && claimType === 'allowance' && selectedAllowanceId && selectedPolicy && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Main Form - Left side */}
             <div className="lg:col-span-2">
               <Card>
@@ -673,26 +789,45 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {/* Amount */}
+                  {/* Per Day Rate */}
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Amount *</label>
+                    <label className="text-sm font-medium">Per Day Rate *</label>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">{getCurrencySymbol()}</span>
                       <input
                         type="number"
                         className="w-full pl-8 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
                         placeholder="0.00"
-                        value={allowanceData.amount}
-                        onChange={(e) => setAllowanceData({ ...allowanceData, amount: e.target.value })}
-                        max={selectedPolicy.max_amount || undefined}
+                        value={allowanceData.perDayRate}
+                        onChange={(e) => setAllowanceData({ ...allowanceData, perDayRate: e.target.value })}
                       />
                     </div>
-                    {selectedPolicy.max_amount && (
-                      <p className="text-xs text-muted-foreground">
-                        Maximum allowed: {formatCurrency(selectedPolicy.max_amount)}
-                      </p>
-                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {selectedPolicy.max_amount
+                        ? `Maximum allowed: ${formatCurrency(selectedPolicy.max_amount)} per day`
+                        : 'Enter the allowance rate per working day'}
+                    </p>
                   </div>
+
+                  {/* Calculated Total Display */}
+                  {calculatedTotalAmount > 0 && (
+                    <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">Calculated Total Amount</p>
+                          <p className="text-xs text-muted-foreground">
+                            {workingDaysCount} working days × {formatCurrency(parseFloat(allowanceData.perDayRate) || 0)} per day
+                          </p>
+                        </div>
+                        <span className="text-xl font-bold text-primary">{formatCurrency(calculatedTotalAmount)}</span>
+                      </div>
+                      {selectedPolicy.max_amount && parseFloat(allowanceData.perDayRate) > selectedPolicy.max_amount && (
+                        <p className="text-xs text-destructive mt-2">
+                          ⚠️ Per day rate exceeds maximum allowed: {formatCurrency(selectedPolicy.max_amount)}/day
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Period */}
                   <div className="grid gap-4 sm:grid-cols-2">
@@ -739,13 +874,18 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                         <SelectValue placeholder="Select a project" />
                       </SelectTrigger>
                       <SelectContent>
-                        {projects.filter(p => p.status === 'active').map((project) => (
+                        {activeProjects.map((project) => (
                           <SelectItem key={project.id} value={project.code}>
                             {project.code} - {project.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    {activeProjects.length === 1 && (
+                      <p className="text-xs text-muted-foreground">
+                        Auto-selected (only assigned project)
+                      </p>
+                    )}
                   </div>
 
                   {/* Policy Info - Only show if there are eligibility requirements */}
@@ -805,7 +945,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
         )}
 
         {currentStep === 4 && claimType === 'allowance' && selectedAllowanceId && selectedPolicy && (
-          <div className="max-w-3xl mx-auto">
+          <div>
             <Card>
               <CardHeader>
                 <CardTitle>Review Your Allowance Claim</CardTitle>
@@ -818,8 +958,16 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                     <span className="text-sm">{selectedPolicy.category_name}</span>
                   </div>
                   <div className="flex justify-between py-2 border-b">
-                    <span className="text-sm font-medium">Amount:</span>
-                    <span className="text-sm font-semibold">{formatCurrency(parseFloat(allowanceData.amount || '0'))}</span>
+                    <span className="text-sm font-medium">Per Day Rate:</span>
+                    <span className="text-sm">{formatCurrency(parseFloat(allowanceData.perDayRate) || 0)}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-sm font-medium">Working Days:</span>
+                    <span className="text-sm">{workingDaysCount} days</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-sm font-medium">Total Amount:</span>
+                    <span className="text-sm font-bold text-primary">{formatCurrency(calculatedTotalAmount)}</span>
                   </div>
                   <div className="flex justify-between py-2 border-b">
                     <span className="text-sm font-medium">Period:</span>
