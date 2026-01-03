@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, CheckCircle, XCircle, Wallet, Users, TrendingUp, AlertCircle, DollarSign, FileText, Building2, Settings, Shield, Activity, Server, RotateCcw, Banknote } from 'lucide-react';
 import { SummaryCard } from '@/components/dashboard/SummaryCard';
@@ -6,6 +7,7 @@ import { RecentActivity } from '@/components/dashboard/RecentActivity';
 import { AISuggestionsCard } from '@/components/dashboard/AISuggestionsCard';
 import { AllowanceOverviewCards, AllowancePolicyAlerts } from '@/components/dashboard/AllowanceWidgets';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTour } from '@/contexts/TourContext';
 import { useDashboardSummary, useClaimsByStatus, useHRMetrics, useAdminStats, useFinanceMetrics, usePendingApprovals } from '@/hooks/useDashboard';
 import { useFormatting } from '@/hooks/useFormatting';
 import { useTenants, useDesignations } from '@/hooks/useSystemAdmin';
@@ -18,6 +20,20 @@ function EmployeeDashboard({ userName, employeeId, tenantId }: { userName: strin
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(employeeId, tenantId);
   const { data: claimsByStatus, isLoading: statusLoading } = useClaimsByStatus(employeeId, tenantId);
   const { formatCurrency } = useFormatting();
+  const { hasSeenTour, startTour, isLoading: tourLoading } = useTour();
+
+  // Auto-start tour for first-time users
+  useEffect(() => {
+    // Wait for both dashboard data and tour status to finish loading
+    if (!tourLoading && !hasSeenTour && !summaryLoading) {
+      // Small delay to allow the page to render first
+      const timer = setTimeout(() => {
+        startTour();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [hasSeenTour, summaryLoading, startTour, tourLoading]);
+
 
   // Pending = any claim that is NOT Approved, Rejected, Settled, or Returned
   const excludedFromPending = ['FINANCE_APPROVED', 'REJECTED', 'SETTLED', 'RETURNED_TO_EMPLOYEE'];
@@ -74,7 +90,7 @@ function EmployeeDashboard({ userName, employeeId, tenantId }: { userName: strin
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <div data-tour="dashboard-stats" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         <SummaryCard
           title="Pending Claims"
           value={pendingCount}

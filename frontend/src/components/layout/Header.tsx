@@ -6,9 +6,11 @@ import {
   Settings,
   HelpCircle,
   ChevronDown,
+  PlayCircle,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useBranding } from '@/contexts/BrandingContext';
+import { useTour } from '@/contexts/TourContext';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -29,6 +31,7 @@ interface HeaderProps {
 export function Header({ onMenuClick }: HeaderProps) {
   const { user, logout } = useAuth();
   const { branding } = useBranding();
+  const { startTour } = useTour();
 
   // Use tenant logo if available, otherwise fall back to Easy Qlaim default
   const logoUrl = branding?.logo_url || '/logo-horizontal.svg';
@@ -44,9 +47,9 @@ export function Header({ onMenuClick }: HeaderProps) {
           </Button>
 
           <Link to="/" className="flex items-center gap-3">
-            <img 
-              src={logoUrl} 
-              alt={appName} 
+            <img
+              src={logoUrl}
+              alt={appName}
               className="h-12 max-w-[200px] object-contain"
             />
           </Link>
@@ -62,10 +65,27 @@ export function Header({ onMenuClick }: HeaderProps) {
           {/* Notifications */}
           <NotificationsBell />
 
-          {/* Help */}
-          <Button variant="ghost" size="icon" className="hidden sm:flex h-10 w-10">
-            <HelpCircle className="h-6 w-6" />
-          </Button>
+          {/* Help Menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hidden sm:flex h-10 w-10"
+                data-tour="help-menu"
+              >
+                <HelpCircle className="h-6 w-6" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel>Help & Support</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={startTour} className="cursor-pointer">
+                <PlayCircle className="mr-2 h-4 w-4" />
+                Rewatch Tour
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {/* User Menu */}
           <DropdownMenu>

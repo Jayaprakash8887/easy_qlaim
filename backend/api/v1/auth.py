@@ -102,6 +102,7 @@ class UserInfoResponse(BaseModel):
     roles: list[str] = []
     region: Optional[list[str]] = None
     avatar_url: Optional[str] = None
+    has_seen_tour: bool = False
 
 
 # ============ Helper Functions ============
@@ -629,6 +630,11 @@ async def get_me(
     # Derive user roles using role_service (same logic as login)
     effective_roles = get_user_roles(user, db)
     
+    # Get has_seen_tour from user_data JSONB field
+    has_seen_tour = False
+    if user.user_data and isinstance(user.user_data, dict):
+        has_seen_tour = user.user_data.get('has_seen_tour', False)
+    
     return UserInfoResponse(
         id=str(user.id),
         tenant_id=str(user.tenant_id) if user.tenant_id else None,
@@ -640,8 +646,32 @@ async def get_me(
         designation=user.designation,
         roles=effective_roles,
         region=user.region,
-        avatar_url=user.avatar_url
+        avatar_url=user.avatar_url,
+        has_seen_tour=has_seen_tour
     )
+
+
+@router.patch("/me/tour-status")
+async def update_tour_status(
+    user: User = Depends(require_auth),
+    db: Session = Depends(get_db)
+):
+    """Mark the product tour as seen for the current user."""
+    try:
+        # Update user_data JSONB field
+        current_data = user.user_data if user.user_data and isinstance(user.user_data, dict) else {}
+        current_data['has_seen_tour'] = True
+        user.user_data = current_data
+        db.commit()
+        
+        return {"success": True, "has_seen_tour": True}
+    except Exception as e:
+        logger.error(f"Failed to update tour status for {user.email}: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update tour status"
+        )
 
 
 @router.get("/verify")
