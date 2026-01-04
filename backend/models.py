@@ -482,6 +482,49 @@ class Approval(Base):
     )
 
 
+class Client(Base):
+    """Client/Customer master for tenant organizations"""
+    __tablename__ = "clients"
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'client_code', name='uq_client_tenant_code'),
+    )
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), nullable=False)
+    
+    # Client identification
+    client_code = Column(String(50), nullable=False)  # Unique per tenant
+    client_name = Column(String(255), nullable=False)
+    description = Column(Text)
+    
+    # Contact information
+    contact_person = Column(String(255))
+    contact_email = Column(String(255))
+    contact_phone = Column(String(50))
+    address = Column(Text)
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    
+    # Additional data
+    client_data = Column(JSONB, default={})
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    projects = relationship("Project", back_populates="client", foreign_keys="Project.client_id")
+    
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'client_code', name='uq_client_tenant_code'),
+        Index("idx_clients_tenant", "tenant_id"),
+        Index("idx_clients_code", "client_code"),
+        Index("idx_clients_name", "client_name"),
+        Index("idx_clients_active", "is_active"),
+    )
+
+
 class Project(Base):
     """Project master for project-based claims"""
     __tablename__ = "projects"
@@ -498,10 +541,14 @@ class Project(Base):
     description = Column(Text)
     manager_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
+    # Client association (optional)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id"), nullable=True)
+    
     # IBU association
     ibu_id = Column(UUID(as_uuid=True), ForeignKey("ibus.id"))
     
-    # Relationship to IBU
+    # Relationships
+    client = relationship("Client", back_populates="projects", foreign_keys=[client_id], lazy="joined")
     ibu = relationship("IBU", foreign_keys=[ibu_id], lazy="joined")
     
     # Budget
@@ -528,6 +575,7 @@ class Project(Base):
         Index("idx_projects_code", "project_code"),
         Index("idx_projects_status", "status"),
         Index("idx_projects_ibu", "ibu_id"),
+        Index("idx_projects_client", "client_id"),
     )
 
 

@@ -38,7 +38,7 @@ def _calculate_project_spent(project: Project, db: Session) -> float:
 
 
 def _project_to_response(project: Project, db: Session = None) -> dict:
-    """Convert Project model to response dict with IBU details"""
+    """Convert Project model to response dict with IBU and Client details"""
     # Calculate budget_spent dynamically if db session is provided
     budget_spent = _calculate_project_spent(project, db) if db else (float(project.budget_spent) if project.budget_spent else 0)
     
@@ -57,6 +57,9 @@ def _project_to_response(project: Project, db: Session = None) -> dict:
         "ibu_id": project.ibu_id,
         "ibu_name": project.ibu.name if project.ibu else None,
         "ibu_code": project.ibu.code if project.ibu else None,
+        "client_id": project.client_id,
+        "client_name": project.client.client_name if project.client else None,
+        "client_code": project.client.client_code if project.client else None,
         "created_at": project.created_at,
     }
     return response
@@ -109,16 +112,22 @@ async def get_all_project_members(
 async def list_projects(
     tenant_id: UUID,
     search: Optional[str] = None,
+    client_id: Optional[UUID] = None,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_sync_db)
 ):
-    """Get list of projects, optionally filtered by tenant and search query"""
-    query = db.query(Project).options(joinedload(Project.ibu))
+    """Get list of projects, optionally filtered by tenant, search query, and client"""
+    from models import Client
+    query = db.query(Project).options(joinedload(Project.ibu), joinedload(Project.client))
     
     # Filter by tenant if provided
     if tenant_id:
         query = query.filter(Project.tenant_id == tenant_id)
+    
+    # Filter by client if provided
+    if client_id:
+        query = query.filter(Project.client_id == client_id)
     
     # Search filter
     if search:
@@ -140,7 +149,7 @@ async def get_project(
     db: Session = Depends(get_sync_db)
 ):
     """Get project by ID"""
-    query = db.query(Project).options(joinedload(Project.ibu)).filter(Project.id == project_id)
+    query = db.query(Project).options(joinedload(Project.ibu), joinedload(Project.client)).filter(Project.id == project_id)
     if tenant_id:
         query = query.filter(Project.tenant_id == tenant_id)
     project = query.first()
@@ -171,6 +180,19 @@ async def create_project(
             detail=f"Project with code {project_data.project_code} already exists in this tenant"
         )
     
+    # Validate client_id if provided
+    if project_data.client_id:
+        from models import Client
+        client = db.query(Client).filter(
+            Client.id == project_data.client_id,
+            Client.tenant_id == current_user.tenant_id
+        ).first()
+        if not client:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid client_id - client not found"
+            )
+    
     # Create project with user's tenant_id
     project = Project(
         id=uuid4(),
@@ -182,6 +204,7 @@ async def create_project(
         start_date=project_data.start_date,
         end_date=project_data.end_date,
         ibu_id=project_data.ibu_id,
+        client_id=project_data.client_id,
         status="ACTIVE"
     )
     
@@ -189,8 +212,8 @@ async def create_project(
     db.commit()
     db.refresh(project)
     
-    # Reload with IBU relationship
-    project = db.query(Project).options(joinedload(Project.ibu)).filter(Project.id == project.id).first()
+    # Reload with IBU and Client relationships
+    project = db.query(Project).options(joinedload(Project.ibu), joinedload(Project.client)).filter(Project.id == project.id).first()
     
     # Invalidate cache in background
     background_tasks.add_task(_invalidate_project_cache, project.project_code, project.id)
@@ -228,15 +251,29 @@ async def update_project(
                 detail=f"Project with code {project_data.project_code} already exists in this tenant"
             )
     
+    # Validate client_id if provided (and not explicitly set to None to remove)
+    update_dict = project_data.model_dump(exclude_unset=True)
+    if 'client_id' in update_dict and update_dict['client_id'] is not None:
+        from models import Client
+        client = db.query(Client).filter(
+            Client.id == update_dict['client_id'],
+            Client.tenant_id == project.tenant_id
+        ).first()
+        if not client:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid client_id - client not found"
+            )
+    
     # Update fields
-    for field, value in project_data.dict(exclude_unset=True).items():
+    for field, value in update_dict.items():
         setattr(project, field, value)
     
     db.commit()
     db.refresh(project)
     
-    # Reload with IBU relationship
-    project = db.query(Project).options(joinedload(Project.ibu)).filter(Project.id == project.id).first()
+    # Reload with IBU and Client relationships
+    project = db.query(Project).options(joinedload(Project.ibu), joinedload(Project.client)).filter(Project.id == project.id).first()
     
     # Invalidate cache (both old and new code if changed)
     background_tasks.add_task(_invalidate_project_cache, old_project_code, project_id)

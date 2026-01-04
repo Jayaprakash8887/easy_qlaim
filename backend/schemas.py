@@ -495,6 +495,76 @@ class DepartmentResponse(DepartmentBase):
         from_attributes = True
 
 
+# Client Schemas
+class ClientBase(BaseModel):
+    client_code: str
+    client_name: str
+    description: Optional[str] = None
+    contact_person: Optional[str] = None
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
+    address: Optional[str] = None
+
+    @validator('contact_email', pre=True, always=True)
+    def empty_str_to_none_email(cls, v):
+        if v == '' or v is None:
+            return None
+        return v
+
+    @validator('description', 'contact_person', 'contact_phone', 'address', pre=True, always=True)
+    def empty_str_to_none(cls, v):
+        if v == '':
+            return None
+        return v
+
+
+class ClientCreate(ClientBase):
+    pass
+
+
+class ClientUpdate(BaseModel):
+    client_code: Optional[str] = None
+    client_name: Optional[str] = None
+    description: Optional[str] = None
+    contact_person: Optional[str] = None
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
+    address: Optional[str] = None
+    is_active: Optional[bool] = None
+
+    @validator('contact_email', pre=True, always=True)
+    def empty_str_to_none_email(cls, v):
+        if v == '' or v is None:
+            return None
+        return v
+
+    @validator('description', 'contact_person', 'contact_phone', 'address', pre=True, always=True)
+    def empty_str_to_none(cls, v):
+        if v == '':
+            return None
+        return v
+
+
+class ClientResponse(ClientBase):
+    id: UUID
+    tenant_id: UUID
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    project_count: Optional[int] = 0  # Number of linked projects
+    
+    class Config:
+        from_attributes = True
+
+
+class ClientWithProjects(ClientResponse):
+    """Client response including linked projects"""
+    projects: List["ProjectResponse"] = []
+    
+    class Config:
+        from_attributes = True
+
+
 # Project Schemas
 class ProjectBase(BaseModel):
     project_code: str
@@ -507,6 +577,7 @@ class ProjectCreate(ProjectBase):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     ibu_id: Optional[UUID] = None
+    client_id: Optional[UUID] = None  # Optional client association
 
 
 class ProjectUpdate(BaseModel):
@@ -520,6 +591,7 @@ class ProjectUpdate(BaseModel):
     is_active: Optional[bool] = None
     manager_id: Optional[UUID] = None
     ibu_id: Optional[UUID] = None
+    client_id: Optional[UUID] = None  # Optional client association (can be set to null)
 
 
 class ProjectResponse(ProjectBase):
@@ -534,6 +606,9 @@ class ProjectResponse(ProjectBase):
     ibu_id: Optional[UUID] = None
     ibu_name: Optional[str] = None
     ibu_code: Optional[str] = None
+    client_id: Optional[UUID] = None
+    client_name: Optional[str] = None
+    client_code: Optional[str] = None
     created_at: datetime
     
     class Config:
@@ -1208,3 +1283,7 @@ class ApprovalSkipResult(BaseModel):
     applied_rule_id: Optional[UUID] = None
     applied_rule_name: Optional[str] = None
     reason: Optional[str] = None
+
+
+# Rebuild models that use forward references
+ClientWithProjects.model_rebuild()

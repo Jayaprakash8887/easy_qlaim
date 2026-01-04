@@ -388,10 +388,17 @@ interface ClaimsByProject {
   claims_count: number;
   claims_amount: number;
   settled_amount: number;
+  client_id?: string;
+  client_name?: string;
+  client_code?: string;
 }
 
-async function fetchClaimsByProject(tenantId?: string, period: string = 'month'): Promise<ClaimsByProject[]> {
-  const url = buildUrl(`${API_BASE_URL}/dashboard/claims-by-project`, { tenant_id: tenantId, period });
+async function fetchClaimsByProject(tenantId?: string, period: string = 'month', clientId?: string): Promise<ClaimsByProject[]> {
+  const url = buildUrl(`${API_BASE_URL}/dashboard/claims-by-project`, { 
+    tenant_id: tenantId, 
+    period,
+    client_id: clientId
+  });
   const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch claims by project');
@@ -399,13 +406,13 @@ async function fetchClaimsByProject(tenantId?: string, period: string = 'month')
   return response.json();
 }
 
-export function useClaimsByProject(tenantId?: string, period: string = 'month') {
+export function useClaimsByProject(tenantId?: string, period: string = 'month', clientId?: string) {
   const { user } = useAuth();
   const effectiveTenantId = tenantId || user?.tenantId;
 
   return useQuery({
-    queryKey: ['claims-by-project', effectiveTenantId, period],
-    queryFn: () => fetchClaimsByProject(effectiveTenantId, period),
+    queryKey: ['claims-by-project', effectiveTenantId, period, clientId],
+    queryFn: () => fetchClaimsByProject(effectiveTenantId, period, clientId),
     enabled: !!effectiveTenantId,
     refetchInterval: 180000,
     staleTime: 120000,

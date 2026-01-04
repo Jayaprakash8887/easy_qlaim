@@ -46,6 +46,9 @@ async function fetchProjects(tenantId?: string): Promise<Project[]> {
     managerId: proj.manager_id || '',
     memberIds: [],
     ibuId: proj.ibu_id || undefined,
+    clientId: proj.client_id || undefined,
+    clientName: proj.client_name || undefined,
+    clientCode: proj.client_code || undefined,
   }));
 }
 
@@ -72,6 +75,9 @@ async function fetchProjectById(id: string): Promise<Project | undefined> {
     managerId: proj.manager_id || '',
     memberIds: [],
     ibuId: proj.ibu_id || undefined,
+    clientId: proj.client_id || undefined,
+    clientName: proj.client_name || undefined,
+    clientCode: proj.client_code || undefined,
   };
 }
 
@@ -88,6 +94,7 @@ async function createProject(project: Omit<Project, 'id'>): Promise<Project> {
       end_date: project.endDate?.toISOString().split('T')[0],
       manager_id: project.managerId || null,
       ibu_id: project.ibuId || null,
+      client_id: project.clientId || null,
     }),
   });
 
@@ -111,6 +118,9 @@ async function createProject(project: Omit<Project, 'id'>): Promise<Project> {
     managerId: data.manager_id || '',
     memberIds: [],
     ibuId: data.ibu_id || undefined,
+    clientId: data.client_id || undefined,
+    clientName: data.client_name || undefined,
+    clientCode: data.client_code || undefined,
   };
 }
 
@@ -169,6 +179,7 @@ async function updateProject(id: string, project: Partial<Project>): Promise<Pro
       status: project.status?.toUpperCase(),
       manager_id: project.managerId,
       ibu_id: project.ibuId || null,
+      client_id: project.clientId || null,
     }),
   });
 
@@ -192,6 +203,9 @@ async function updateProject(id: string, project: Partial<Project>): Promise<Pro
     managerId: data.manager_id || '',
     memberIds: [],
     ibuId: data.ibu_id || undefined,
+    clientId: data.client_id || undefined,
+    clientName: data.client_name || undefined,
+    clientCode: data.client_code || undefined,
   };
 }
 

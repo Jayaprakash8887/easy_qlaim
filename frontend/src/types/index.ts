@@ -188,6 +188,9 @@ export interface Project {
   managerId: string;
   memberIds: string[];
   ibuId?: string;
+  clientId?: string;
+  clientName?: string;
+  clientCode?: string;
 }
 
 // IBU (Independent Business Unit) interface

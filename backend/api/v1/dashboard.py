@@ -619,10 +619,11 @@ async def get_finance_metrics(
 async def get_claims_by_project(
     tenant_id: Optional[UUID] = None,
     period: str = "month",
+    client_id: Optional[UUID] = None,
     db: Session = Depends(get_sync_db)
 ):
     """Get claims summary by project for budget vs actual analysis"""
-    from models import Project
+    from models import Project, Client
     from datetime import date
     
     # Determine period start date
@@ -636,9 +637,11 @@ async def get_claims_by_project(
         period_start = today.replace(month=1, day=1)
     
     # Get projects with claims summary
-    project_query = db.query(Project)
+    project_query = db.query(Project).outerjoin(Client, Project.client_id == Client.id)
     if tenant_id:
         project_query = project_query.filter(Project.tenant_id == tenant_id)
+    if client_id:
+        project_query = project_query.filter(Project.client_id == client_id)
     
     projects = project_query.all()
     
@@ -665,6 +668,13 @@ async def get_claims_by_project(
         budget_total = float(project.budget or 0)
         budget_percentage = (budget_utilized / budget_total * 100) if budget_total > 0 else 0
         
+        # Get client info
+        client_name = None
+        client_code = None
+        if project.client_id and project.client:
+            client_name = project.client.client_name
+            client_code = project.client.client_code
+        
         result.append({
             "project_code": project.code,
             "project_name": project.name,
@@ -673,7 +683,10 @@ async def get_claims_by_project(
             "budget_percentage": round(budget_percentage, 1),
             "claims_count": claims_data.claim_count or 0,
             "claims_amount": float(claims_data.total_amount or 0),
-            "settled_amount": float(claims_data.settled_amount or 0)
+            "settled_amount": float(claims_data.settled_amount or 0),
+            "client_id": str(project.client_id) if project.client_id else None,
+            "client_name": client_name,
+            "client_code": client_code
         })
     
     return sorted(result, key=lambda x: x['claims_amount'], reverse=True)

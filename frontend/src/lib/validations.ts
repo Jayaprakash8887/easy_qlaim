@@ -61,6 +61,7 @@ export const projectSchema = z.object({
     .min(1, 'Project manager is required'),
   memberIds: z.array(z.string()).optional(),
   ibuId: z.string().optional(),
+  clientId: z.string().optional(),
   startDate: z.date({
     required_error: 'Start date is required',
   }),

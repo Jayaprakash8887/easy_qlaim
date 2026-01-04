@@ -42,6 +42,7 @@ interface ProjectFormProps {
   managers: { id: string; name: string }[];
   employees?: { id: string; name: string }[];
   ibus?: { id: string; name: string; code: string }[];
+  clients?: { id: string; name: string; code: string }[];
   onSubmit: (data: ProjectFormData) => void;
   onCancel: () => void;
   isLoading?: boolean;
@@ -52,6 +53,7 @@ export function ProjectForm({
   managers,
   employees = [],
   ibus = [],
+  clients = [],
   onSubmit,
   onCancel,
   isLoading = false,
@@ -68,6 +70,7 @@ export function ProjectForm({
       managerId: '',
       memberIds: [],
       ibuId: '',
+      clientId: '',
       startDate: new Date(),
       ...defaultValues,
     },
@@ -203,6 +206,38 @@ export function ProjectForm({
                     {ibus.map((ibu) => (
                       <SelectItem key={ibu.id} value={ibu.id}>
                         {ibu.code} - {ibu.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+
+        {/* Client Selection */}
+        {clients.length > 0 && (
+          <FormField
+            control={form.control}
+            name="clientId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Client (Optional)</FormLabel>
+                <Select 
+                  onValueChange={(value) => field.onChange(value === 'none' ? '' : value)} 
+                  defaultValue={field.value || 'none'}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select client" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="none">No Client</SelectItem>
+                    {clients.map((client) => (
+                      <SelectItem key={client.id} value={client.id}>
+                        {client.code} - {client.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

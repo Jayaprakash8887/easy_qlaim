@@ -652,7 +652,7 @@ export default function Policies() {
               Add Policy
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px]">
+          <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Upload Policy Document</DialogTitle>
               <DialogDescription>
@@ -1378,7 +1378,7 @@ export default function Policies() {
 
       {/* Upload New Version Dialog */}
       <Dialog open={isNewVersionOpen} onOpenChange={setIsNewVersionOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Upload New Version</DialogTitle>
             <DialogDescription>
@@ -1460,7 +1460,7 @@ export default function Policies() {
 
       {/* Edit Policy Dialog */}
       <Dialog open={isEditPolicyOpen} onOpenChange={setIsEditPolicyOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Policy</DialogTitle>
             <DialogDescription>

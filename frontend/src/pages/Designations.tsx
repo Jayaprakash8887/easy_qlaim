@@ -99,7 +99,7 @@ function DesignationFormDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>{designation ? 'Edit Designation' : 'Create New Designation'}</DialogTitle>
                     <DialogDescription>
@@ -203,7 +203,7 @@ function RoleMappingDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[400px]">
+            <DialogContent className="sm:max-w-[400px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>Manage Roles for "{designation.name}"</DialogTitle>
                     <DialogDescription>

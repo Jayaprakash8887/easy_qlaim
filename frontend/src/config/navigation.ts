@@ -98,6 +98,11 @@ export const adminOnlyNavigation: NavItem[] = [
     icon: 'FolderKanban',
   },
   {
+    label: 'Clients',
+    href: '/clients',
+    icon: 'Briefcase',
+  },
+  {
     label: 'IBUs',
     href: '/ibus',
     icon: 'Building',
