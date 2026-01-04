@@ -101,7 +101,7 @@ export default function EmployeeDetails() {
           region: Array.isArray(data.region) ? data.region : (data.region ? [data.region] : []),
           joinDate: data.dateOfJoining || employee.joinDate,
           managerId: data.managerId || undefined,
-          projectIds: data.projectIds || '',
+          projectIds: data.projectIds || [],
           role: data.role,  // Send role to backend for updating
         }
       });
@@ -203,7 +203,7 @@ export default function EmployeeDetails() {
               region: Array.isArray(employee.region) ? employee.region : (employee.region ? [employee.region] : []),
               dateOfJoining: employee.joinDate || '',
               managerId: employee.managerId || '',
-              projectIds: employee.projectIds?.[0] || '',
+              projectIds: employee.projectIds || [],
             }}
           />
         </DialogContent>

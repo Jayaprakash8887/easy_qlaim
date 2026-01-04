@@ -388,6 +388,113 @@ GET /api/v1/users?department=Engineering&page=1&limit=20
 Authorization: Bearer {token}
 ```
 
+### 6.4 Employee Project History
+
+Get all projects an employee is or was allocated to, including historical allocations.
+
+```http
+GET /api/v1/employees/{employee_id}/project-history?include_inactive=true&tenant_id={tenant_id}
+Authorization: Bearer {token}
+```
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| include_inactive | boolean | If true, include COMPLETED and REMOVED allocations (default: true) |
+| tenant_id | uuid | Optional tenant filter |
+
+**Response:**
+```json
+[
+    {
+        "id": "allocation-uuid",
+        "employee_id": "employee-uuid",
+        "project_id": "project-uuid",
+        "project_code": "PROJ001",
+        "project_name": "Website Redesign",
+        "project_status": "ACTIVE",
+        "role": "MEMBER",
+        "allocation_percentage": 100,
+        "status": "ACTIVE",
+        "allocated_date": "2025-01-15",
+        "deallocated_date": null
+    },
+    {
+        "id": "allocation-uuid-2",
+        "employee_id": "employee-uuid",
+        "project_id": "project-uuid-2",
+        "project_code": "PROJ002",
+        "project_name": "Legacy Migration",
+        "project_status": "COMPLETED",
+        "role": "LEAD",
+        "allocation_percentage": 50,
+        "status": "COMPLETED",
+        "allocated_date": "2024-06-01",
+        "deallocated_date": "2024-12-31"
+    }
+]
+```
+
+### 6.5 Get Current Projects
+
+Get only active project allocations for an employee.
+
+```http
+GET /api/v1/employees/{employee_id}/current-projects
+Authorization: Bearer {token}
+```
+
+### 6.6 Allocate Employee to Project
+
+Assign an employee to a project. Employees can be allocated to multiple projects simultaneously.
+
+```http
+POST /api/v1/employees/{employee_id}/allocate-project
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+    "project_id": "project-uuid",
+    "role": "MEMBER",
+    "allocation_percentage": 100,
+    "allocated_date": "2025-01-15",
+    "notes": "Assigned for Q1 2025"
+}
+```
+
+**Response:**
+```json
+{
+    "id": "allocation-uuid",
+    "employee_id": "employee-uuid",
+    "project_id": "project-uuid",
+    "role": "MEMBER",
+    "allocation_percentage": 100,
+    "status": "ACTIVE",
+    "allocated_date": "2025-01-15",
+    "deallocated_date": null,
+    "notes": "Assigned for Q1 2025",
+    "created_at": "2025-01-15T10:00:00Z",
+    "updated_at": "2025-01-15T10:00:00Z"
+}
+```
+
+### 6.7 Deallocate Employee from Project
+
+End an employee's allocation to a project.
+
+```http
+PUT /api/v1/employees/{employee_id}/deallocate-project/{project_id}
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+    "deallocated_date": "2025-03-31",
+    "status": "COMPLETED",
+    "notes": "Project completed"
+}
+```
+
 ---
 
 ## 7. Clients API

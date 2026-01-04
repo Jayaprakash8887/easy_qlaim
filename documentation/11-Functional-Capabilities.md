@@ -759,7 +759,53 @@ Each tenant can define their own designation-to-role mappings:
 - Claims auto-route to assigned manager
 - Bulk reassignment supported
 
-### 8.4 Department Management
+### 8.4 Project Allocations
+
+Employees can be assigned to **multiple projects simultaneously**. Project allocations track both current and historical assignments.
+
+**Allocation Status:**
+| Status | Description |
+|--------|-------------|
+| ACTIVE | Currently assigned to the project |
+| COMPLETED | Assignment ended (project or allocation completed) |
+| REMOVED | Removed from project before completion |
+
+**Allocation Properties:**
+| Field | Description |
+|-------|-------------|
+| Project | The assigned project |
+| Role | Role in project (MEMBER, LEAD, MANAGER, etc.) |
+| Allocation % | Percentage of time allocated (0-100%) |
+| Allocated Date | When assignment started |
+| Deallocated Date | When assignment ended (null if active) |
+
+**Multi-Project Support:**
+- Employees can work on multiple projects concurrently
+- Each allocation tracked independently with history
+- Allocations can sum to more than 100% (for tracking purposes)
+
+**Claim Submission Project Dropdown:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Project Code *                                              │
+├─────────────────────────────────────────────────────────────┤
+│  ▼ Select a project                                          │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │ PROJ001 - Website Redesign        [Active]              ││
+│  │ PROJ002 - Mobile App              [Active]              ││
+│  │ PROJ003 - Legacy Migration        [COMPLETED]           ││
+│  │ PROJ004 - API Integration         [COMPLETED]           ││
+│  └─────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Features:**
+- **All Projects Shown**: Both current (ACTIVE) and past (COMPLETED/REMOVED) projects displayed
+- **Status Badges**: Visual indicator for each project's allocation status
+- **Auto-Selection**: If employee has only one active project, it's auto-selected
+- **Consistent Across Forms**: Same behavior in reimbursement and allowance submission forms
+
+### 8.5 Department Management
 
 Departments are now tenant-specific and managed via API. Admins can:
 
@@ -787,7 +833,7 @@ Departments are now tenant-specific and managed via API. Admins can:
 **Navigation:**
 Admin sidebar → Departments
 
-### 8.5 Client Management
+### 8.6 Client Management
 
 Clients are tenant-specific customer/organization records that enable better expense tracking and project organization. Admins can manage client records and associate them with projects.
 

@@ -147,7 +147,7 @@ export default function Employees() {
         region: Array.isArray(data.region) ? data.region : (data.region ? [data.region] : []),
         joinDate: data.dateOfJoining || format(new Date(), 'yyyy-MM-dd'),
         managerId: data.managerId || undefined,
-        projectIds: data.projectIds || '',
+        projectIds: data.projectIds || [],
       });
       toast.success('Employee added successfully');
       setIsAddDialogOpen(false);
@@ -180,7 +180,7 @@ export default function Employees() {
           region: Array.isArray(data.region) ? data.region : (data.region ? [data.region] : []),
           joinDate: data.dateOfJoining || selectedEmployee.joinDate,
           managerId: data.managerId || undefined,
-          projectIds: data.projectIds || '',
+          projectIds: data.projectIds || [],
         }
       });
       toast.success('Employee updated successfully');
@@ -300,7 +300,7 @@ export default function Employees() {
         region: row.region ? [row.region] : ['IND'], // Default to IND if not specified
         date_of_joining: row.join_date || format(new Date(), 'yyyy-MM-dd'),
         manager_id: row.manager_id || undefined,
-        project_ids: row.project_ids ? [row.project_ids] : [],
+        project_ids: row.project_ids ? row.project_ids.split(',').map((id: string) => id.trim()).filter(Boolean) : [],
       }));
 
       // Call bulk import API
@@ -526,7 +526,7 @@ export default function Employees() {
                 region: Array.isArray(selectedEmployee.region) ? selectedEmployee.region : (selectedEmployee.region ? [selectedEmployee.region] : []),
                 dateOfJoining: selectedEmployee.joinDate || '',
                 managerId: selectedEmployee.managerId || '',
-                projectIds: selectedEmployee.projectIds?.[0] || '',
+                projectIds: selectedEmployee.projectIds || [],
               }}
             />
           )}

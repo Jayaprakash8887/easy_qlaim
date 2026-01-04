@@ -143,19 +143,20 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
   // State for custom field values
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, any>>({});
 
-  // Map project history to dropdown format and get active projects
-  const activeProjects = useMemo(() => {
-    const mappedProjects = projectHistory.map(allocation => ({
+  // Map project history to dropdown format - include all projects (current and past)
+  const allProjects = useMemo(() => {
+    return projectHistory.map(allocation => ({
       id: allocation.project_id,
       code: allocation.project_code,
       name: allocation.project_name,
       status: allocation.status, // ACTIVE, COMPLETED, or REMOVED
     }));
-    // Filter to only show active project assignments
-    const active = mappedProjects.filter(p => p.status === 'ACTIVE');
-    console.log('Employee projects:', mappedProjects.length, 'Active:', active.length, active.map(p => p.code));
-    return active;
   }, [projectHistory]);
+
+  // Get only active projects for auto-selection logic
+  const activeProjects = useMemo(() => {
+    return allProjects.filter(p => p.status === 'ACTIVE');
+  }, [allProjects]);
 
   // Auto-select project if user has only one active project assigned
   useEffect(() => {
@@ -1334,11 +1335,32 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                         <SelectValue placeholder="Select a project" />
                       </SelectTrigger>
                       <SelectContent>
-                        {activeProjects.map((project) => (
-                          <SelectItem key={project.id} value={project.code}>
-                            {project.code} - {project.name}
-                          </SelectItem>
-                        ))}
+                        {/* Show active projects first */}
+                        {allProjects
+                          .filter(project => project.status === 'ACTIVE')
+                          .map((project) => (
+                            <SelectItem key={project.id} value={project.code}>
+                              <div className="flex items-center gap-2">
+                                <span>{project.code} - {project.name}</span>
+                                <Badge variant="outline" className="text-[10px] px-1 py-0 text-green-600 border-green-300">
+                                  Active
+                                </Badge>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        {/* Show past projects (COMPLETED/REMOVED) */}
+                        {allProjects
+                          .filter(project => project.status !== 'ACTIVE')
+                          .map((project) => (
+                            <SelectItem key={project.id} value={project.code}>
+                              <div className="flex items-center gap-2">
+                                <span>{project.code} - {project.name}</span>
+                                <Badge variant="outline" className="text-[10px] px-1 py-0 text-muted-foreground">
+                                  {project.status}
+                                </Badge>
+                              </div>
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                     {activeProjects.length === 1 && (

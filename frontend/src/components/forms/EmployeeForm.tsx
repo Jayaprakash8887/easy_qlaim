@@ -94,7 +94,7 @@ export function EmployeeForm({
       region: [],
       dateOfJoining: '',
       managerId: '',
-      projectIds: '',
+      projectIds: [],
       ...defaultValues,
     },
   });
@@ -293,26 +293,15 @@ export function EmployeeForm({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Project Allocation (Optional)</FormLabel>
-                <Select 
-                  onValueChange={field.onChange} 
-                  defaultValue={field.value}
-                  disabled={projects.length === 0}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder={
-                        projects.length === 0 ? "No projects available" : "Select project"
-                      } />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {projects.filter(p => p.id).map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        {project.name} ({project.code})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <MultiSelect
+                  options={projects.filter(p => p.id).map(p => ({ 
+                    label: `${p.name} (${p.code})`, 
+                    value: p.id 
+                  }))}
+                  selected={field.value as string[] || []}
+                  onChange={field.onChange}
+                  placeholder={projects.length === 0 ? "No projects available" : "Select projects..."}
+                />
                 <FormMessage />
               </FormItem>
             )}

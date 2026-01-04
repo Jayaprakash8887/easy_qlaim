@@ -122,7 +122,7 @@ async function createEmployee(employee: Partial<Employee> & { tenantId?: string 
     region: employee.region || null,
     date_of_joining: employee.joinDate || null,
     manager_id: employee.managerId || null,
-    project_ids: employee.projectIds ? [employee.projectIds] : [],
+    project_ids: Array.isArray(employee.projectIds) ? employee.projectIds : (employee.projectIds ? [employee.projectIds] : []),
   };
 
   const response = await fetch(`${API_BASE_URL}/employees/`, {
@@ -154,7 +154,7 @@ async function updateEmployee(id: string, employee: Partial<Employee>, tenantId:
     region: Array.isArray(employee.region) ? employee.region : (employee.region ? [employee.region] : []),
     date_of_joining: employee.joinDate || null,
     manager_id: employee.managerId || null,
-    project_ids: employee.projectIds ? [employee.projectIds] : [],
+    project_ids: Array.isArray(employee.projectIds) ? employee.projectIds : (employee.projectIds ? [employee.projectIds] : []),
   };
 
   const response = await fetch(`${API_BASE_URL}/employees/${id}?tenant_id=${tenantId}`, {

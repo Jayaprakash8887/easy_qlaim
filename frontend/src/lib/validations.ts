@@ -34,7 +34,7 @@ export const employeeSchema = z.object({
   region: z.array(z.string()).min(1, 'At least one region is required'),
   dateOfJoining: z.string().optional(),
   managerId: z.string().optional(),
-  projectIds: z.string().optional(),
+  projectIds: z.array(z.string()).optional(),
 });
 
 export type EmployeeFormData = z.infer<typeof employeeSchema>;
