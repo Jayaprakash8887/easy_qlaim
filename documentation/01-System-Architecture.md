@@ -297,6 +297,11 @@ Supporting Agents:
 │                 │     │  - Settlement processing                │
 │                 │     │  - Payment reference numbers            │
 │                 │     │                                         │
+│  Frontend       │────▶│  OpenStreetMap / Nominatim              │
+│  (Location)     │     │  - Map tiles (Leaflet.js)               │
+│                 │     │  - Address search (geocoding)           │
+│                 │     │  - Distance calculation (Haversine)     │
+│                 │     │                                         │
 └─────────────────┘     └─────────────────────────────────────────┘
 ```
 

@@ -227,6 +227,42 @@ Authorization: Bearer {token}
 }
 ```
 
+### 3.6 Get Category Utilization
+
+Get the cumulative usage for a category within the current period (based on the category's frequency_limit setting).
+
+```http
+GET /api/v1/claims/category-utilization/{employee_id}/{category_code}
+Authorization: Bearer {token}
+```
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| reference_date | string | Optional date (YYYY-MM-DD) to check period for |
+
+**Response:**
+```json
+{
+    "category_name": "Certification Reimbursement",
+    "category_code": "CERTIFICATION",
+    "frequency": "YEARLY",
+    "period_start": "2025-04-01",
+    "period_end": "2026-03-31",
+    "max_amount": 25000.00,
+    "cumulative_used": 15000.00,
+    "remaining": 10000.00,
+    "utilization_percent": 60.0,
+    "claim_count": 2,
+    "frequency_count": null
+}
+```
+
+**Use Cases:**
+- Display remaining budget before claim submission
+- Show utilization progress bars in UI
+- Pre-validate if a claim would exceed limits
+
 ---
 
 ## 4. Approvals API

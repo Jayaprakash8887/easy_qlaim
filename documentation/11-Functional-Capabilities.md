@@ -101,7 +101,140 @@ Fixed-amount claims that don't require receipts.
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-### 3.3 Document Upload
+### 3.3 Allowance Calculation Types
+
+Allowance claims support three calculation methodologies based on policy configuration:
+
+#### 3.3.1 Per Day Calculation
+
+For time-based allowances (e.g., WFH, On-Call, Deputation).
+
+**Input Fields:**
+| Field | Description |
+|-------|-------------|
+| Period Start | Start date of the allowance period |
+| Period End | End date of the allowance period |
+| Per Day Rate | Rate per working day (from policy or manual) |
+| Leave Days | Number of leaves/holidays to exclude |
+
+**Calculation Formula:**
+```
+Working Days = Weekdays between Period Start and Period End
+Net Working Days = Working Days - Leave Days
+Total Amount = Net Working Days × Per Day Rate
+```
+
+**Example:**
+- Period: Dec 1-31, 2025 (23 working days)
+- Leave Days: 2
+- Per Day Rate: ₹300
+- **Total = (23 - 2) × 300 = ₹6,300**
+
+#### 3.3.2 Per KM Calculation
+
+For distance-based allowances (e.g., Conveyance, Travel Allowance).
+
+**Input Fields:**
+| Field | Description |
+|-------|-------------|
+| From Location | Starting point (map picker) |
+| To Location | Destination point (map picker) |
+| Number of Trips | Round trips made |
+| Rate per KM | Rate from policy configuration |
+
+**Calculation Formula:**
+```
+One-Way Distance = Haversine distance between From and To locations
+Total Distance = One-Way Distance × Number of Trips × 2 (round trip)
+Total Amount = Total Distance × Rate per KM
+```
+
+**Haversine Formula (for distance calculation):**
+```
+R = 6371 km (Earth's radius)
+a = sin²(Δlat/2) + cos(lat1) × cos(lat2) × sin²(Δlng/2)
+c = 2 × atan2(√a, √(1-a))
+Distance = R × c
+```
+
+**Example:**
+- From: Chennai Office (13.0827°N, 80.2707°E)
+- To: Client Site (12.9716°N, 77.5946°E)  
+- Distance: ~290 km one-way
+- Trips: 2 round trips
+- Rate: ₹8/km
+- **Total = 290 × 2 × 2 × 8 = ₹9,280**
+
+#### 3.3.3 Fixed Amount
+
+For fixed allowances where amount is entered directly.
+
+**Input Fields:**
+| Field | Description |
+|-------|-------------|
+| Amount | Fixed amount to claim |
+| Description | Justification for the claim |
+
+**Policy Configuration:**
+```json
+{
+  "calculation_type": "per_day" | "per_km" | "fixed",
+  "rate_per_unit": 300,  // Rate per day or per km
+  "max_amount": 25000    // Maximum limit per claim/period
+}
+```
+
+### 3.4 Location Picker with OpenStreetMap
+
+For per-km calculations, the system provides an interactive map-based location picker.
+
+**Features:**
+| Feature | Description |
+|---------|-------------|
+| Interactive Map | Leaflet.js with OpenStreetMap tiles |
+| Click to Select | Click on map to set location |
+| Search by Address | Nominatim API for geocoding |
+| Current Location | GPS/browser geolocation support |
+| Address Display | Reverse geocoding for selected points |
+
+**OpenStreetMap Integration:**
+- **Map Tiles:** OpenStreetMap (free, no API key required)
+- **Geocoding:** Nominatim API for address search
+- **Reverse Geocoding:** Convert coordinates to readable addresses
+- **Debounced Search:** 300ms delay to prevent API overload
+
+**Search Functionality:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  🔍 Search for a location...                                    │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ Chennai Central Railway Station                         │    │
+│  │ Chennai, Tamil Nadu, India                              │    │
+│  ├─────────────────────────────────────────────────────────┤    │
+│  │ Chennai Airport                                          │    │
+│  │ Tirusulam, Chennai, Tamil Nadu, India                   │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │                      [MAP VIEW]                          │    │
+│  │                         📍                               │    │
+│  │                                                          │    │
+│  │                                                          │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│  Selected: 13.0827°N, 80.2707°E                                 │
+│  Address: Chennai Central, Chennai, Tamil Nadu                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Usage Notes:**
+- Nominatim usage policy: Max 1 request/second
+- Search results limited to 5 suggestions
+- Coordinates stored with full precision
+- Addresses are display-only (coordinates used for calculation)
+
+### 3.5 Document Upload
 
 **Supported Formats:**
 - PDF (up to 10MB)
@@ -316,6 +449,8 @@ This feature allows administrators to configure rules that automatically skip ce
 - Tenure requirements
 - Document completeness
 - Date validity
+- **Cumulative limit validation per period**
+- Fiscal year boundary checking
 
 **AI Reasoning:**
 - Policy exception analysis
@@ -323,7 +458,64 @@ This feature allows administrators to configure rules that automatically skip ce
 - Fraud pattern detection
 - Duplicate claim detection
 
-### 5.3 Auto-Approval
+### 5.3 Cumulative Limit Validation
+
+The system validates claims against cumulative limits based on the policy's frequency period and tenant's fiscal year settings.
+
+**Frequency Periods:**
+| Period | Description | Example |
+|--------|-------------|---------|
+| DAILY | Per day limit | Max 1 meal claim per day |
+| WEEKLY | Per week limit | Max ₹5,000 per week |
+| MONTHLY | Per month limit | Max ₹10,000 per month |
+| QUARTERLY | Per fiscal quarter | Max ₹25,000 per quarter |
+| YEARLY | Per fiscal year | Max ₹50,000 per fiscal year |
+| ONCE | Lifetime limit | One-time joining bonus |
+| UNLIMITED | No limit | No restrictions |
+
+**Validation Flow:**
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CUMULATIVE LIMIT VALIDATION                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. Get Policy Category (max_amount, frequency_limit)                       │
+│                            │                                                 │
+│                            ▼                                                 │
+│  2. Calculate Period Boundaries (respects tenant fiscal_year_start)         │
+│     YEARLY: Apr 1 - Mar 31 (Indian FY)                                      │
+│     QUARTERLY: Based on fiscal quarters                                     │
+│                            │                                                 │
+│                            ▼                                                 │
+│  3. Sum Existing Claims (same employee + category + period)                 │
+│     Excludes: REJECTED, CANCELLED claims                                    │
+│                            │                                                 │
+│                            ▼                                                 │
+│  4. Compare: (cumulative_used + new_claim) vs max_amount                    │
+│                            │                                                 │
+│                ┌───────────┴───────────┐                                    │
+│                │                       │                                    │
+│                ▼                       ▼                                    │
+│          ✅ PASS                 ❌ FAIL                                    │
+│       Within limit           Exceeds period limit                           │
+│                                                                              │
+│  5. Calculate Utilization: Shows remaining budget to user                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Policy Checks Display:**
+- Real-time validation in claim submission form
+- Utilization progress bar showing % used
+- Remaining budget display
+- Warning at 80%+ utilization
+- Block submission when limit exceeded
+
+**Configuration:**
+- Set `max_amount` and `frequency_limit` per PolicyCategory
+- Configure tenant's `fiscal_year_start` in System Settings (e.g., "apr" for April)
+
+### 5.4 Auto-Approval
 
 **Admin Control:**
 - **Enable Auto-Approval (Admin Setting)**: Master switch to enable/disable all auto-approval functionality
@@ -718,19 +910,44 @@ FINANCE_APPROVED ──▶ Process Payment ──▶ Enter Reference ──▶ S
 - Manager relationships
 - Designation mappings
 
-### 13.2 Payroll Integration
+### 13.2 OpenStreetMap Integration
+
+The system uses OpenStreetMap for location-based features in allowance claims.
+
+**Components:**
+| Component | Provider | Purpose |
+|-----------|----------|----------|
+| Map Tiles | OpenStreetMap | Interactive map display |
+| Geocoding | Nominatim API | Address to coordinates |
+| Reverse Geocoding | Nominatim API | Coordinates to address |
+| Distance Calculation | Haversine Formula | Route-free distance |
+
+**Frontend Library:** Leaflet.js with React-Leaflet wrapper
+
+**API Endpoints Used:**
+```
+Search: https://nominatim.openstreetmap.org/search?q={query}&format=json
+Reverse: https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json
+```
+
+**Rate Limiting:**
+- Nominatim: 1 request/second (enforced via debouncing)
+- No API key required
+- Attribution required (included in map component)
+
+### 13.3 Payroll Integration
 
 - Settlement export
 - Payment reference import
 - Reconciliation reports
 
-### 13.3 SSO Integration
+### 13.4 SSO Integration
 
 - Keycloak SSO support
 - SAML/OIDC protocols
 - Automatic user provisioning
 
-### 13.4 Communication Integrations (Slack/Teams)
+### 13.5 Communication Integrations (Slack/Teams)
 
 Real-time notifications to team communication channels when claim events occur.
 

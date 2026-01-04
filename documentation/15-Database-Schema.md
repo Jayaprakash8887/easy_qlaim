@@ -497,7 +497,66 @@ CREATE INDEX idx_audit_entity ON audit_logs(entity_type, entity_id);
 CREATE INDEX idx_audit_created ON audit_logs(created_at DESC);
 ```
 
-### 3.10 Integration API Keys
+### 3.10 Policy Categories
+
+Stores policy categories with frequency limits for cumulative validation.
+
+```sql
+CREATE TABLE policy_categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    policy_upload_id UUID REFERENCES policy_uploads(id),
+    
+    category_code VARCHAR(100) NOT NULL,
+    category_name VARCHAR(255) NOT NULL,
+    category_type VARCHAR(50) DEFAULT 'REIMBURSEMENT',
+    description TEXT,
+    
+    -- Amount Limits
+    max_amount DECIMAL(12, 2),
+    
+    -- Frequency Limits (for cumulative validation)
+    frequency_limit VARCHAR(50) DEFAULT 'UNLIMITED',
+    frequency_count INTEGER,
+    
+    -- Calculation Type (for allowances)
+    calculation_type VARCHAR(50) DEFAULT 'fixed',
+    rate_per_unit DECIMAL(10, 2),
+    
+    -- Other Settings
+    requires_receipt BOOLEAN DEFAULT true,
+    submission_window_days INTEGER DEFAULT 30,
+    is_active BOOLEAN DEFAULT true,
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX idx_policy_categories_tenant ON policy_categories(tenant_id);
+CREATE INDEX idx_policy_categories_code ON policy_categories(tenant_id, category_code);
+CREATE UNIQUE INDEX idx_policy_categories_unique ON policy_categories(tenant_id, category_code) 
+    WHERE is_active = true;
+```
+
+**Frequency Limit Values:**
+| Value | Description | Period Calculation |
+|-------|-------------|-------------------|
+| `DAILY` | Per day limit | Single day |
+| `WEEKLY` | Per week limit | Monday to Sunday |
+| `MONTHLY` | Per calendar month | 1st to last day of month |
+| `QUARTERLY` | Per fiscal quarter | Based on fiscal_year_start |
+| `YEARLY` | Per fiscal year | Based on fiscal_year_start |
+| `ONCE` | Lifetime limit | All time |
+| `UNLIMITED` | No limit | N/A |
+
+**Calculation Type Values (for allowances):**
+| Value | Description | Amount Calculation |
+|-------|-------------|-------------------|
+| `per_day` | Daily rate | Working days × rate per day |
+| `per_km` | Distance-based | Distance × trips × rate per km |
+| `fixed` | Fixed amount | User enters amount |
+
+### 3.11 Integration API Keys
 
 Stores API keys for external system integrations.
 
