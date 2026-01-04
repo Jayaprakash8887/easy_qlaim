@@ -835,6 +835,13 @@ class PolicyCategory(Base):
     category_type = Column(String(20), nullable=False)  # REIMBURSEMENT or ALLOWANCE
     description = Column(Text)
     
+    # Calculation type for allowances
+    # per_day: Working Days × Per Day Rate (default)
+    # per_km: Distance × Rate per KM × Number of Trips (for conveyance)
+    # fixed: Direct amount entry (no calculation)
+    calculation_type = Column(String(20), default='per_day')
+    rate_per_unit = Column(Numeric(12, 2))  # Per-day rate OR per-km rate based on calculation_type
+    
     # Limits
     max_amount = Column(Numeric(12, 2))
     min_amount = Column(Numeric(12, 2))

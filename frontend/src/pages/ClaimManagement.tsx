@@ -62,6 +62,15 @@ import {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
+// Calculation types for allowances
+const CALCULATION_TYPES = [
+    { value: 'per_day', label: 'Per Day (Working Days × Daily Rate)', description: 'For allowances like food, internet' },
+    { value: 'per_km', label: 'Per KM (Distance × Rate × Trips)', description: 'For conveyance/travel allowances' },
+    { value: 'fixed', label: 'Fixed Amount', description: 'Direct amount entry, no calculation' },
+] as const;
+
+type CalculationType = 'per_day' | 'per_km' | 'fixed';
+
 // Types
 interface ExtractedClaim {
     id: string;
@@ -69,6 +78,8 @@ interface ExtractedClaim {
     category_code: string;
     category_type: 'REIMBURSEMENT' | 'ALLOWANCE';
     description?: string;
+    calculation_type?: CalculationType;
+    rate_per_unit?: number;
     max_amount?: number;
     currency: string;
     requires_receipt: boolean;
@@ -227,6 +238,8 @@ export default function ClaimManagement() {
             category_name: category.category_name,
             category_code: category.category_code,
             category_type: category.category_type,
+            calculation_type: category.calculation_type || (category.category_type === 'REIMBURSEMENT' ? 'fixed' : 'per_day'),
+            rate_per_unit: category.rate_per_unit,
             max_amount: category.max_amount,
             requires_receipt: category.requires_receipt,
             description: category.description,
@@ -480,7 +493,12 @@ export default function ClaimManagement() {
                             <div className="col-span-3">
                                 <Select
                                     value={editForm.category_type}
-                                    onValueChange={(value: any) => setEditForm({ ...editForm, category_type: value })}
+                                    onValueChange={(value: any) => setEditForm({ 
+                                        ...editForm, 
+                                        category_type: value,
+                                        // Auto-set calculation_type based on category type
+                                        calculation_type: value === 'REIMBURSEMENT' ? 'fixed' : (editForm.calculation_type || 'per_day')
+                                    })}
                                 >
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select type" />
@@ -492,6 +510,63 @@ export default function ClaimManagement() {
                                 </Select>
                             </div>
                         </div>
+                        
+                        {/* Calculation Type - Only for Allowances */}
+                        {editForm.category_type === 'ALLOWANCE' && (
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="calculation_type" className="text-right">
+                                    Calculation
+                                </Label>
+                                <div className="col-span-3">
+                                    <Select
+                                        value={editForm.calculation_type || 'per_day'}
+                                        onValueChange={(value: CalculationType) => setEditForm({ ...editForm, calculation_type: value })}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select calculation type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {CALCULATION_TYPES.map(type => (
+                                                <SelectItem key={type.value} value={type.value}>
+                                                    <div>
+                                                        <div className="font-medium">{type.label}</div>
+                                                    </div>
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        {CALCULATION_TYPES.find(t => t.value === (editForm.calculation_type || 'per_day'))?.description}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Rate Per Unit - Only for per_day and per_km types */}
+                        {editForm.category_type === 'ALLOWANCE' && editForm.calculation_type !== 'fixed' && (
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="rate_per_unit" className="text-right">
+                                    {editForm.calculation_type === 'per_km' ? 'Rate/KM' : 'Rate/Day'}
+                                </Label>
+                                <div className="col-span-3">
+                                    <Input
+                                        id="rate_per_unit"
+                                        type="number"
+                                        step="0.01"
+                                        value={editForm.rate_per_unit || ''}
+                                        onChange={(e) => setEditForm({ ...editForm, rate_per_unit: parseFloat(e.target.value) || undefined })}
+                                        placeholder={editForm.calculation_type === 'per_km' ? 'e.g., 8.00 per km' : 'e.g., 500.00 per day'}
+                                    />
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        {editForm.calculation_type === 'per_km' 
+                                            ? 'Rate per kilometer for distance-based calculation'
+                                            : 'Daily rate for working days calculation'
+                                        }
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                        
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label className="text-right">
                                 Region

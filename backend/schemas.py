@@ -814,12 +814,21 @@ class ValidationStatus(str, Enum):
     FAIL = "FAIL"
 
 
+class CalculationType(str, Enum):
+    """How claim amounts are calculated for allowances"""
+    PER_DAY = "per_day"     # Working Days × Per Day Rate (e.g., food allowance)
+    PER_KM = "per_km"       # Distance × Rate per KM × Trips (e.g., conveyance)
+    FIXED = "fixed"         # Direct amount entry (no calculation)
+
+
 # Policy Category Schemas (extracted from policy document)
 class PolicyCategoryBase(BaseModel):
     category_name: str = Field(..., min_length=1, max_length=100)
     category_code: str = Field(..., min_length=1, max_length=50)
     category_type: CategoryType
     description: Optional[str] = None
+    calculation_type: CalculationType = CalculationType.PER_DAY  # How amount is calculated
+    rate_per_unit: Optional[float] = None  # Per-day or per-km rate
     max_amount: Optional[float] = None
     min_amount: Optional[float] = None
     currency: str = "INR"
@@ -843,6 +852,8 @@ class PolicyCategoryUpdate(BaseModel):
     category_code: Optional[str] = Field(None, min_length=1, max_length=50)
     category_type: Optional[CategoryType] = None
     description: Optional[str] = None
+    calculation_type: Optional[CalculationType] = None  # How amount is calculated
+    rate_per_unit: Optional[float] = None  # Per-day or per-km rate
     max_amount: Optional[float] = None
     min_amount: Optional[float] = None
     currency: Optional[str] = None
@@ -866,6 +877,8 @@ class PolicyCategoryResponse(BaseModel):
     category_code: str
     category_type: str
     description: Optional[str]
+    calculation_type: Optional[str] = "per_day"  # How amount is calculated
+    rate_per_unit: Optional[float] = None  # Per-day or per-km rate
     max_amount: Optional[float]
     min_amount: Optional[float]
     currency: str

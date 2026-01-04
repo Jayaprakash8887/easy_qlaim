@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
-import { ArrowLeft, ArrowRight, Check, X, Receipt, Wallet, Phone, Clock, TrendingUp, Utensils, Loader2, DollarSign } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, X, Receipt, Wallet, Phone, Clock, TrendingUp, Utensils, Loader2, DollarSign, Car } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -14,6 +14,7 @@ import { ClaimReview } from "./ClaimReview";
 import { ComplianceScore } from "./ComplianceScore";
 import { PolicyChecks } from "./PolicyChecks";
 import { CustomFieldsForm } from "./CustomFieldRenderer";
+import { LocationPicker, LocationValue } from "@/components/ui/location-picker";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCreateBatchClaimsWithDocument, BatchClaimItem } from "@/hooks/useClaims";
@@ -62,10 +63,13 @@ const allowanceSteps = [
 ];
 
 // Helper to get an icon based on category code or name
-const getAllowanceIcon = (categoryCode: string, categoryName: string): React.ElementType => {
+const getAllowanceIcon = (categoryCode: string, categoryName: string, calculationType?: string): React.ElementType => {
   const code = categoryCode?.toLowerCase() || '';
   const name = categoryName?.toLowerCase() || '';
 
+  // Distance-based categories get car icon
+  if (calculationType === 'per_km') return Car;
+  if (code.includes('convey') || name.includes('convey') || code.includes('travel') || name.includes('travel')) return Car;
   if (code.includes('call') || name.includes('call')) return Phone;
   if (code.includes('shift') || name.includes('shift')) return Clock;
   if (code.includes('incentive') || name.includes('incentive')) return TrendingUp;
@@ -111,9 +115,16 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
   const { formatCurrency, getCurrencySymbol, formatDate } = useFormatting();
 
   const [allowanceData, setAllowanceData] = useState({
+    // Per-day calculation fields
     perDayRate: '',
     periodStart: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'),
     periodEnd: format(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0), 'yyyy-MM-dd'),
+    leaveDays: '0', // Number of leaves/holidays to exclude from working days
+    // Per-km (distance) calculation fields
+    numTrips: '1',
+    fromLocation: null as { lat: number; lng: number; address: string } | null,
+    toLocation: null as { lat: number; lng: number; address: string } | null,
+    // Common fields
     description: '',
     projectCode: '',
   });
@@ -150,6 +161,33 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
     }
   }, [activeProjects, allowanceData.projectCode]);
 
+  // Helper function to calculate distance between two coordinates using Haversine formula
+  const calculateDistance = (
+    lat1: number, lng1: number, 
+    lat2: number, lng2: number
+  ): number => {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // Distance in kilometers
+  };
+
+  // Calculate distance between from and to locations
+  const calculatedDistance = useMemo(() => {
+    if (!allowanceData.fromLocation || !allowanceData.toLocation) return 0;
+    return calculateDistance(
+      allowanceData.fromLocation.lat,
+      allowanceData.fromLocation.lng,
+      allowanceData.toLocation.lat,
+      allowanceData.toLocation.lng
+    );
+  }, [allowanceData.fromLocation, allowanceData.toLocation]);
+
   // Helper function to calculate working days (excluding weekends - Saturday & Sunday)
   const calculateWorkingDays = (startDate: string, endDate: string): number => {
     if (!startDate || !endDate) return 0;
@@ -174,15 +212,45 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
     return workingDays;
   };
 
-  // Calculate working days and total allowance amount
+  // Get selected policy first (needed for calculations below)
+  const selectedPolicy = selectedAllowanceId
+    ? allowancePolicies.find((p) => p.id === selectedAllowanceId)
+    : null;
+
+  // Calculate working days (excluding weekends)
   const workingDaysCount = useMemo(() => {
     return calculateWorkingDays(allowanceData.periodStart, allowanceData.periodEnd);
   }, [allowanceData.periodStart, allowanceData.periodEnd]);
 
+  // Calculate net working days (excluding leaves/holidays)
+  const leaveDaysCount = parseInt(allowanceData.leaveDays) || 0;
+  const netWorkingDays = Math.max(0, workingDaysCount - leaveDaysCount);
+
+  // Get the calculation type from selected policy (default to per_day for backward compatibility)
+  const calculationType = selectedPolicy?.calculation_type || 'per_day';
+  const ratePerUnit = selectedPolicy?.rate_per_unit || selectedPolicy?.max_amount || 0;
+
+  // Calculate total amount based on calculation type
   const calculatedTotalAmount = useMemo(() => {
-    const perDayRate = parseFloat(allowanceData.perDayRate) || 0;
-    return workingDaysCount * perDayRate;
-  }, [workingDaysCount, allowanceData.perDayRate]);
+    if (!selectedPolicy) return 0;
+    
+    const calcType = selectedPolicy.calculation_type || 'per_day';
+    
+    if (calcType === 'per_day') {
+      // Per day: Net working days × rate per day
+      const perDayRate = parseFloat(allowanceData.perDayRate) || 0;
+      return netWorkingDays * perDayRate;
+    } else if (calcType === 'per_km') {
+      // Per km: Distance × rate per km × number of trips
+      const numTrips = parseInt(allowanceData.numTrips) || 1;
+      const ratePerKm = selectedPolicy.rate_per_unit || 0;
+      // Distance is one-way, so for round trips we multiply by 2 per trip
+      return calculatedDistance * ratePerKm * numTrips * 2; // Round trip
+    } else {
+      // Fixed: No calculation, user will enter amount directly
+      return 0;
+    }
+  }, [selectedPolicy, netWorkingDays, allowanceData.perDayRate, allowanceData.numTrips, calculatedDistance]);
 
   const form = useForm<ClaimFormData>({
     resolver: zodResolver(claimSchema),
@@ -200,98 +268,179 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
   // Watch all form values for reactive updates
   const watchedFormValues = form.watch();
 
-  const selectedPolicy = selectedAllowanceId
-    ? allowancePolicies.find((p) => p.id === selectedAllowanceId)
-    : null;
-
-  // Calculate allowance form completeness score
+  // Calculate allowance form completeness score based on calculation type
   const allowanceFormCompleteness = useMemo(() => {
     if (!selectedPolicy) return 0;
+    
+    const calcType = selectedPolicy.calculation_type || 'per_day';
     let score = 0;
-    const totalFields = 4; // perDayRate, periodStart, periodEnd, projectCode are required
+    let totalFields = 2; // projectCode is always required, plus type-specific fields
 
-    if (allowanceData.perDayRate && parseFloat(allowanceData.perDayRate) > 0) score += 1;
-    if (allowanceData.periodStart) score += 1;
-    if (allowanceData.periodEnd) score += 1;
+    // Common field
     if (allowanceData.projectCode) score += 1;
+
+    if (calcType === 'per_day') {
+      totalFields = 4; // perDayRate, periodStart, periodEnd, projectCode
+      if (allowanceData.perDayRate && parseFloat(allowanceData.perDayRate) > 0) score += 1;
+      if (allowanceData.periodStart) score += 1;
+      if (allowanceData.periodEnd) score += 1;
+    } else if (calcType === 'per_km') {
+      totalFields = 4; // fromLocation, toLocation, numTrips, projectCode
+      if (allowanceData.fromLocation) score += 1;
+      if (allowanceData.toLocation) score += 1;
+      if (allowanceData.numTrips && parseInt(allowanceData.numTrips) > 0) score += 1;
+    } else {
+      // fixed - just need projectCode
+      totalFields = 1;
+    }
 
     return Math.round((score / totalFields) * 100);
   }, [allowanceData, selectedPolicy]);
 
-  // Generate policy checks for allowance form
+  // Generate policy checks for allowance form based on calculation type
   const allowancePolicyChecks = useMemo(() => {
     if (!selectedPolicy) return [];
 
     const checks: PolicyCheckItem[] = [];
-
-    // Per day rate check (validate against max_amount which is the per-day limit)
+    const calcType = selectedPolicy.calculation_type || 'per_day';
     const perDayRate = parseFloat(allowanceData.perDayRate) || 0;
-    if (selectedPolicy.max_amount) {
+    const numTrips = parseInt(allowanceData.numTrips) || 1;
+    const ratePerKm = selectedPolicy.rate_per_unit || 0;
+
+    if (calcType === 'per_day') {
+      // Per day rate check
+      if (selectedPolicy.max_amount) {
+        checks.push({
+          id: 'per-day-rate',
+          label: 'Per Day Rate',
+          status: perDayRate > 0 && perDayRate <= selectedPolicy.max_amount ? 'pass' : perDayRate > selectedPolicy.max_amount ? 'fail' : 'warning',
+          message: perDayRate > selectedPolicy.max_amount
+            ? `${formatCurrency(perDayRate)}/day exceeds maximum of ${formatCurrency(selectedPolicy.max_amount)}/day`
+            : perDayRate > 0
+              ? `${formatCurrency(perDayRate)}/day (max: ${formatCurrency(selectedPolicy.max_amount)}/day)`
+              : `Enter per day rate (max: ${formatCurrency(selectedPolicy.max_amount)}/day)`
+        });
+      } else {
+        checks.push({
+          id: 'per-day-rate',
+          label: 'Per Day Rate',
+          status: perDayRate > 0 ? 'pass' : 'warning',
+          message: perDayRate > 0 ? `${formatCurrency(perDayRate)} per day` : 'Enter per day rate'
+        });
+      }
+
+      // Working days check
       checks.push({
-        id: 'per-day-rate',
-        label: 'Per Day Rate',
-        status: perDayRate > 0 && perDayRate <= selectedPolicy.max_amount ? 'pass' : perDayRate > selectedPolicy.max_amount ? 'fail' : 'warning',
-        message: perDayRate > selectedPolicy.max_amount
-          ? `${formatCurrency(perDayRate)}/day exceeds maximum of ${formatCurrency(selectedPolicy.max_amount)}/day`
-          : perDayRate > 0
-            ? `${formatCurrency(perDayRate)}/day (max: ${formatCurrency(selectedPolicy.max_amount)}/day)`
-            : `Enter per day rate (max: ${formatCurrency(selectedPolicy.max_amount)}/day)`
+        id: 'working-days',
+        label: 'Working Days',
+        status: workingDaysCount > 0 ? 'pass' : 'warning',
+        message: workingDaysCount > 0 
+          ? `${workingDaysCount} working days in period${leaveDaysCount > 0 ? ` (excluding weekends)` : ''}`
+          : 'Select valid period'
       });
-    } else {
+
+      // Leave/Holiday deduction check (only show if there are leave days)
+      if (leaveDaysCount > 0 || workingDaysCount > 0) {
+        checks.push({
+          id: 'leave-days',
+          label: 'Leaves/Holidays',
+          status: leaveDaysCount <= workingDaysCount ? 'pass' : 'fail',
+          message: leaveDaysCount > workingDaysCount
+            ? `Leave days (${leaveDaysCount}) cannot exceed working days (${workingDaysCount})`
+            : leaveDaysCount > 0
+              ? `${leaveDaysCount} leave/holiday day(s) deducted`
+              : 'No leaves/holidays entered'
+        });
+      }
+
+      // Net working days
       checks.push({
-        id: 'per-day-rate',
-        label: 'Per Day Rate',
-        status: perDayRate > 0 ? 'pass' : 'warning',
-        message: perDayRate > 0 ? `${formatCurrency(perDayRate)} per day` : 'Enter per day rate'
+        id: 'net-working-days',
+        label: 'Net Working Days',
+        status: netWorkingDays > 0 ? 'pass' : 'warning',
+        message: netWorkingDays > 0 
+          ? `${netWorkingDays} billable days (${workingDaysCount} - ${leaveDaysCount} leaves)`
+          : 'No billable days'
+      });
+
+      // Calculated total display
+      checks.push({
+        id: 'calculated-total',
+        label: 'Calculated Total',
+        status: calculatedTotalAmount > 0 ? 'pass' : 'warning',
+        message: calculatedTotalAmount > 0
+          ? `Total: ${formatCurrency(calculatedTotalAmount)} (${netWorkingDays} days × ${formatCurrency(perDayRate)}/day)`
+          : 'Enter rate and period to calculate total'
+      });
+
+      // Period validity check
+      const startDate = allowanceData.periodStart ? new Date(allowanceData.periodStart) : null;
+      const endDate = allowanceData.periodEnd ? new Date(allowanceData.periodEnd) : null;
+      const today = new Date();
+
+      if (startDate && endDate) {
+        const isValidPeriod = startDate <= endDate;
+        const isFuturePeriod = endDate > today;
+        checks.push({
+          id: 'period-validity',
+          label: 'Period Validity',
+          status: isValidPeriod && !isFuturePeriod ? 'pass' : 'fail',
+          message: !isValidPeriod
+            ? 'End date must be after start date'
+            : isFuturePeriod
+              ? 'Period end date cannot be in the future'
+              : 'Valid claim period'
+        });
+      } else {
+        checks.push({
+          id: 'period-validity',
+          label: 'Period Validity',
+          status: 'warning',
+          message: 'Select claim period dates'
+        });
+      }
+    } else if (calcType === 'per_km') {
+      // Distance check
+      checks.push({
+        id: 'distance',
+        label: 'Distance',
+        status: calculatedDistance > 0 ? 'pass' : 'warning',
+        message: calculatedDistance > 0 
+          ? `${calculatedDistance.toFixed(1)} km one-way`
+          : 'Select from and to locations'
+      });
+
+      // Number of trips check
+      checks.push({
+        id: 'num-trips',
+        label: 'Number of Trips',
+        status: numTrips > 0 ? 'pass' : 'warning',
+        message: numTrips > 0 ? `${numTrips} round trip(s)` : 'Enter number of trips'
+      });
+
+      // Rate per KM (from policy)
+      checks.push({
+        id: 'rate-per-km',
+        label: 'Rate per KM',
+        status: ratePerKm > 0 ? 'pass' : 'warning',
+        message: ratePerKm > 0 
+          ? `${formatCurrency(ratePerKm)}/km (policy rate)`
+          : 'Rate not configured in policy'
+      });
+
+      // Calculated total
+      const totalKm = calculatedDistance * numTrips * 2; // Round trip
+      checks.push({
+        id: 'calculated-total',
+        label: 'Calculated Total',
+        status: calculatedTotalAmount > 0 ? 'pass' : 'warning',
+        message: calculatedTotalAmount > 0
+          ? `Total: ${formatCurrency(calculatedTotalAmount)} (${totalKm.toFixed(1)} km × ${formatCurrency(ratePerKm)}/km)`
+          : 'Select locations to calculate total'
       });
     }
 
-    // Working days check
-    checks.push({
-      id: 'working-days',
-      label: 'Working Days',
-      status: workingDaysCount > 0 ? 'pass' : 'warning',
-      message: workingDaysCount > 0 ? `${workingDaysCount} working days selected` : 'Select valid period'
-    });
-
-    // Calculated total display (no limit on total since per-day rate is already validated)
-    checks.push({
-      id: 'calculated-total',
-      label: 'Calculated Total',
-      status: calculatedTotalAmount > 0 ? 'pass' : 'warning',
-      message: calculatedTotalAmount > 0
-        ? `Total: ${formatCurrency(calculatedTotalAmount)} (${workingDaysCount} days × ${formatCurrency(perDayRate)}/day)`
-        : 'Enter rate and period to calculate total'
-    });
-
-    // Period validity check
-    const startDate = allowanceData.periodStart ? new Date(allowanceData.periodStart) : null;
-    const endDate = allowanceData.periodEnd ? new Date(allowanceData.periodEnd) : null;
-    const today = new Date();
-
-    if (startDate && endDate) {
-      const isValidPeriod = startDate <= endDate;
-      const isFuturePeriod = endDate > today;
-      checks.push({
-        id: 'period-validity',
-        label: 'Period Validity',
-        status: isValidPeriod && !isFuturePeriod ? 'pass' : 'fail',
-        message: !isValidPeriod
-          ? 'End date must be after start date'
-          : isFuturePeriod
-            ? 'Period end date cannot be in the future'
-            : 'Valid claim period'
-      });
-    } else {
-      checks.push({
-        id: 'period-validity',
-        label: 'Period Validity',
-        status: 'warning',
-        message: 'Select claim period dates'
-      });
-    }
-
-    // Project code check
+    // Project code check (common for all types)
     checks.push({
       id: 'project-code',
       label: 'Project Code',
@@ -300,7 +449,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
     });
 
     return checks;
-  }, [allowanceData, selectedPolicy, formatCurrency, workingDaysCount, calculatedTotalAmount]);
+  }, [allowanceData, selectedPolicy, formatCurrency, workingDaysCount, netWorkingDays, leaveDaysCount, calculatedTotalAmount, calculatedDistance]);
 
   const handleClaimTypeSelect = (type: ClaimTypeOption) => {
     setClaimType(type);
@@ -370,14 +519,47 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
 
     // For allowances: Step 3 is Form Validation
     if (claimType === 'allowance' && currentStep === 3) {
-      if (!allowanceData.perDayRate || parseFloat(allowanceData.perDayRate) <= 0) {
+      const calcType = selectedPolicy?.calculation_type || 'per_day';
+      
+      // Period dates are required for all allowance types (needed for approvals)
+      if (!allowanceData.periodStart || !allowanceData.periodEnd) {
         toast({
-          title: "Please enter the per day rate",
-          description: "Per day rate is required to calculate the allowance",
+          title: "Please enter the claim period",
+          description: "Start and end dates are required for all allowance claims",
           variant: "destructive",
         });
         return;
       }
+      
+      // Validate based on calculation type
+      if (calcType === 'per_day') {
+        if (!allowanceData.perDayRate || parseFloat(allowanceData.perDayRate) <= 0) {
+          toast({
+            title: "Please enter the per day rate",
+            description: "Per day rate is required to calculate the allowance",
+            variant: "destructive",
+          });
+          return;
+        }
+      } else if (calcType === 'per_km') {
+        if (!allowanceData.fromLocation || !allowanceData.toLocation) {
+          toast({
+            title: "Please select locations",
+            description: "From and To locations are required for distance-based calculation",
+            variant: "destructive",
+          });
+          return;
+        }
+        if (calculatedDistance <= 0) {
+          toast({
+            title: "Invalid distance",
+            description: "Please select valid locations to calculate distance",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+      
       if (!allowanceData.projectCode) {
         toast({
           title: "Please select a project",
@@ -457,17 +639,80 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
           description: `Your ${response.total_claims} reimbursement claims totaling ${formatCurrency(response.total_amount)} have been sent for approval.${documentFile ? ' Document attached.' : ''} Claim IDs: ${response.claim_numbers.join(', ')}`,
         });
       } else if (claimType === 'allowance' && selectedPolicy) {
-        // Allowance claim - use calculated total from working days x per day rate
+        // Allowance claim - calculate total based on calculation type
+        const calcType = selectedPolicy.calculation_type || 'per_day';
+        
+        // Generate appropriate title and description based on calculation type
+        let claimTitle: string;
+        let claimDescription: string;
+        
+        if (calcType === 'per_km') {
+          const numTrips = parseInt(allowanceData.numTrips) || 1;
+          const totalKm = calculatedDistance * numTrips * 2;
+          claimTitle = `${selectedPolicy.category_name} - ${totalKm.toFixed(1)} km (${numTrips} trip${numTrips > 1 ? 's' : ''})`;
+          claimDescription = allowanceData.description || 
+            `${selectedPolicy.category_name} conveyance claim. ` +
+            `From: ${allowanceData.fromLocation?.address || 'N/A'}. ` +
+            `To: ${allowanceData.toLocation?.address || 'N/A'}. ` +
+            `Distance: ${calculatedDistance.toFixed(1)} km one-way, ${numTrips} round trip(s), ` +
+            `Total: ${totalKm.toFixed(1)} km @ ${formatCurrency(selectedPolicy.rate_per_unit || 0)}/km`;
+        } else if (calcType === 'per_day') {
+          claimTitle = `${selectedPolicy.category_name} - ${allowanceData.periodStart} to ${allowanceData.periodEnd} (${netWorkingDays} days)`;
+          claimDescription = allowanceData.description || 
+            `${selectedPolicy.category_name} allowance claim for period ${allowanceData.periodStart} to ${allowanceData.periodEnd}. ` +
+            `Working days: ${workingDaysCount}, Leaves/holidays: ${leaveDaysCount}, Net billable days: ${netWorkingDays}, ` +
+            `Per day rate: ${formatCurrency(parseFloat(allowanceData.perDayRate) || 0)}`;
+        } else {
+          // Fixed amount
+          claimTitle = `${selectedPolicy.category_name} - Fixed Allowance`;
+          claimDescription = allowanceData.description || `${selectedPolicy.category_name} fixed allowance claim`;
+        }
+        
+        // Build calculation details for audit/reporting
+        let calculationDetails: Record<string, unknown> = {
+          calculation_type: calcType,
+          rate_per_unit: selectedPolicy.rate_per_unit,
+        };
+        
+        if (calcType === 'per_km') {
+          const numTrips = parseInt(allowanceData.numTrips) || 1;
+          const totalKm = calculatedDistance * numTrips * 2;
+          calculationDetails = {
+            ...calculationDetails,
+            from_location: allowanceData.fromLocation,
+            to_location: allowanceData.toLocation,
+            distance_one_way_km: calculatedDistance,
+            num_trips: numTrips,
+            total_distance_km: totalKm,
+            rate_per_km: selectedPolicy.rate_per_unit || 0,
+          };
+        } else if (calcType === 'per_day') {
+          calculationDetails = {
+            ...calculationDetails,
+            period_start: allowanceData.periodStart,
+            period_end: allowanceData.periodEnd,
+            working_days: workingDaysCount,
+            leave_days: leaveDaysCount,
+            net_working_days: netWorkingDays,
+            per_day_rate: parseFloat(allowanceData.perDayRate) || 0,
+          };
+        }
+
         const allowanceClaimItems: BatchClaimItem[] = [{
           category: selectedPolicy.category_code || selectedPolicy.category_name || 'allowance',
           amount: calculatedTotalAmount,
-          claim_date: allowanceData.periodEnd || format(new Date(), 'yyyy-MM-dd'),
-          title: `${selectedPolicy.category_name} - ${allowanceData.periodStart} to ${allowanceData.periodEnd} (${workingDaysCount} days)`,
+          claim_date: calcType === 'per_day' 
+            ? (allowanceData.periodEnd || format(new Date(), 'yyyy-MM-dd'))
+            : format(new Date(), 'yyyy-MM-dd'),
+          title: claimTitle,
           vendor: undefined,
           transaction_ref: undefined,
-          description: allowanceData.description || `${selectedPolicy.category_name} allowance claim for period ${allowanceData.periodStart} to ${allowanceData.periodEnd}. Working days: ${workingDaysCount}, Per day rate: ${formatCurrency(parseFloat(allowanceData.perDayRate) || 0)}`,
-          // Include custom field values if any
-          custom_fields: Object.keys(customFieldValues).length > 0 ? customFieldValues : undefined,
+          description: claimDescription,
+          // Include custom field values merged with calculation details
+          custom_fields: {
+            ...customFieldValues,
+            calculation_details: calculationDetails,
+          },
           // Allowance claims are manually entered
           category_source: 'manual',
           title_source: 'manual',
@@ -735,8 +980,9 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
                 {allowancePolicies.map((policy) => {
-                  const Icon = getAllowanceIcon(policy.category_code, policy.category_name);
+                  const Icon = getAllowanceIcon(policy.category_code, policy.category_name, policy.calculation_type);
                   const eligibilityRules = policy.eligibility_criteria?.requirements || [];
+                  const calcType = policy.calculation_type || 'per_day';
                   return (
                     <Card
                       key={policy.id}
@@ -753,6 +999,9 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                           </div>
                           <div>
                             <CardTitle className="text-base">{policy.category_name}</CardTitle>
+                            <Badge variant="outline" className="text-xs mt-1">
+                              {calcType === 'per_km' ? 'Distance Based' : calcType === 'fixed' ? 'Fixed Amount' : 'Per Day'}
+                            </Badge>
                           </div>
                         </div>
                       </CardHeader>
@@ -760,9 +1009,14 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                         <p className="text-sm text-muted-foreground mb-3">
                           {policy.description || 'No description available'}
                         </p>
-                        {policy.max_amount && (
+                        {calcType === 'per_km' && policy.rate_per_unit && (
                           <p className="text-xs text-muted-foreground mb-2">
-                            Max Amount: {formatCurrency(policy.max_amount)}
+                            Rate: {formatCurrency(policy.rate_per_unit)}/km
+                          </p>
+                        )}
+                        {calcType === 'per_day' && policy.max_amount && (
+                          <p className="text-xs text-muted-foreground mb-2">
+                            Max Rate: {formatCurrency(policy.max_amount)}/day
                           </p>
                         )}
                         {eligibilityRules.length > 0 && (
@@ -797,47 +1051,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {/* Per Day Rate */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Per Day Rate *</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">{getCurrencySymbol()}</span>
-                      <input
-                        type="number"
-                        className="w-full pl-8 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
-                        placeholder="0.00"
-                        value={allowanceData.perDayRate}
-                        onChange={(e) => setAllowanceData({ ...allowanceData, perDayRate: e.target.value })}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {selectedPolicy.max_amount
-                        ? `Maximum allowed: ${formatCurrency(selectedPolicy.max_amount)} per day`
-                        : 'Enter the allowance rate per working day'}
-                    </p>
-                  </div>
-
-                  {/* Calculated Total Display */}
-                  {calculatedTotalAmount > 0 && (
-                    <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="text-sm font-medium text-foreground">Calculated Total Amount</p>
-                          <p className="text-xs text-muted-foreground">
-                            {workingDaysCount} working days × {formatCurrency(parseFloat(allowanceData.perDayRate) || 0)} per day
-                          </p>
-                        </div>
-                        <span className="text-xl font-bold text-primary">{formatCurrency(calculatedTotalAmount)}</span>
-                      </div>
-                      {selectedPolicy.max_amount && parseFloat(allowanceData.perDayRate) > selectedPolicy.max_amount && (
-                        <p className="text-xs text-destructive mt-2">
-                          ⚠️ Per day rate exceeds maximum allowed: {formatCurrency(selectedPolicy.max_amount)}/day
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Period */}
+                  {/* Period - Common for all allowance types (needed for approvals) */}
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Period Start *</label>
@@ -859,7 +1073,170 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                     </div>
                   </div>
 
-                  {/* Description */}
+                  {/* Leave Days / Holidays - Common for all allowance types (needed for approvals) */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Leaves & Holidays (days to exclude)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max={workingDaysCount}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
+                      placeholder="0"
+                      value={allowanceData.leaveDays}
+                      onChange={(e) => setAllowanceData({ ...allowanceData, leaveDays: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Enter number of leave days or public holidays within the selected period
+                    </p>
+                  </div>
+
+                  {/* Working Days Summary - Show for all types */}
+                  {workingDaysCount > 0 && (
+                    <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Working Days (excl. weekends):</span>
+                        <span className="font-medium">{workingDaysCount} days</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Leaves/Holidays:</span>
+                        <span className="font-medium text-destructive">- {leaveDaysCount} days</span>
+                      </div>
+                      <div className="border-t pt-2 flex justify-between text-sm font-medium">
+                        <span>Net Working Days:</span>
+                        <span className="text-primary">{netWorkingDays} days</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Per Day Calculation Fields */}
+                  {(selectedPolicy.calculation_type || 'per_day') === 'per_day' && (
+                    <>
+                      {/* Per Day Rate */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Per Day Rate *</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">{getCurrencySymbol()}</span>
+                          <input
+                            type="number"
+                            className="w-full pl-8 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
+                            placeholder="0.00"
+                            value={allowanceData.perDayRate}
+                            onChange={(e) => setAllowanceData({ ...allowanceData, perDayRate: e.target.value })}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {selectedPolicy.max_amount
+                            ? `Maximum allowed: ${formatCurrency(selectedPolicy.max_amount)} per day`
+                            : 'Enter the allowance rate per working day'}
+                        </p>
+                      </div>
+
+                      {/* Calculated Total Display for per_day */}
+                      {calculatedTotalAmount > 0 && (
+                        <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <p className="text-sm font-medium text-foreground">Calculated Total Amount</p>
+                              <p className="text-xs text-muted-foreground">
+                                {netWorkingDays} net working days × {formatCurrency(parseFloat(allowanceData.perDayRate) || 0)} per day
+                              </p>
+                            </div>
+                            <span className="text-xl font-bold text-primary">{formatCurrency(calculatedTotalAmount)}</span>
+                          </div>
+                          {selectedPolicy.max_amount && parseFloat(allowanceData.perDayRate) > selectedPolicy.max_amount && (
+                            <p className="text-xs text-destructive mt-2">
+                              ⚠️ Per day rate exceeds maximum allowed: {formatCurrency(selectedPolicy.max_amount)}/day
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* Per KM (Distance) Calculation Fields */}
+                  {selectedPolicy.calculation_type === 'per_km' && (
+                    <>
+                      {/* From/To Locations */}
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <LocationPicker
+                          label="From Location"
+                          value={allowanceData.fromLocation}
+                          onChange={(value) => setAllowanceData({ ...allowanceData, fromLocation: value })}
+                          required
+                        />
+                        <LocationPicker
+                          label="To Location"
+                          value={allowanceData.toLocation}
+                          onChange={(value) => setAllowanceData({ ...allowanceData, toLocation: value })}
+                          required
+                        />
+                      </div>
+
+                      {/* Number of Trips */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Number of Round Trips *</label>
+                        <input
+                          type="number"
+                          min="1"
+                          className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
+                          placeholder="1"
+                          value={allowanceData.numTrips}
+                          onChange={(e) => setAllowanceData({ ...allowanceData, numTrips: e.target.value })}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Each round trip counts as going to the destination and coming back
+                        </p>
+                      </div>
+
+                      {/* Distance and Rate Info */}
+                      {calculatedDistance > 0 && (
+                        <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">One-way Distance:</span>
+                            <span className="font-medium">{calculatedDistance.toFixed(1)} km</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Rate per KM:</span>
+                            <span className="font-medium">{formatCurrency(selectedPolicy.rate_per_unit || 0)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Number of Trips:</span>
+                            <span className="font-medium">{parseInt(allowanceData.numTrips) || 1} round trip(s)</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Total Distance:</span>
+                            <span className="font-medium">{(calculatedDistance * (parseInt(allowanceData.numTrips) || 1) * 2).toFixed(1)} km</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Calculated Total Display for per_km */}
+                      {calculatedTotalAmount > 0 && (
+                        <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <p className="text-sm font-medium text-foreground">Calculated Total Amount</p>
+                              <p className="text-xs text-muted-foreground">
+                                {(calculatedDistance * (parseInt(allowanceData.numTrips) || 1) * 2).toFixed(1)} km × {formatCurrency(selectedPolicy.rate_per_unit || 0)}/km
+                              </p>
+                            </div>
+                            <span className="text-xl font-bold text-primary">{formatCurrency(calculatedTotalAmount)}</span>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* Fixed Amount - just description and project */}
+                  {selectedPolicy.calculation_type === 'fixed' && (
+                    <div className="bg-muted/50 rounded-lg p-4">
+                      <p className="text-sm text-muted-foreground">
+                        This is a fixed amount allowance. Enter the amount during review.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Description - Common for all types */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Description</label>
                     <textarea
@@ -871,7 +1248,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                     />
                   </div>
 
-                  {/* Project Code */}
+                  {/* Project Code - Common for all types */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Project Code *</label>
                     <Select
@@ -974,24 +1351,75 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                     <span className="text-sm font-medium">Allowance Type:</span>
                     <span className="text-sm">{selectedPolicy.category_name}</span>
                   </div>
-                  <div className="flex justify-between py-2 border-b">
-                    <span className="text-sm font-medium">Per Day Rate:</span>
-                    <span className="text-sm">{formatCurrency(parseFloat(allowanceData.perDayRate) || 0)}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b">
-                    <span className="text-sm font-medium">Working Days:</span>
-                    <span className="text-sm">{workingDaysCount} days</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b">
-                    <span className="text-sm font-medium">Total Amount:</span>
-                    <span className="text-sm font-bold text-primary">{formatCurrency(calculatedTotalAmount)}</span>
-                  </div>
+                  
+                  {/* Period - Common for all types */}
                   <div className="flex justify-between py-2 border-b">
                     <span className="text-sm font-medium">Period:</span>
                     <span className="text-sm">
                       {formatDate(allowanceData.periodStart)} - {formatDate(allowanceData.periodEnd)}
                     </span>
                   </div>
+                  
+                  {/* Working Days Info - Common for all types */}
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-sm font-medium">Working Days:</span>
+                    <span className="text-sm">{workingDaysCount} days</span>
+                  </div>
+                  {leaveDaysCount > 0 && (
+                    <div className="flex justify-between py-2 border-b">
+                      <span className="text-sm font-medium">Leaves/Holidays:</span>
+                      <span className="text-sm text-destructive">-{leaveDaysCount} days</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-sm font-medium">Net Working Days:</span>
+                    <span className="text-sm font-medium">{netWorkingDays} days</span>
+                  </div>
+                  
+                  {/* Per Day specific fields */}
+                  {(selectedPolicy.calculation_type || 'per_day') === 'per_day' && (
+                    <div className="flex justify-between py-2 border-b">
+                      <span className="text-sm font-medium">Per Day Rate:</span>
+                      <span className="text-sm">{formatCurrency(parseFloat(allowanceData.perDayRate) || 0)}</span>
+                    </div>
+                  )}
+                  
+                  {/* Per KM specific fields */}
+                  {selectedPolicy.calculation_type === 'per_km' && (
+                    <>
+                      <div className="flex justify-between py-2 border-b">
+                        <span className="text-sm font-medium">From:</span>
+                        <span className="text-sm truncate max-w-[250px]">{allowanceData.fromLocation?.address || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b">
+                        <span className="text-sm font-medium">To:</span>
+                        <span className="text-sm truncate max-w-[250px]">{allowanceData.toLocation?.address || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b">
+                        <span className="text-sm font-medium">One-way Distance:</span>
+                        <span className="text-sm">{calculatedDistance.toFixed(1)} km</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b">
+                        <span className="text-sm font-medium">Number of Trips:</span>
+                        <span className="text-sm">{parseInt(allowanceData.numTrips) || 1} round trip(s)</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b">
+                        <span className="text-sm font-medium">Total Distance:</span>
+                        <span className="text-sm">{(calculatedDistance * (parseInt(allowanceData.numTrips) || 1) * 2).toFixed(1)} km</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b">
+                        <span className="text-sm font-medium">Rate per KM:</span>
+                        <span className="text-sm">{formatCurrency(selectedPolicy.rate_per_unit || 0)}</span>
+                      </div>
+                    </>
+                  )}
+                  
+                  {/* Total Amount - Common */}
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-sm font-medium">Total Amount:</span>
+                    <span className="text-sm font-bold text-primary">{formatCurrency(calculatedTotalAmount)}</span>
+                  </div>
+                  
                   {allowanceData.description && (
                     <div className="py-2 border-b">
                       <span className="text-sm font-medium block mb-1">Description:</span>

@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
     Dialog,
@@ -11,12 +10,22 @@ import {
 } from '@/components/ui/dialog';
 import { MapPin, X, Navigation } from 'lucide-react';
 
-// Extend Window interface for Google Maps
-declare global {
-    interface Window {
-        google: typeof google;
-    }
-}
+// Import Leaflet
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix Leaflet default marker icon issue
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerShadow from 'leaflet/dist/images/marker-shadow.png';
+
+// Fix default icon paths
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+    iconRetinaUrl: markerIcon2x,
+    iconUrl: markerIcon,
+    shadowUrl: markerShadow,
+});
 
 // Location value structure
 export interface LocationValue {
@@ -34,62 +43,27 @@ interface LocationPickerProps {
 }
 
 // Default center (Bangalore, India) - can be customized
-const DEFAULT_CENTER = { lat: 12.9716, lng: 77.5946 };
+const DEFAULT_CENTER: [number, number] = [12.9716, 77.5946];
 const DEFAULT_ZOOM = 12;
 
-// Get Google Maps API key from environment
-const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-
-// Check if Google Maps is loaded
-const isGoogleMapsLoaded = () => {
-    return typeof window !== 'undefined' && window.google && window.google.maps;
-};
-
-// Load Google Maps script dynamically
-const loadGoogleMapsScript = (): Promise<void> => {
-    return new Promise((resolve, reject) => {
-        if (isGoogleMapsLoaded()) {
-            resolve();
-            return;
-        }
-
-        if (!GOOGLE_MAPS_API_KEY) {
-            reject(new Error('Google Maps API key is not configured'));
-            return;
-        }
-
-        // Check if script is already being loaded
-        const existingScript = document.querySelector('script[src*="maps.googleapis.com"]');
-        if (existingScript) {
-            existingScript.addEventListener('load', () => resolve());
-            existingScript.addEventListener('error', () => reject(new Error('Failed to load Google Maps')));
-            return;
-        }
-
-        const script = document.createElement('script');
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places`;
-        script.async = true;
-        script.defer = true;
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error('Failed to load Google Maps'));
-        document.head.appendChild(script);
-    });
-};
-
-// Reverse geocode to get address from coordinates
+// Reverse geocode using Nominatim (free OpenStreetMap service)
 const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
-    if (!isGoogleMapsLoaded()) return '';
-    
     try {
-        const geocoder = new google.maps.Geocoder();
-        const response = await geocoder.geocode({ location: { lat, lng } });
-        if (response.results && response.results[0]) {
-            return response.results[0].formatted_address;
-        }
+        const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+            {
+                headers: {
+                    'Accept-Language': 'en',
+                    'User-Agent': 'EasyQlaim/1.0'
+                }
+            }
+        );
+        const data = await response.json();
+        return data.display_name || '';
     } catch (error) {
         console.error('Geocoding error:', error);
+        return '';
     }
-    return '';
 };
 
 export function LocationPicker({
@@ -103,91 +77,130 @@ export function LocationPicker({
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [selectedLocation, setSelectedLocation] = useState<LocationValue | null>(value || null);
-    const [mapLoaded, setMapLoaded] = useState(false);
+    const [mapReady, setMapReady] = useState(false);
     
-    const mapRef = useRef<HTMLDivElement>(null);
-    const googleMapRef = useRef<google.maps.Map | null>(null);
-    const markerRef = useRef<google.maps.Marker | null>(null);
+    const mapContainerRef = useRef<HTMLDivElement>(null);
+    const mapRef = useRef<L.Map | null>(null);
+    const markerRef = useRef<L.Marker | null>(null);
+    const mapInitializedRef = useRef(false);
 
     // Initialize map when dialog opens
     useEffect(() => {
-        if (!isOpen || !mapRef.current || mapLoaded) return;
+        if (!isOpen) {
+            // Cleanup when dialog closes
+            if (mapRef.current) {
+                mapRef.current.remove();
+                mapRef.current = null;
+                markerRef.current = null;
+                mapInitializedRef.current = false;
+                setMapReady(false);
+            }
+            return;
+        }
 
-        const initMap = async () => {
-            setIsLoading(true);
-            setError(null);
+        // Prevent double initialization
+        if (mapInitializedRef.current) {
+            if (mapRef.current) {
+                setTimeout(() => mapRef.current?.invalidateSize(), 100);
+            }
+            return;
+        }
+
+        // Wait for DOM to be ready
+        const initMap = () => {
+            const container = mapContainerRef.current;
+            if (!container) {
+                console.log('Map container not ready, retrying...');
+                setTimeout(initMap, 100);
+                return;
+            }
+
+            // Check container has dimensions
+            const rect = container.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) {
+                console.log('Map container has no dimensions, retrying...');
+                setTimeout(initMap, 100);
+                return;
+            }
 
             try {
-                await loadGoogleMapsScript();
+                mapInitializedRef.current = true;
+                const center: [number, number] = value 
+                    ? [value.lat, value.lng] 
+                    : DEFAULT_CENTER;
 
-                const center = value || DEFAULT_CENTER;
-                
-                googleMapRef.current = new google.maps.Map(mapRef.current!, {
+                console.log('Initializing Leaflet map at:', center);
+
+                // Create map
+                const map = L.map(container, {
                     center,
                     zoom: value ? 15 : DEFAULT_ZOOM,
-                    mapTypeControl: true,
-                    streetViewControl: false,
-                    fullscreenControl: true,
                     zoomControl: true,
-                    styles: [
-                        {
-                            featureType: 'poi',
-                            elementType: 'labels',
-                            stylers: [{ visibility: 'off' }],
-                        },
-                    ],
                 });
 
-                // Create marker
-                markerRef.current = new google.maps.Marker({
-                    map: googleMapRef.current,
-                    draggable: true,
-                    position: value || null,
-                    animation: google.maps.Animation.DROP,
+                // Add OpenStreetMap tile layer
+                const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors',
+                    maxZoom: 19,
                 });
+                
+                tileLayer.on('load', () => {
+                    console.log('Tile layer loaded');
+                });
+                
+                tileLayer.on('tileerror', (e) => {
+                    console.error('Tile error:', e);
+                });
+                
+                tileLayer.addTo(map);
+
+                // Create draggable marker
+                const marker = L.marker(center, {
+                    draggable: true,
+                }).addTo(map);
 
                 // Handle map click
-                googleMapRef.current.addListener('click', async (event: google.maps.MapMouseEvent) => {
-                    if (event.latLng) {
-                        const lat = event.latLng.lat();
-                        const lng = event.latLng.lng();
-                        
-                        markerRef.current?.setPosition(event.latLng);
-                        
-                        const address = await reverseGeocode(lat, lng);
-                        setSelectedLocation({ lat, lng, address });
-                    }
+                map.on('click', async (e: L.LeafletMouseEvent) => {
+                    const { lat, lng } = e.latlng;
+                    marker.setLatLng(e.latlng);
+                    
+                    setIsLoading(true);
+                    const address = await reverseGeocode(lat, lng);
+                    setSelectedLocation({ lat, lng, address });
+                    setIsLoading(false);
                 });
 
                 // Handle marker drag
-                markerRef.current.addListener('dragend', async () => {
-                    const position = markerRef.current?.getPosition();
-                    if (position) {
-                        const lat = position.lat();
-                        const lng = position.lng();
-                        const address = await reverseGeocode(lat, lng);
-                        setSelectedLocation({ lat, lng, address });
-                    }
+                marker.on('dragend', async () => {
+                    const position = marker.getLatLng();
+                    
+                    setIsLoading(true);
+                    const address = await reverseGeocode(position.lat, position.lng);
+                    setSelectedLocation({ lat: position.lat, lng: position.lng, address });
+                    setIsLoading(false);
                 });
 
-                setMapLoaded(true);
+                mapRef.current = map;
+                markerRef.current = marker;
+                setMapReady(true);
+                console.log('Map initialized successfully');
+
+                // Force resize after rendering
+                requestAnimationFrame(() => {
+                    map.invalidateSize();
+                    setTimeout(() => map.invalidateSize(), 100);
+                    setTimeout(() => map.invalidateSize(), 300);
+                });
             } catch (err) {
-                setError(err instanceof Error ? err.message : 'Failed to load map');
-            } finally {
-                setIsLoading(false);
+                console.error('Error initializing map:', err);
+                setError('Failed to initialize map');
+                mapInitializedRef.current = false;
             }
         };
 
-        initMap();
-    }, [isOpen, value, mapLoaded]);
+        // Start initialization after dialog animation
+        setTimeout(initMap, 200);
 
-    // Reset map loaded state when dialog closes
-    useEffect(() => {
-        if (!isOpen) {
-            setMapLoaded(false);
-            googleMapRef.current = null;
-            markerRef.current = null;
-        }
     }, [isOpen]);
 
     // Sync selected location with value prop
@@ -195,9 +208,18 @@ export function LocationPicker({
         setSelectedLocation(value || null);
     }, [value]);
 
+    // Update marker when selected location changes from current location
+    useEffect(() => {
+        if (mapRef.current && markerRef.current && selectedLocation) {
+            markerRef.current.setLatLng([selectedLocation.lat, selectedLocation.lng]);
+            mapRef.current.setView([selectedLocation.lat, selectedLocation.lng], 15);
+        }
+    }, [selectedLocation?.lat, selectedLocation?.lng]);
+
     const handleOpenDialog = () => {
         if (!disabled) {
             setSelectedLocation(value || null);
+            setError(null);
             setIsOpen(true);
         }
     };
@@ -220,19 +242,17 @@ export function LocationPicker({
         }
 
         setIsLoading(true);
+        setError(null);
+        
         navigator.geolocation.getCurrentPosition(
             async (position) => {
                 const lat = position.coords.latitude;
                 const lng = position.coords.longitude;
                 
-                const newLocation = { lat, lng };
-                
-                if (googleMapRef.current) {
-                    googleMapRef.current.setCenter(newLocation);
-                    googleMapRef.current.setZoom(15);
+                if (mapRef.current && markerRef.current) {
+                    mapRef.current.setView([lat, lng], 15);
+                    markerRef.current.setLatLng([lat, lng]);
                 }
-                
-                markerRef.current?.setPosition(newLocation);
                 
                 const address = await reverseGeocode(lat, lng);
                 setSelectedLocation({ lat, lng, address });
@@ -242,7 +262,7 @@ export function LocationPicker({
                 setError('Unable to get your location: ' + error.message);
                 setIsLoading(false);
             },
-            { enableHighAccuracy: true }
+            { enableHighAccuracy: true, timeout: 10000 }
         );
     };
 
@@ -290,7 +310,7 @@ export function LocationPicker({
                                 disabled={isLoading}
                             >
                                 <Navigation className="h-4 w-4 mr-2" />
-                                Use Current Location
+                                {isLoading ? 'Getting location...' : 'Use Current Location'}
                             </Button>
                             {selectedLocation && (
                                 <span className="text-sm text-muted-foreground">
@@ -299,34 +319,36 @@ export function LocationPicker({
                             )}
                         </div>
 
+                        {/* Error display */}
+                        {error && (
+                            <div className="p-3 bg-destructive/10 rounded-lg">
+                                <p className="text-sm text-destructive">{error}</p>
+                            </div>
+                        )}
+
                         {/* Map container */}
-                        <div className="relative">
-                            {isLoading && !mapLoaded && (
-                                <div className="absolute inset-0 flex items-center justify-center bg-muted/50 z-10 rounded-lg">
+                        <div className="relative" style={{ height: '400px' }}>
+                            <div
+                                ref={mapContainerRef}
+                                className="w-full h-full rounded-lg border"
+                                style={{ 
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    zIndex: 1,
+                                    background: '#e0e0e0'
+                                }}
+                            />
+                            {!mapReady && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-muted/50 rounded-lg">
                                     <div className="text-center">
                                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
                                         <p className="text-sm text-muted-foreground">Loading map...</p>
                                     </div>
                                 </div>
                             )}
-                            
-                            {error && (
-                                <div className="absolute inset-0 flex items-center justify-center bg-destructive/10 z-10 rounded-lg">
-                                    <div className="text-center p-4">
-                                        <p className="text-sm text-destructive">{error}</p>
-                                        {!GOOGLE_MAPS_API_KEY && (
-                                            <p className="text-xs text-muted-foreground mt-2">
-                                                Set VITE_GOOGLE_MAPS_API_KEY in your environment
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            <div
-                                ref={mapRef}
-                                className="w-full h-[400px] rounded-lg border bg-muted"
-                            />
                         </div>
 
                         {/* Selected address display */}

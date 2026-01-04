@@ -37,6 +37,8 @@ export interface ExtractedClaimCategory {
   category_code: string;
   category_name: string;
   category_type: 'ALLOWANCE' | 'REIMBURSEMENT';
+  calculation_type?: 'per_day' | 'per_km' | 'fixed';  // How claim amount is calculated
+  rate_per_unit?: number | null;  // Per-day rate OR per-km rate based on calculation_type
   max_amount: number | null;
   description: string | null;
   eligibility_criteria: {
