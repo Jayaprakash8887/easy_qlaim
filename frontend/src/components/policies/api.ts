@@ -124,6 +124,27 @@ export async function uploadNewVersion(id: string, formData: FormData, tenantId:
     return response.json();
 }
 
+export interface PolicyMetadataUpdate {
+    policy_name?: string;
+    description?: string;
+    region?: string[];
+    effective_from?: string;
+    effective_to?: string;
+}
+
+export async function updatePolicyMetadata(id: string, data: PolicyMetadataUpdate, tenantId: string): Promise<PolicyUpload> {
+    const response = await fetch(`${API_BASE_URL}/policies/${id}?tenant_id=${tenantId}`, {
+        method: 'PATCH',
+        headers: getAuthHeadersWithJson(),
+        body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(extractErrorMessage(error, 'Failed to update policy'));
+    }
+    return response.json();
+}
+
 export async function deletePolicy(id: string, tenantId: string, deletedBy?: string): Promise<{ message: string }> {
     const params = new URLSearchParams({ tenant_id: tenantId });
     if (deletedBy) params.append('deleted_by', deletedBy);

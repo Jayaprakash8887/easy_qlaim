@@ -78,6 +78,7 @@ import {
   reExtractPolicy,
   uploadNewVersion,
   deletePolicy,
+  updatePolicyMetadata,
   fetchCustomClaims,
   fetchCustomClaim,
   createCustomClaim,
@@ -124,6 +125,7 @@ export default function Policies() {
   const [isApproveOpen, setIsApproveOpen] = useState(false);
   const [isRejectOpen, setIsRejectOpen] = useState(false);
   const [isNewVersionOpen, setIsNewVersionOpen] = useState(false);
+  const [isEditPolicyOpen, setIsEditPolicyOpen] = useState(false);
   const [isDeletePolicyOpen, setIsDeletePolicyOpen] = useState(false);
   const [policyToDelete, setPolicyToDelete] = useState<PolicyUploadListItem | null>(null);
   const [selectedPolicyId, setSelectedPolicyId] = useState<string | null>(null);
@@ -143,6 +145,11 @@ export default function Policies() {
     description: '',
     region: [] as string[],
     file: null as File | null,
+  });
+  const [editPolicyForm, setEditPolicyForm] = useState({
+    policy_name: '',
+    description: '',
+    region: [] as string[],
   });
   const [approveNotes, setApproveNotes] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState('');
@@ -313,6 +320,21 @@ export default function Policies() {
     },
   });
 
+  const editPolicyMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { policy_name?: string; description?: string; region?: string[] } }) => 
+      updatePolicyMetadata(id, data, user?.tenantId || ''),
+    onSuccess: () => {
+      toast({ title: 'Success', description: 'Policy updated successfully.' });
+      setIsEditPolicyOpen(false);
+      setEditPolicyForm({ policy_name: '', description: '', region: [] });
+      queryClient.invalidateQueries({ queryKey: ['policies'] });
+      queryClient.invalidateQueries({ queryKey: ['extracted-claims'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
   // Custom Claims Mutations
   const createCustomClaimMutation = useMutation({
     mutationFn: (data: Partial<CustomClaim>) => createCustomClaim(data, user?.id || '', user?.tenantId || ''),
@@ -453,6 +475,31 @@ export default function Policies() {
     formData.append('uploaded_by', user?.id || '');
 
     newVersionMutation.mutate({ id: selectedPolicyId, formData });
+  };
+
+  const handleEditPolicy = () => {
+    if (!selectedPolicyId) return;
+
+    const data: { policy_name?: string; description?: string; region?: string[] } = {};
+    
+    if (editPolicyForm.policy_name) {
+      data.policy_name = editPolicyForm.policy_name;
+    }
+    
+    if (editPolicyForm.description) {
+      data.description = editPolicyForm.description;
+    }
+    
+    if (editPolicyForm.region && editPolicyForm.region.length > 0) {
+      data.region = editPolicyForm.region;
+    }
+
+    if (Object.keys(data).length === 0) {
+      toast({ title: 'No Changes', description: 'Please make at least one change to update.', variant: 'destructive' });
+      return;
+    }
+
+    editPolicyMutation.mutate({ id: selectedPolicyId, data });
   };
 
   // Custom Claims Handlers
@@ -876,18 +923,37 @@ export default function Policies() {
                             </>
                           )}
                           {policy.status === 'ACTIVE' && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              title="Upload new version"
-                              onClick={() => {
-                                setSelectedPolicyId(policy.id);
-                                setSelectedPolicyName(policy.policy_name);
-                                setIsNewVersionOpen(true);
-                              }}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="Edit policy details"
+                                onClick={() => {
+                                  setSelectedPolicyId(policy.id);
+                                  setSelectedPolicyName(policy.policy_name);
+                                  setEditPolicyForm({
+                                    policy_name: policy.policy_name,
+                                    description: '',  // Will be loaded from detail if needed
+                                    region: policy.region || [],
+                                  });
+                                  setIsEditPolicyOpen(true);
+                                }}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="Upload new version"
+                                onClick={() => {
+                                  setSelectedPolicyId(policy.id);
+                                  setSelectedPolicyName(policy.policy_name);
+                                  setIsNewVersionOpen(true);
+                                }}
+                              >
+                                <Upload className="h-4 w-4" />
+                              </Button>
+                            </>
                           )}
                           <Button
                             variant="ghost"
@@ -1387,6 +1453,62 @@ export default function Policies() {
             <Button onClick={handleNewVersionUpload} disabled={newVersionMutation.isPending || !newVersionForm.file}>
               {newVersionMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Upload New Version
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Policy Dialog */}
+      <Dialog open={isEditPolicyOpen} onOpenChange={setIsEditPolicyOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Edit Policy</DialogTitle>
+            <DialogDescription>
+              Update policy details for "{selectedPolicyName}". You can change the name, description, or region without uploading a new document.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit_policy_name">Policy Name</Label>
+              <Input
+                id="edit_policy_name"
+                value={editPolicyForm.policy_name}
+                onChange={(e) => setEditPolicyForm({ ...editPolicyForm, policy_name: e.target.value })}
+                placeholder="Enter policy name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_policy_description">Description</Label>
+              <Textarea
+                id="edit_policy_description"
+                value={editPolicyForm.description}
+                onChange={(e) => setEditPolicyForm({ ...editPolicyForm, description: e.target.value })}
+                placeholder="What's this policy about..."
+                rows={3}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_policy_region">Region / Location</Label>
+              <MultiSelect
+                options={regionOptions}
+                selected={editPolicyForm.region || []}
+                onChange={(selected) => setEditPolicyForm({ ...editPolicyForm, region: selected })}
+                placeholder="Select regions..."
+                className="w-full"
+              />
+              <p className="text-xs text-muted-foreground">
+                Select the regions where this policy applies
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setIsEditPolicyOpen(false);
+              setEditPolicyForm({ policy_name: '', description: '', region: [] });
+            }}>Cancel</Button>
+            <Button onClick={handleEditPolicy} disabled={editPolicyMutation.isPending}>
+              {editPolicyMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Save Changes
             </Button>
           </DialogFooter>
         </DialogContent>

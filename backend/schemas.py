@@ -877,6 +877,15 @@ class PolicyUploadListResponse(BaseModel):
         from_attributes = True
 
 
+class PolicyMetadataUpdate(BaseModel):
+    """Schema for updating policy metadata without uploading a new document"""
+    policy_name: Optional[str] = None
+    description: Optional[str] = None
+    region: Optional[List[str]] = None  # List of region codes
+    effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
+
+
 class PolicyApprovalRequest(BaseModel):
     review_notes: Optional[str] = None
     effective_from: Optional[date] = None

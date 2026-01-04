@@ -18,7 +18,7 @@ from schemas import (
     PolicyCategoryUpdate, PolicyApprovalRequest, PolicyRejectRequest,
     ClaimValidationRequest, ClaimValidationResponse, ValidationCheckResult,
     ValidationStatus, ActiveCategoryResponse, PolicyAuditLogResponse,
-    ExtractedClaimListResponse
+    ExtractedClaimListResponse, PolicyMetadataUpdate
 )
 from api.v1.auth import require_tenant_id
 
@@ -952,6 +952,106 @@ async def delete_category(
     background_tasks.add_task(_invalidate_policy_cache, policy_upload_id, region)
     
     return {"message": f"Category '{category_name}' deleted successfully"}
+
+
+# ==================== POLICY METADATA UPDATE ENDPOINT ====================
+
+@router.patch("/{policy_id}", response_model=PolicyUploadResponse)
+async def update_policy_metadata(
+    policy_id: UUID,
+    update_data: PolicyMetadataUpdate,
+    background_tasks: BackgroundTasks,
+    tenant_id: str,
+    db: Session = Depends(get_sync_db)
+):
+    """
+    Update policy metadata (name, description, region, effective dates) without uploading a new document.
+    Use this endpoint when you only need to change policy settings, not the document itself.
+    """
+    # Validate tenant_id
+    require_tenant_id(tenant_id)
+    tenant_uuid = UUID(tenant_id)
+    
+    # Get the policy
+    policy = db.query(PolicyUpload).filter(
+        and_(
+            PolicyUpload.id == policy_id,
+            PolicyUpload.tenant_id == tenant_uuid
+        )
+    ).first()
+    
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    
+    old_region = policy.region
+    
+    # Validate regions if provided
+    if update_data.region is not None:
+        validate_regions_exist(db, tenant_uuid, update_data.region)
+    
+    # Update fields if provided
+    if update_data.policy_name is not None:
+        policy.policy_name = update_data.policy_name
+    
+    if update_data.description is not None:
+        policy.description = update_data.description
+    
+    if update_data.region is not None:
+        policy.region = update_data.region
+    
+    if update_data.effective_from is not None:
+        policy.effective_from = update_data.effective_from
+    
+    if update_data.effective_to is not None:
+        policy.effective_to = update_data.effective_to
+    
+    policy.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(policy)
+    
+    # Invalidate cache if region changed
+    if update_data.region is not None:
+        background_tasks.add_task(_invalidate_policy_cache, policy_id, old_region)
+        background_tasks.add_task(_invalidate_policy_cache, policy_id, update_data.region)
+    
+    # Return the policy with its categories
+    categories = db.query(PolicyCategory).filter(
+        PolicyCategory.policy_upload_id == policy_id
+    ).all()
+    
+    return PolicyUploadResponse(
+        id=policy.id,
+        tenant_id=policy.tenant_id,
+        policy_name=policy.policy_name,
+        policy_number=policy.policy_number,
+        description=policy.description,
+        file_name=policy.file_name,
+        file_type=policy.file_type,
+        file_size=policy.file_size,
+        storage_path=policy.storage_path,
+        gcs_uri=policy.gcs_uri,
+        storage_type=policy.storage_type,
+        content_type=policy.content_type,
+        status=policy.status,
+        extracted_text=policy.extracted_text,
+        extraction_error=policy.extraction_error,
+        extracted_at=policy.extracted_at,
+        extracted_data=policy.extracted_data or {},
+        version=policy.version,
+        is_active=policy.is_active,
+        replaces_policy_id=policy.replaces_policy_id,
+        effective_from=policy.effective_from,
+        effective_to=policy.effective_to,
+        region=policy.region,
+        uploaded_by=policy.uploaded_by,
+        approved_by=policy.approved_by,
+        approved_at=policy.approved_at,
+        review_notes=policy.review_notes,
+        created_at=policy.created_at,
+        updated_at=policy.updated_at,
+        categories=[PolicyCategoryResponse.model_validate(cat) for cat in categories]
+    )
 
 
 # ==================== POLICY DELETE ENDPOINT ====================
