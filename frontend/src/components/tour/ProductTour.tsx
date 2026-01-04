@@ -82,9 +82,9 @@ export function ProductTour() {
             markTourComplete();
         }
 
-        // Handle close button click
-        if (action === ACTIONS.CLOSE && type === EVENTS.STEP_AFTER) {
-            endTour();
+        // Handle close button click - also mark as complete so it doesn't show again
+        if (action === ACTIONS.CLOSE) {
+            markTourComplete();
         }
     };
 

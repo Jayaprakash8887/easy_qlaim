@@ -9,6 +9,24 @@ function getAuthHeaders(): HeadersInit {
   return token ? { 'Authorization': `Bearer ${token}` } : {};
 }
 
+// Custom field definition (matching backend schema)
+export interface CustomFieldDefinition {
+  name: string;
+  label: string;
+  type: 'text' | 'number' | 'date' | 'select' | 'file' | 'boolean' | 'currency' | 'location';
+  required: boolean;
+  placeholder?: string;
+  options: string[];
+  validation?: {
+    min_length?: number;
+    max_length?: number;
+    min?: number;
+    max?: number;
+    pattern?: string;
+  };
+  default_value?: unknown;
+}
+
 // Extracted claim category from API (includes both PolicyCategory and CustomClaim)
 export interface ExtractedClaimCategory {
   id: string;
@@ -29,6 +47,7 @@ export interface ExtractedClaimCategory {
     [key: string]: any;
   } | null;
   document_requirements: string[] | null;
+  custom_fields?: CustomFieldDefinition[];  // Custom fields for this claim category
   created_at: string;
   updated_at: string;
   is_custom_claim?: boolean;  // True if this is a custom claim (not from policy)

@@ -13,6 +13,7 @@ import { SmartClaimForm, ExtractedClaim, FieldSources, PolicyCheckItem } from ".
 import { ClaimReview } from "./ClaimReview";
 import { ComplianceScore } from "./ComplianceScore";
 import { PolicyChecks } from "./PolicyChecks";
+import { CustomFieldsForm } from "./CustomFieldRenderer";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCreateBatchClaimsWithDocument, BatchClaimItem } from "@/hooks/useClaims";

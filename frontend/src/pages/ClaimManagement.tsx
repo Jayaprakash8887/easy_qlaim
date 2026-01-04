@@ -493,6 +493,19 @@ export default function ClaimManagement() {
                             </div>
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">
+                                Region
+                            </Label>
+                            <div className="col-span-3">
+                                <Badge variant="outline" className="font-normal">
+                                    {getRegionDisplayName(selectedCategory?.policy_region)}
+                                </Badge>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Region is inherited from the policy and cannot be changed here.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="max_amount" className="text-right">
                                 Max Amount
                             </Label>

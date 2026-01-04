@@ -88,7 +88,7 @@ export interface CustomFieldValidation {
 export interface CustomFieldDefinition {
     name: string;
     label: string;
-    type: 'text' | 'number' | 'date' | 'select' | 'file' | 'boolean' | 'currency';
+    type: 'text' | 'number' | 'date' | 'select' | 'file' | 'boolean' | 'currency' | 'location';
     required: boolean;
     placeholder?: string;
     options: string[];
@@ -181,6 +181,7 @@ export const FIELD_TYPE_OPTIONS = [
     { value: 'select', label: 'Dropdown Select' },
     { value: 'boolean', label: 'Yes/No (Checkbox)' },
     { value: 'file', label: 'File Upload' },
+    { value: 'location', label: 'Location (Map)' },
 ];
 
 export const FREQUENCY_OPTIONS = [
