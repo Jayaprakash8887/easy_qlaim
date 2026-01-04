@@ -232,6 +232,102 @@ nvm use 18
 npm run type-check
 ```
 
+#### 5.3 Google Maps Blank/Not Loading
+
+**Symptom:** Maps component shows blank area, no map tiles visible
+
+**Cause:** Google Maps API key not properly passed to Docker container
+
+**Solutions:**
+
+1. **Check environment variable**
+   ```bash
+   # Ensure VITE_GOOGLE_MAPS_API_KEY is set in docker-compose.yml
+   # Under frontend service environment section:
+   environment:
+     - VITE_GOOGLE_MAPS_API_KEY=${VITE_GOOGLE_MAPS_API_KEY}
+   ```
+
+2. **Verify .env file**
+   ```bash
+   # In project root .env file
+   VITE_GOOGLE_MAPS_API_KEY=your-actual-api-key
+   ```
+
+3. **Rebuild frontend container**
+   ```bash
+   docker compose up --build frontend
+   ```
+
+4. **Verify API key in browser**
+   - Open browser DevTools → Network tab
+   - Look for requests to `maps.googleapis.com`
+   - Check if key parameter is present and correct
+
+#### 5.4 Form Validation Error Shows [object Object]
+
+**Symptom:** Error message displays `[object Object]` instead of actual error text
+
+**Cause:** Pydantic validation errors return array format that needs proper parsing
+
+**Solution:**
+
+Frontend error handlers need to properly extract messages from Pydantic error arrays:
+
+```typescript
+// Proper error extraction
+const extractErrorMessage = (error: any): string => {
+  if (error?.response?.data?.detail) {
+    const detail = error.response.data.detail;
+    if (Array.isArray(detail)) {
+      // Pydantic validation errors
+      return detail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join(', ');
+    }
+    return typeof detail === 'string' ? detail : JSON.stringify(detail);
+  }
+  return error.message || 'An error occurred';
+};
+```
+
+#### 5.5 Dialog Forms Not Scrollable / Buttons Hidden
+
+**Symptom:** Modal dialogs with long forms have buttons hidden below viewport, cannot scroll
+
+**Cause:** Missing scroll styles on DialogContent component
+
+**Solution:**
+
+Add `max-h-[90vh] overflow-y-auto` to DialogContent className:
+
+```tsx
+<DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+  {/* Form content */}
+</DialogContent>
+```
+
+#### 5.6 Empty Email Field Causes Validation Error
+
+**Symptom:** "Value is not a valid email address" when email field is left empty
+
+**Cause:** Empty string "" is sent instead of null for optional email fields
+
+**Solution:**
+
+Add Pydantic validators to convert empty strings to None:
+
+```python
+from pydantic import validator
+
+class ClientBase(BaseModel):
+    contact_email: Optional[EmailStr] = None
+    
+    @validator('contact_email', pre=True, always=True)
+    def empty_str_to_none_email(cls, v):
+        if v == '':
+            return None
+        return v
+```
+
 ---
 
 ### 6. Authentication Issues
@@ -502,4 +598,4 @@ If issues persist:
 
 ---
 
-*Document Version: 1.0 | Last Updated: December 2025*
+*Document Version: 1.1 | Last Updated: January 2026*

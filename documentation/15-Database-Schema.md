@@ -751,7 +751,96 @@ CREATE INDEX idx_webhook_logs_created ON webhook_delivery_logs(created_at DESC);
 CREATE INDEX idx_webhook_logs_status ON webhook_delivery_logs(status);
 ```
 
-### 3.17 Approval Skip Rules
+### 3.17 Client
+
+Stores client/customer master data for tenant organizations. Clients can be associated with projects for better expense tracking and reporting.
+
+```sql
+CREATE TABLE clients (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id),
+    
+    -- Client identification
+    client_code VARCHAR(50) NOT NULL,
+    client_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    
+    -- Contact information
+    contact_person VARCHAR(255),
+    contact_email VARCHAR(255),
+    contact_phone VARCHAR(50),
+    address TEXT,
+    
+    -- Status
+    is_active BOOLEAN DEFAULT true,
+    
+    -- Additional data
+    client_data JSONB DEFAULT '{}',
+    
+    -- Timestamps
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    
+    -- Constraints
+    CONSTRAINT uq_client_tenant_code UNIQUE (tenant_id, client_code)
+);
+
+CREATE INDEX idx_clients_tenant ON clients(tenant_id);
+CREATE INDEX idx_clients_code ON clients(client_code);
+CREATE INDEX idx_clients_name ON clients(client_name);
+CREATE INDEX idx_clients_active ON clients(is_active);
+```
+
+**Client Data JSONB Structure (Optional):**
+```json
+{
+    "billing_address": "123 Main St",
+    "gst_number": "GST123456789",
+    "industry": "Technology",
+    "contract_start": "2024-01-01",
+    "contract_end": "2025-12-31"
+}
+```
+
+### 3.18 Project
+
+Stores project master data for project-based claims. Projects can optionally be associated with a client.
+
+```sql
+CREATE TABLE projects (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id),
+    
+    -- Project identification
+    project_code VARCHAR(50) NOT NULL,
+    project_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    manager_id UUID REFERENCES users(id),
+    
+    -- Client association (optional)
+    client_id UUID REFERENCES clients(id),
+    
+    -- IBU association
+    ibu_id UUID REFERENCES ibus(id),
+    
+    -- Status
+    is_active BOOLEAN DEFAULT true,
+    
+    -- Timestamps
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    
+    -- Constraints
+    CONSTRAINT uq_project_tenant_code UNIQUE (tenant_id, project_code)
+);
+
+CREATE INDEX idx_projects_tenant ON projects(tenant_id);
+CREATE INDEX idx_projects_code ON projects(project_code);
+CREATE INDEX idx_projects_client ON projects(client_id);
+CREATE INDEX idx_projects_active ON projects(is_active);
+```
+
+### 3.19 Approval Skip Rules
 
 Stores configurable rules for skipping approval levels based on employee designation, email, or project (for CXOs, executives, specific projects, etc.).
 
@@ -902,4 +991,4 @@ def downgrade():
 
 ---
 
-*Document Version: 1.0 | Last Updated: December 2025*
+*Document Version: 1.1 | Last Updated: January 2026*

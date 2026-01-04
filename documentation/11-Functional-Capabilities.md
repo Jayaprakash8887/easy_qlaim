@@ -539,6 +539,74 @@ Departments are now tenant-specific and managed via API. Admins can:
 **Navigation:**
 Admin sidebar → Departments
 
+### 8.5 Client Management
+
+Clients are tenant-specific customer/organization records that enable better expense tracking and project organization. Admins can manage client records and associate them with projects.
+
+**CRUD Operations:**
+- Create new clients with code, name, contact details
+- Update client information
+- Activate/deactivate clients
+- Delete clients (only if no projects linked)
+
+**Client Properties:**
+| Field | Required | Description |
+|-------|----------|-------------|
+| Client Code | Yes | Unique short code within tenant (e.g., ACME, BETA) |
+| Client Name | Yes | Full client/organization name |
+| Description | No | Client description or notes |
+| Contact Person | No | Primary contact name |
+| Contact Email | No | Contact email address (validated format) |
+| Contact Phone | No | Contact phone number |
+| Address | No | Physical/billing address |
+| Active Status | Yes | Enable/disable without deleting |
+| Custom Data | No | Additional JSON data for flexibility |
+
+**Features:**
+- **Project Association**: Link multiple projects to a client for organized expense tracking
+- **Bulk Project Linking**: Associate/unassociate multiple projects at once
+- **Active/Inactive Toggle**: Soft-delete clients while preserving historical data
+- **Client Dropdown in Projects**: When creating/editing projects, select associated client
+- **Reports Filtering**: Filter claims by client in reports
+
+**Access Control:**
+| Role | Permissions |
+|------|-------------|
+| Admin | Full CRUD access |
+| Manager | View only |
+| Other roles | No access |
+
+**Navigation:**
+Admin sidebar → Clients
+
+**Client-Project Workflow:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     CLIENT MANAGEMENT                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. Create Client                                            │
+│     └─▶ Code, Name, Contact details                         │
+│                                                              │
+│  2. Link Projects (Optional)                                │
+│     └─▶ Select existing projects to associate               │
+│                                                              │
+│  3. New Project Creation                                    │
+│     └─▶ Select client from dropdown (optional)              │
+│                                                              │
+│  4. Reports & Analytics                                     │
+│     └─▶ Filter claims by client                             │
+│     └─▶ View expenses per client                            │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Use Cases:**
+- Track expenses for different customers/clients
+- Bill-back client expenses
+- Generate client-specific expense reports
+- Organize projects by customer
+
 ## 9. Notifications
 
 ### 9.1 In-App Notifications
@@ -950,4 +1018,4 @@ All actions are logged:
 
 ---
 
-*Document Version: 1.2 | Last Updated: December 2025*
+*Document Version: 1.3 | Last Updated: January 2026*

@@ -354,7 +354,167 @@ Authorization: Bearer {token}
 
 ---
 
-## 7. Departments API
+## 7. Clients API
+
+Clients are tenant-specific customer/organization records that can be associated with projects for expense tracking and reporting.
+
+### 7.1 List Clients
+
+```http
+GET /api/v1/clients/?tenant_id={tenant_id}
+Authorization: Bearer {token}
+```
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| tenant_id | uuid | Required. Tenant identifier |
+| is_active | boolean | Filter by active status (optional) |
+| skip | int | Number of records to skip (default: 0) |
+| limit | int | Number of records to return (default: 100) |
+
+**Response:**
+```json
+[
+    {
+        "id": "uuid",
+        "tenant_id": "uuid",
+        "client_code": "CLIENT001",
+        "client_name": "Acme Corporation",
+        "description": "Technology consulting client",
+        "contact_person": "John Smith",
+        "contact_email": "john@acme.com",
+        "contact_phone": "+91-9876543210",
+        "address": "123 Business Park, Mumbai",
+        "is_active": true,
+        "client_data": {},
+        "created_at": "2026-01-04T10:30:00Z",
+        "updated_at": "2026-01-04T10:30:00Z"
+    }
+]
+```
+
+### 7.2 Get Client by ID
+
+```http
+GET /api/v1/clients/{client_id}?tenant_id={tenant_id}
+Authorization: Bearer {token}
+```
+
+### 7.3 Create Client
+
+```http
+POST /api/v1/clients/?tenant_id={tenant_id}
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+    "client_code": "CLIENT002",
+    "client_name": "Beta Industries",
+    "description": "Manufacturing partner",
+    "contact_person": "Jane Doe",
+    "contact_email": "jane@beta.com",
+    "contact_phone": "+91-9876543211",
+    "address": "456 Industrial Area, Delhi",
+    "is_active": true,
+    "client_data": {
+        "industry": "Manufacturing",
+        "contract_value": 500000
+    }
+}
+```
+
+**Required Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| client_code | string | Unique code within tenant |
+| client_name | string | Display name |
+
+**Optional Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| description | string | Client description |
+| contact_person | string | Primary contact name |
+| contact_email | string | Contact email (validated) |
+| contact_phone | string | Contact phone number |
+| address | string | Physical address |
+| is_active | boolean | Active status (default: true) |
+| client_data | object | Additional custom data |
+
+### 7.4 Update Client
+
+```http
+PUT /api/v1/clients/{client_id}?tenant_id={tenant_id}
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+    "client_name": "Beta Industries Ltd",
+    "contact_email": "contact@beta.com",
+    "is_active": true
+}
+```
+
+### 7.5 Delete Client
+
+Deletes a client. Returns error if projects are linked to the client.
+
+```http
+DELETE /api/v1/clients/{client_id}?tenant_id={tenant_id}
+Authorization: Bearer {token}
+```
+
+### 7.6 Link Projects to Client
+
+Associate multiple projects with a client.
+
+```http
+POST /api/v1/clients/{client_id}/projects?tenant_id={tenant_id}
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+    "project_ids": ["uuid1", "uuid2"]
+}
+```
+
+**Response:**
+```json
+{
+    "linked_count": 2,
+    "projects": [
+        {"id": "uuid1", "project_code": "PROJ001", "project_name": "Alpha Project"},
+        {"id": "uuid2", "project_code": "PROJ002", "project_name": "Beta Project"}
+    ]
+}
+```
+
+### 7.7 Unlink Projects from Client
+
+Remove the client association from projects.
+
+```http
+DELETE /api/v1/clients/{client_id}/projects?tenant_id={tenant_id}
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+    "project_ids": ["uuid1"]
+}
+```
+
+### 7.8 Get Client Projects
+
+Get all projects associated with a specific client.
+
+```http
+GET /api/v1/clients/{client_id}/projects?tenant_id={tenant_id}
+Authorization: Bearer {token}
+```
+
+---
+
+## 8. Departments API
 
 Departments are tenant-specific and managed dynamically via API.
 
@@ -1292,4 +1452,4 @@ Authorization: Bearer {token}
 
 ---
 
-*Document Version: 1.3 | Last Updated: December 2025*
+*Document Version: 1.4 | Last Updated: January 2026*
