@@ -118,6 +118,9 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
     projectCode: '',
   });
 
+  // State for custom field values
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, any>>({});
+
   // Map project history to dropdown format and get active projects
   const activeProjects = useMemo(() => {
     const mappedProjects = projectHistory.map(allocation => ({
@@ -888,6 +891,15 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                       </p>
                     )}
                   </div>
+
+                  {/* Custom Fields - Render if the policy has custom fields */}
+                  {selectedPolicy.custom_fields && selectedPolicy.custom_fields.length > 0 && (
+                    <CustomFieldsForm
+                      fields={selectedPolicy.custom_fields}
+                      values={customFieldValues}
+                      onChange={setCustomFieldValues}
+                    />
+                  )}
 
                   {/* Policy Info - Only show if there are eligibility requirements */}
                   {(selectedPolicy.eligibility_criteria?.requirements || []).length > 0 && (
