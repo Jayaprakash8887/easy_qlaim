@@ -413,6 +413,8 @@ async def create_batch_claims(
             "project_code": batch.project_code,
             "batch_index": idx,
             "batch_total": len(batch.claims),
+            # Custom fields from policy category
+            "custom_fields": claim_item.custom_fields,
             # Field source tracking: 'ocr' for auto-extracted, 'manual' for user-entered
             "category_source": claim_item.category_source or 'manual',
             "title_source": claim_item.title_source or 'manual',
@@ -660,6 +662,8 @@ async def create_batch_claims_with_document(
             "project_code": batch.project_code,
             "batch_index": idx,
             "batch_total": len(batch.claims),
+            # Custom fields from policy category
+            "custom_fields": claim_item.custom_fields,
             # Field source tracking
             "category_source": claim_item.category_source or 'manual',
             "title_source": claim_item.title_source or 'manual',

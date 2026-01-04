@@ -318,6 +318,8 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
 
   const handleAllowanceSelect = (id: string) => {
     setSelectedAllowanceId(id);
+    // Reset custom field values when allowance changes
+    setCustomFieldValues({});
   };
 
   const handleNext = async () => {
@@ -464,6 +466,8 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
           vendor: undefined,
           transaction_ref: undefined,
           description: allowanceData.description || `${selectedPolicy.category_name} allowance claim for period ${allowanceData.periodStart} to ${allowanceData.periodEnd}. Working days: ${workingDaysCount}, Per day rate: ${formatCurrency(parseFloat(allowanceData.perDayRate) || 0)}`,
+          // Include custom field values if any
+          custom_fields: Object.keys(customFieldValues).length > 0 ? customFieldValues : undefined,
           // Allowance claims are manually entered
           category_source: 'manual',
           title_source: 'manual',

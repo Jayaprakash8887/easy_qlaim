@@ -293,6 +293,7 @@ export interface BatchClaimItem {
   vendor?: string;
   description?: string;
   transaction_ref?: string;
+  custom_fields?: Record<string, unknown>;  // Custom field values
   // Field source tracking: 'ocr' for auto-extracted, 'manual' for user-entered
   category_source?: 'ocr' | 'manual';
   title_source?: 'ocr' | 'manual';

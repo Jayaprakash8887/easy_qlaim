@@ -90,6 +90,7 @@ class BatchClaimItem(BaseModel):
     description: Optional[str] = None
     transaction_ref: Optional[str] = None
     payment_method: Optional[str] = None
+    custom_fields: Optional[Dict[str, Any]] = None  # Custom field values
     # Field source tracking: 'ocr' for auto-extracted, 'manual' for user-entered
     category_source: Optional[str] = 'manual'
     title_source: Optional[str] = 'manual'
