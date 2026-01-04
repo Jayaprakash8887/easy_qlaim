@@ -184,29 +184,83 @@ For fixed allowances where amount is entered directly.
 }
 ```
 
-### 3.4 Location Picker with OpenStreetMap
+### 3.4 Location Picker with Dual Map Provider
 
-For per-km calculations, the system provides an interactive map-based location picker.
+For per-km calculations, the system provides an interactive map-based location picker with **Google Maps as the primary provider** and **OpenStreetMap as automatic fallback**.
+
+**Provider Selection Logic:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Map Provider Selection                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌────────────────────────┐                                      │
+│  │ Google Maps API Key    │                                      │
+│  │ Configured?            │                                      │
+│  └───────────┬────────────┘                                      │
+│              │                                                   │
+│     ┌────────┴────────┐                                          │
+│     │                 │                                          │
+│   [YES]             [NO]                                         │
+│     │                 │                                          │
+│     ▼                 │                                          │
+│  ┌──────────────┐     │                                          │
+│  │ Load Google  │     │                                          │
+│  │ Maps API     │     │                                          │
+│  └───────┬──────┘     │                                          │
+│          │            │                                          │
+│    ┌─────┴─────┐      │                                          │
+│    │           │      │                                          │
+│ [SUCCESS]   [FAIL]    │                                          │
+│    │           │      │                                          │
+│    ▼           ▼      ▼                                          │
+│ ┌──────────┐  ┌──────────────┐                                   │
+│ │ Google   │  │ OpenStreetMap│                                   │
+│ │ Maps     │  │ (Fallback)   │                                   │
+│ └──────────┘  └──────────────┘                                   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 **Features:**
-| Feature | Description |
-|---------|-------------|
-| Interactive Map | Leaflet.js with OpenStreetMap tiles |
-| Click to Select | Click on map to set location |
-| Search by Address | Nominatim API for geocoding |
-| Current Location | GPS/browser geolocation support |
-| Address Display | Reverse geocoding for selected points |
+| Feature | Google Maps | OpenStreetMap (Fallback) |
+|---------|-------------|-------------------------|
+| Interactive Map | Google Maps JS API | Leaflet.js |
+| Map Tiles | Google Maps Tiles | OpenStreetMap tiles |
+| Search | Places Autocomplete | Nominatim API |
+| Geocoding | Google Geocoding API | Nominatim API |
+| Click to Select | ✓ | ✓ |
+| Draggable Marker | ✓ | ✓ |
+| Current Location | ✓ (GPS) | ✓ (GPS) |
+| Reverse Geocoding | ✓ | ✓ |
+| API Key Required | Yes | No |
 
-**OpenStreetMap Integration:**
-- **Map Tiles:** OpenStreetMap (free, no API key required)
-- **Geocoding:** Nominatim API for address search
-- **Reverse Geocoding:** Convert coordinates to readable addresses
-- **Debounced Search:** 300ms delay to prevent API overload
+**Google Maps (Primary):**
+- **Requirement:** `VITE_GOOGLE_MAPS_API_KEY` environment variable
+- **Features:** Places Autocomplete, Advanced Markers, rich geocoding
+- **Accuracy:** Higher accuracy for addresses
+- **Cost:** Pay-per-use (Google Cloud billing)
+
+**OpenStreetMap (Fallback):**
+- **Triggers:** No API key, API key invalid, Google Maps fails to load
+- **Map Tiles:** Free, no API key required
+- **Geocoding:** Nominatim API (free, 1 req/sec limit)
+- **Indicator:** Shows "Using OpenStreetMap" message when active
+
+**Configuration:**
+```bash
+# docker-compose.yml
+environment:
+  VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY}
+
+# .env file
+VITE_GOOGLE_MAPS_API_KEY=your-google-maps-api-key
+```
 
 **Search Functionality:**
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  🔍 Search for a location...                                    │
+│  🔍 Search for a place...                                       │
 ├─────────────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────────────────────────┐    │
 │  │ Chennai Central Railway Station                         │    │
@@ -225,11 +279,13 @@ For per-km calculations, the system provides an interactive map-based location p
 │                                                                  │
 │  Selected: 13.0827°N, 80.2707°E                                 │
 │  Address: Chennai Central, Chennai, Tamil Nadu                  │
+│  • Powered by Google Maps                                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 **Usage Notes:**
-- Nominatim usage policy: Max 1 request/second
+- Google Maps: Enable Maps JavaScript API and Places API in Google Cloud Console
+- OpenStreetMap: Nominatim usage policy max 1 request/second
 - Search results limited to 5 suggestions
 - Coordinates stored with full precision
 - Addresses are display-only (coordinates used for calculation)
@@ -910,11 +966,28 @@ FINANCE_APPROVED ──▶ Process Payment ──▶ Enter Reference ──▶ S
 - Manager relationships
 - Designation mappings
 
-### 13.2 OpenStreetMap Integration
+### 13.2 Map Provider Integration (Google Maps + OpenStreetMap)
 
-The system uses OpenStreetMap for location-based features in allowance claims.
+The system uses a **dual-provider architecture** for location-based features with Google Maps as primary and OpenStreetMap as automatic fallback.
 
-**Components:**
+**Provider Selection:**
+| Scenario | Provider Used |
+|----------|---------------|
+| `VITE_GOOGLE_MAPS_API_KEY` set and valid | Google Maps |
+| No API key configured | OpenStreetMap |
+| Google Maps fails to load | OpenStreetMap (automatic fallback) |
+| API key invalid/expired | OpenStreetMap (automatic fallback) |
+
+**Google Maps Components:**
+| Component | Purpose |
+|-----------|----------|
+| `@googlemaps/js-api-loader` | Dynamic API loading |
+| Maps JavaScript API | Interactive map rendering |
+| Places API | Autocomplete search |
+| Geocoding API | Address lookup |
+| AdvancedMarkerElement | Draggable map markers |
+
+**OpenStreetMap Components (Fallback):**
 | Component | Provider | Purpose |
 |-----------|----------|----------|
 | Map Tiles | OpenStreetMap | Interactive map display |
@@ -922,18 +995,36 @@ The system uses OpenStreetMap for location-based features in allowance claims.
 | Reverse Geocoding | Nominatim API | Coordinates to address |
 | Distance Calculation | Haversine Formula | Route-free distance |
 
-**Frontend Library:** Leaflet.js with React-Leaflet wrapper
+**Frontend Libraries:**
+- Google Maps: `@googlemaps/js-api-loader`
+- OpenStreetMap: Leaflet.js
 
-**API Endpoints Used:**
+**API Endpoints:**
 ```
+# Google Maps (Primary)
+Maps JavaScript API: Loaded dynamically via js-api-loader
+Places Autocomplete: Integrated with search input
+Geocoder: google.maps.Geocoder service
+
+# OpenStreetMap (Fallback)
 Search: https://nominatim.openstreetmap.org/search?q={query}&format=json
 Reverse: https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json
+Tiles: https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png
 ```
 
 **Rate Limiting:**
+- Google Maps: Based on API quota and billing plan
 - Nominatim: 1 request/second (enforced via debouncing)
-- No API key required
-- Attribution required (included in map component)
+- Search debounced to 300ms for both providers
+
+**Configuration:**
+```bash
+# Enable Google Maps (recommended for production)
+VITE_GOOGLE_MAPS_API_KEY=your-google-maps-api-key
+
+# OpenStreetMap requires no configuration
+# Simply omit the API key to use OSM only
+```
 
 ### 13.3 Payroll Integration
 

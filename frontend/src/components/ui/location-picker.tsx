@@ -9,9 +9,10 @@ import {
     DialogTitle,
     DialogFooter,
 } from '@/components/ui/dialog';
-import { MapPin, X, Navigation, Search, Loader2 } from 'lucide-react';
+import { MapPin, X, Navigation, Search, Loader2, AlertTriangle } from 'lucide-react';
+import { Loader } from '@googlemaps/js-api-loader';
 
-// Import Leaflet
+// Import Leaflet for fallback
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -43,12 +44,68 @@ interface LocationPickerProps {
     required?: boolean;
 }
 
+// Map provider type
+type MapProvider = 'google' | 'osm' | null;
+
 // Default center (Bangalore, India) - can be customized
 const DEFAULT_CENTER: [number, number] = [12.9716, 77.5946];
 const DEFAULT_ZOOM = 12;
 
-// Reverse geocode using Nominatim (free OpenStreetMap service)
-const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
+// Check if Google Maps API key is configured
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+const isGoogleMapsConfigured = !!GOOGLE_MAPS_API_KEY && GOOGLE_MAPS_API_KEY.length > 10;
+
+// Google Maps loader singleton
+let googleMapsLoader: Loader | null = null;
+let googleMapsLoadPromise: Promise<typeof google.maps> | null = null;
+let googleMapsLoadFailed = false;
+
+const loadGoogleMaps = async (): Promise<typeof google.maps | null> => {
+    if (googleMapsLoadFailed) return null;
+    if (!isGoogleMapsConfigured) {
+        googleMapsLoadFailed = true;
+        return null;
+    }
+
+    if (!googleMapsLoader) {
+        googleMapsLoader = new Loader({
+            apiKey: GOOGLE_MAPS_API_KEY,
+            version: 'weekly',
+            libraries: ['places', 'marker'],
+        });
+    }
+
+    if (!googleMapsLoadPromise) {
+        googleMapsLoadPromise = googleMapsLoader.load()
+            .then(() => google.maps)
+            .catch((error) => {
+                console.error('Failed to load Google Maps:', error);
+                googleMapsLoadFailed = true;
+                googleMapsLoadPromise = null;
+                return null;
+            });
+    }
+
+    return googleMapsLoadPromise;
+};
+
+// Reverse geocode using Google Maps
+const reverseGeocodeGoogle = async (lat: number, lng: number): Promise<string> => {
+    try {
+        const geocoder = new google.maps.Geocoder();
+        const response = await geocoder.geocode({ location: { lat, lng } });
+        if (response.results && response.results[0]) {
+            return response.results[0].formatted_address;
+        }
+        return '';
+    } catch (error) {
+        console.error('Google geocoding error:', error);
+        return '';
+    }
+};
+
+// Reverse geocode using Nominatim (OpenStreetMap fallback)
+const reverseGeocodeOSM = async (lat: number, lng: number): Promise<string> => {
     try {
         const response = await fetch(
             `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
@@ -62,21 +119,22 @@ const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
         const data = await response.json();
         return data.display_name || '';
     } catch (error) {
-        console.error('Geocoding error:', error);
+        console.error('OSM geocoding error:', error);
         return '';
     }
 };
 
-// Search for locations using Nominatim
+// Search for locations using Nominatim (used as fallback search)
 interface SearchResult {
-    place_id: number;
+    place_id: string | number;
     lat: string;
-    lon: string;
+    lng: string;
     display_name: string;
     type: string;
+    source: 'google' | 'osm';
 }
 
-const searchLocations = async (query: string): Promise<SearchResult[]> => {
+const searchLocationsOSM = async (query: string): Promise<SearchResult[]> => {
     if (!query || query.length < 3) return [];
     
     try {
@@ -89,9 +147,17 @@ const searchLocations = async (query: string): Promise<SearchResult[]> => {
                 }
             }
         );
-        return await response.json();
+        const results = await response.json();
+        return results.map((r: any) => ({
+            place_id: r.place_id,
+            lat: r.lat,
+            lng: r.lon,
+            display_name: r.display_name,
+            type: r.type,
+            source: 'osm' as const
+        }));
     } catch (error) {
-        console.error('Search error:', error);
+        console.error('OSM search error:', error);
         return [];
     }
 };
@@ -108,6 +174,8 @@ export function LocationPicker({
     const [error, setError] = useState<string | null>(null);
     const [selectedLocation, setSelectedLocation] = useState<LocationValue | null>(value || null);
     const [mapReady, setMapReady] = useState(false);
+    const [mapProvider, setMapProvider] = useState<MapProvider>(null);
+    const [providerMessage, setProviderMessage] = useState<string>('');
     
     // Search state
     const [searchQuery, setSearchQuery] = useState('');
@@ -116,140 +184,278 @@ export function LocationPicker({
     const [showResults, setShowResults] = useState(false);
     const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     
+    // Map container ref
     const mapContainerRef = useRef<HTMLDivElement>(null);
-    const mapRef = useRef<L.Map | null>(null);
-    const markerRef = useRef<L.Marker | null>(null);
+    
+    // Google Maps refs
+    const googleMapRef = useRef<google.maps.Map | null>(null);
+    const googleMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
+    const googleAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+    const searchInputRef = useRef<HTMLInputElement>(null);
+    
+    // Leaflet (OSM) refs
+    const leafletMapRef = useRef<L.Map | null>(null);
+    const leafletMarkerRef = useRef<L.Marker | null>(null);
+    
     const mapInitializedRef = useRef(false);
+
+    // Cleanup function
+    const cleanupMaps = useCallback(() => {
+        // Cleanup Google Maps
+        if (googleMapRef.current) {
+            // Google Maps doesn't have a destroy method, but we can clear refs
+            googleMapRef.current = null;
+            googleMarkerRef.current = null;
+            if (googleAutocompleteRef.current) {
+                google.maps.event.clearInstanceListeners(googleAutocompleteRef.current);
+                googleAutocompleteRef.current = null;
+            }
+        }
+        
+        // Cleanup Leaflet
+        if (leafletMapRef.current) {
+            leafletMapRef.current.remove();
+            leafletMapRef.current = null;
+            leafletMarkerRef.current = null;
+        }
+        
+        mapInitializedRef.current = false;
+        setMapReady(false);
+        setMapProvider(null);
+    }, []);
+
+    // Initialize Google Maps
+    const initGoogleMaps = async (container: HTMLDivElement, center: { lat: number; lng: number }) => {
+        try {
+            const maps = await loadGoogleMaps();
+            if (!maps) return false;
+            
+            // Import the marker library
+            const { AdvancedMarkerElement } = await google.maps.importLibrary("marker") as google.maps.MarkerLibrary;
+            
+            const map = new google.maps.Map(container, {
+                center,
+                zoom: value ? 15 : DEFAULT_ZOOM,
+                mapId: 'EASY_QLAIM_MAP', // Required for AdvancedMarkerElement
+                mapTypeControl: false,
+                streetViewControl: false,
+                fullscreenControl: false,
+            });
+
+            // Create draggable marker
+            const marker = new AdvancedMarkerElement({
+                map,
+                position: center,
+                gmpDraggable: true,
+                title: 'Drag to select location',
+            });
+
+            // Handle marker drag
+            marker.addListener('dragend', async () => {
+                const position = marker.position as google.maps.LatLngLiteral;
+                if (position) {
+                    setIsLoading(true);
+                    const address = await reverseGeocodeGoogle(position.lat, position.lng);
+                    setSelectedLocation({ lat: position.lat, lng: position.lng, address });
+                    setIsLoading(false);
+                }
+            });
+
+            // Handle map click
+            map.addListener('click', async (e: google.maps.MapMouseEvent) => {
+                if (e.latLng) {
+                    const lat = e.latLng.lat();
+                    const lng = e.latLng.lng();
+                    marker.position = { lat, lng };
+                    
+                    setIsLoading(true);
+                    const address = await reverseGeocodeGoogle(lat, lng);
+                    setSelectedLocation({ lat, lng, address });
+                    setIsLoading(false);
+                }
+            });
+
+            // Setup Places Autocomplete
+            if (searchInputRef.current) {
+                const autocomplete = new google.maps.places.Autocomplete(searchInputRef.current, {
+                    componentRestrictions: { country: 'in' },
+                    fields: ['formatted_address', 'geometry', 'name'],
+                });
+
+                autocomplete.addListener('place_changed', () => {
+                    const place = autocomplete.getPlace();
+                    if (place.geometry?.location) {
+                        const lat = place.geometry.location.lat();
+                        const lng = place.geometry.location.lng();
+                        const address = place.formatted_address || place.name || '';
+                        
+                        map.setCenter({ lat, lng });
+                        map.setZoom(15);
+                        marker.position = { lat, lng };
+                        setSelectedLocation({ lat, lng, address });
+                        setSearchQuery('');
+                    }
+                });
+
+                googleAutocompleteRef.current = autocomplete;
+            }
+
+            googleMapRef.current = map;
+            googleMarkerRef.current = marker;
+            
+            return true;
+        } catch (error) {
+            console.error('Error initializing Google Maps:', error);
+            return false;
+        }
+    };
+
+    // Initialize Leaflet (OSM) Maps
+    const initLeafletMaps = (container: HTMLDivElement, center: [number, number]) => {
+        try {
+            const map = L.map(container, {
+                center,
+                zoom: value ? 15 : DEFAULT_ZOOM,
+                zoomControl: true,
+            });
+
+            // Add OpenStreetMap tile layer
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19,
+            }).addTo(map);
+
+            // Create draggable marker
+            const marker = L.marker(center, {
+                draggable: true,
+            }).addTo(map);
+
+            // Handle map click
+            map.on('click', async (e: L.LeafletMouseEvent) => {
+                const { lat, lng } = e.latlng;
+                marker.setLatLng(e.latlng);
+                
+                setIsLoading(true);
+                const address = await reverseGeocodeOSM(lat, lng);
+                setSelectedLocation({ lat, lng, address });
+                setIsLoading(false);
+            });
+
+            // Handle marker drag
+            marker.on('dragend', async () => {
+                const position = marker.getLatLng();
+                
+                setIsLoading(true);
+                const address = await reverseGeocodeOSM(position.lat, position.lng);
+                setSelectedLocation({ lat: position.lat, lng: position.lng, address });
+                setIsLoading(false);
+            });
+
+            leafletMapRef.current = map;
+            leafletMarkerRef.current = marker;
+
+            // Force resize after rendering
+            requestAnimationFrame(() => {
+                map.invalidateSize();
+                setTimeout(() => map.invalidateSize(), 100);
+                setTimeout(() => map.invalidateSize(), 300);
+            });
+
+            return true;
+        } catch (error) {
+            console.error('Error initializing Leaflet:', error);
+            return false;
+        }
+    };
 
     // Initialize map when dialog opens
     useEffect(() => {
         if (!isOpen) {
-            // Cleanup when dialog closes
-            if (mapRef.current) {
-                mapRef.current.remove();
-                mapRef.current = null;
-                markerRef.current = null;
-                mapInitializedRef.current = false;
-                setMapReady(false);
-            }
+            cleanupMaps();
             return;
         }
 
-        // Prevent double initialization
         if (mapInitializedRef.current) {
-            if (mapRef.current) {
-                setTimeout(() => mapRef.current?.invalidateSize(), 100);
+            // Resize existing map
+            if (googleMapRef.current) {
+                google.maps.event.trigger(googleMapRef.current, 'resize');
+            }
+            if (leafletMapRef.current) {
+                setTimeout(() => leafletMapRef.current?.invalidateSize(), 100);
             }
             return;
         }
 
-        // Wait for DOM to be ready
-        const initMap = () => {
+        const initMap = async () => {
             const container = mapContainerRef.current;
             if (!container) {
-                console.log('Map container not ready, retrying...');
                 setTimeout(initMap, 100);
                 return;
             }
 
-            // Check container has dimensions
             const rect = container.getBoundingClientRect();
             if (rect.width === 0 || rect.height === 0) {
-                console.log('Map container has no dimensions, retrying...');
                 setTimeout(initMap, 100);
                 return;
             }
 
-            try {
-                mapInitializedRef.current = true;
-                const center: [number, number] = value 
-                    ? [value.lat, value.lng] 
-                    : DEFAULT_CENTER;
+            mapInitializedRef.current = true;
+            const center = value 
+                ? { lat: value.lat, lng: value.lng }
+                : { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1] };
 
-                console.log('Initializing Leaflet map at:', center);
+            // Try Google Maps first
+            if (isGoogleMapsConfigured && !googleMapsLoadFailed) {
+                console.log('Attempting to load Google Maps...');
+                const googleSuccess = await initGoogleMaps(container, center);
+                if (googleSuccess) {
+                    setMapProvider('google');
+                    setMapReady(true);
+                    setProviderMessage('');
+                    console.log('Google Maps initialized successfully');
+                    return;
+                }
+                console.log('Google Maps failed, falling back to OpenStreetMap...');
+            }
 
-                // Create map
-                const map = L.map(container, {
-                    center,
-                    zoom: value ? 15 : DEFAULT_ZOOM,
-                    zoomControl: true,
-                });
-
-                // Add OpenStreetMap tile layer
-                const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '© OpenStreetMap contributors',
-                    maxZoom: 19,
-                });
-                
-                tileLayer.on('load', () => {
-                    console.log('Tile layer loaded');
-                });
-                
-                tileLayer.on('tileerror', (e) => {
-                    console.error('Tile error:', e);
-                });
-                
-                tileLayer.addTo(map);
-
-                // Create draggable marker
-                const marker = L.marker(center, {
-                    draggable: true,
-                }).addTo(map);
-
-                // Handle map click
-                map.on('click', async (e: L.LeafletMouseEvent) => {
-                    const { lat, lng } = e.latlng;
-                    marker.setLatLng(e.latlng);
-                    
-                    setIsLoading(true);
-                    const address = await reverseGeocode(lat, lng);
-                    setSelectedLocation({ lat, lng, address });
-                    setIsLoading(false);
-                });
-
-                // Handle marker drag
-                marker.on('dragend', async () => {
-                    const position = marker.getLatLng();
-                    
-                    setIsLoading(true);
-                    const address = await reverseGeocode(position.lat, position.lng);
-                    setSelectedLocation({ lat: position.lat, lng: position.lng, address });
-                    setIsLoading(false);
-                });
-
-                mapRef.current = map;
-                markerRef.current = marker;
+            // Fallback to OpenStreetMap
+            console.log('Initializing OpenStreetMap...');
+            const osmSuccess = initLeafletMaps(container, [center.lat, center.lng]);
+            if (osmSuccess) {
+                setMapProvider('osm');
                 setMapReady(true);
-                console.log('Map initialized successfully');
-
-                // Force resize after rendering
-                requestAnimationFrame(() => {
-                    map.invalidateSize();
-                    setTimeout(() => map.invalidateSize(), 100);
-                    setTimeout(() => map.invalidateSize(), 300);
-                });
-            } catch (err) {
-                console.error('Error initializing map:', err);
+                if (isGoogleMapsConfigured) {
+                    setProviderMessage('Using OpenStreetMap (Google Maps unavailable)');
+                } else {
+                    setProviderMessage('Using OpenStreetMap');
+                }
+                console.log('OpenStreetMap initialized successfully');
+            } else {
                 setError('Failed to initialize map');
                 mapInitializedRef.current = false;
             }
         };
 
-        // Start initialization after dialog animation
         setTimeout(initMap, 200);
-
-    }, [isOpen]);
+    }, [isOpen, cleanupMaps]);
 
     // Sync selected location with value prop
     useEffect(() => {
         setSelectedLocation(value || null);
     }, [value]);
 
-    // Update marker when selected location changes from current location
+    // Update marker when selected location changes
     useEffect(() => {
-        if (mapRef.current && markerRef.current && selectedLocation) {
-            markerRef.current.setLatLng([selectedLocation.lat, selectedLocation.lng]);
-            mapRef.current.setView([selectedLocation.lat, selectedLocation.lng], 15);
+        if (!selectedLocation) return;
+
+        if (googleMapRef.current && googleMarkerRef.current) {
+            googleMarkerRef.current.position = { lat: selectedLocation.lat, lng: selectedLocation.lng };
+            googleMapRef.current.setCenter({ lat: selectedLocation.lat, lng: selectedLocation.lng });
+        }
+        
+        if (leafletMapRef.current && leafletMarkerRef.current) {
+            leafletMarkerRef.current.setLatLng([selectedLocation.lat, selectedLocation.lng]);
+            leafletMapRef.current.setView([selectedLocation.lat, selectedLocation.lng], 15);
         }
     }, [selectedLocation?.lat, selectedLocation?.lng]);
 
@@ -257,6 +463,7 @@ export function LocationPicker({
         if (!disabled) {
             setSelectedLocation(value || null);
             setError(null);
+            setProviderMessage('');
             setIsOpen(true);
         }
     };
@@ -286,12 +493,23 @@ export function LocationPicker({
                 const lat = position.coords.latitude;
                 const lng = position.coords.longitude;
                 
-                if (mapRef.current && markerRef.current) {
-                    mapRef.current.setView([lat, lng], 15);
-                    markerRef.current.setLatLng([lat, lng]);
+                // Update map view and marker
+                if (googleMapRef.current && googleMarkerRef.current) {
+                    googleMapRef.current.setCenter({ lat, lng });
+                    googleMapRef.current.setZoom(15);
+                    googleMarkerRef.current.position = { lat, lng };
                 }
                 
-                const address = await reverseGeocode(lat, lng);
+                if (leafletMapRef.current && leafletMarkerRef.current) {
+                    leafletMapRef.current.setView([lat, lng], 15);
+                    leafletMarkerRef.current.setLatLng([lat, lng]);
+                }
+                
+                // Reverse geocode based on provider
+                const address = mapProvider === 'google' 
+                    ? await reverseGeocodeGoogle(lat, lng)
+                    : await reverseGeocodeOSM(lat, lng);
+                    
                 setSelectedLocation({ lat, lng, address });
                 setIsLoading(false);
             },
@@ -303,13 +521,19 @@ export function LocationPicker({
         );
     };
 
-    // Handle search input change with debounce
+    // Handle search input change with debounce (for OSM fallback)
     const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const query = e.target.value;
         setSearchQuery(query);
+        
+        // If using Google Maps, let autocomplete handle it
+        if (mapProvider === 'google') {
+            return;
+        }
+        
+        // OSM search with debounce
         setShowResults(true);
         
-        // Clear existing timeout
         if (searchTimeoutRef.current) {
             clearTimeout(searchTimeoutRef.current);
         }
@@ -320,19 +544,18 @@ export function LocationPicker({
             return;
         }
         
-        // Debounce search
         setIsSearching(true);
         searchTimeoutRef.current = setTimeout(async () => {
-            const results = await searchLocations(query);
+            const results = await searchLocationsOSM(query);
             setSearchResults(results);
             setIsSearching(false);
         }, 300);
     };
 
-    // Handle selecting a search result
+    // Handle selecting a search result (for OSM)
     const handleSelectResult = (result: SearchResult) => {
         const lat = parseFloat(result.lat);
-        const lng = parseFloat(result.lon);
+        const lng = parseFloat(result.lng);
         
         setSelectedLocation({
             lat,
@@ -340,9 +563,9 @@ export function LocationPicker({
             address: result.display_name
         });
         
-        if (mapRef.current && markerRef.current) {
-            mapRef.current.setView([lat, lng], 15);
-            markerRef.current.setLatLng([lat, lng]);
+        if (leafletMapRef.current && leafletMarkerRef.current) {
+            leafletMapRef.current.setView([lat, lng], 15);
+            leafletMarkerRef.current.setLatLng([lat, lng]);
         }
         
         setSearchQuery('');
@@ -385,16 +608,27 @@ export function LocationPicker({
                     </DialogHeader>
 
                     <div className="space-y-4">
+                        {/* Provider status message */}
+                        {providerMessage && (
+                            <div className="flex items-center gap-2 p-2 bg-muted rounded-md text-sm text-muted-foreground">
+                                <AlertTriangle className="h-4 w-4" />
+                                {providerMessage}
+                            </div>
+                        )}
+
                         {/* Search input */}
                         <div className="relative">
                             <div className="relative">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                 <Input
+                                    ref={searchInputRef}
                                     type="text"
-                                    placeholder="Search for a place or address..."
+                                    placeholder={mapProvider === 'google' 
+                                        ? "Search for a place..." 
+                                        : "Search for a place or address..."}
                                     value={searchQuery}
                                     onChange={handleSearchChange}
-                                    onFocus={() => setShowResults(true)}
+                                    onFocus={() => mapProvider === 'osm' && setShowResults(true)}
                                     className="pl-9 pr-9"
                                 />
                                 {isSearching && (
@@ -402,8 +636,8 @@ export function LocationPicker({
                                 )}
                             </div>
                             
-                            {/* Search results dropdown */}
-                            {showResults && searchResults.length > 0 && (
+                            {/* Search results dropdown (OSM only - Google uses native autocomplete) */}
+                            {mapProvider === 'osm' && showResults && searchResults.length > 0 && (
                                 <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-60 overflow-auto">
                                     {searchResults.map((result) => (
                                         <button
@@ -479,6 +713,8 @@ export function LocationPicker({
 
                         <p className="text-xs text-muted-foreground">
                             Click on the map to select a location, or drag the marker to adjust.
+                            {mapProvider === 'google' && ' • Powered by Google Maps'}
+                            {mapProvider === 'osm' && ' • Powered by OpenStreetMap'}
                         </p>
                     </div>
 
