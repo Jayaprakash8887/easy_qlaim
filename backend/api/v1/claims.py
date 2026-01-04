@@ -27,6 +27,7 @@ from agents.orchestrator import process_claim_task
 from services.storage import upload_to_gcs
 from services.duplicate_detection import check_duplicate_claim, check_batch_duplicates
 from services.ai_analysis import generate_ai_analysis, generate_policy_checks
+from services.cumulative_limit_service import check_cumulative_limit, get_category_utilization_summary
 from services.security import audit_logger, get_client_ip
 from services.redis_cache import redis_cache
 from services.email_service import get_email_service
@@ -454,6 +455,21 @@ async def create_batch_claims(
         # Get tenant's fiscal year start for policy checks
         fiscal_year_start = _get_tenant_fiscal_year_start(employee.tenant_id)
         
+        # Check cumulative limit for this category
+        from database import SyncSessionLocal as SessionLocal
+        sync_db = SessionLocal()
+        try:
+            cumulative_check = check_cumulative_limit(
+                db=sync_db,
+                tenant_id=employee.tenant_id,
+                employee_id=employee.id,
+                category_code=category,
+                claim_amount=claim_item.amount,
+                claim_date=claim_item.claim_date
+            )
+        finally:
+            sync_db.close()
+        
         # Generate policy compliance checks
         policy_checks = generate_policy_checks(
             claim_data={
@@ -465,10 +481,11 @@ async def create_batch_claims(
                 "vendor": claim_item.vendor,
             },
             has_document=False,
-            policy_limit=None,  # TODO: Get from policy_categories table
+            policy_limit=None,  # Using cumulative check instead
             submission_window_days=15,
             is_potential_duplicate=is_potential_dup,
-            fiscal_year_start=fiscal_year_start
+            fiscal_year_start=fiscal_year_start,
+            cumulative_limit_check=cumulative_check
         )
         claim_payload["policy_checks"] = policy_checks
         
@@ -704,6 +721,21 @@ async def create_batch_claims_with_document(
         # Get tenant's fiscal year start for policy checks
         fiscal_year_start = _get_tenant_fiscal_year_start(employee.tenant_id)
         
+        # Check cumulative limit for this category
+        from database import SyncSessionLocal as SessionLocal
+        sync_db_cl = SessionLocal()
+        try:
+            cumulative_check = check_cumulative_limit(
+                db=sync_db_cl,
+                tenant_id=employee.tenant_id,
+                employee_id=employee.id,
+                category_code=category,
+                claim_amount=claim_item.amount,
+                claim_date=claim_item.claim_date
+            )
+        finally:
+            sync_db_cl.close()
+        
         # Generate policy compliance checks
         policy_checks = generate_policy_checks(
             claim_data={
@@ -715,10 +747,11 @@ async def create_batch_claims_with_document(
                 "vendor": claim_item.vendor,
             },
             has_document=has_doc,
-            policy_limit=None,  # TODO: Get from policy_categories table
+            policy_limit=None,  # Using cumulative check instead
             submission_window_days=15,
             is_potential_duplicate=is_potential_dup,
-            fiscal_year_start=fiscal_year_start
+            fiscal_year_start=fiscal_year_start,
+            cumulative_limit_check=cumulative_check
         )
         claim_payload["policy_checks"] = policy_checks
         
@@ -815,6 +848,57 @@ async def create_batch_claims_with_document(
         message=f"Successfully created {len(created_claims)} claims totaling ₹{total_amount:.2f}" + 
                 (f" with document attached" if file else "")
     )
+
+
+@router.get("/category-utilization/{employee_id}/{category_code}")
+async def get_category_utilization(
+    employee_id: UUID,
+    category_code: str,
+    reference_date: Optional[str] = None,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Get category utilization summary for an employee.
+    
+    Shows how much of the category limit has been used within the current period
+    (based on the category's frequency_limit setting).
+    
+    Useful for showing remaining budget before submitting a claim.
+    """
+    from database import SyncSessionLocal as SessionLocal
+    from datetime import datetime
+    
+    sync_db = SessionLocal()
+    try:
+        # Get employee to get tenant_id
+        result = await db.execute(select(User).where(User.id == employee_id))
+        employee = result.scalar_one_or_none()
+        
+        if not employee:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Employee not found: {employee_id}"
+            )
+        
+        # Parse reference date if provided
+        ref_date = None
+        if reference_date:
+            try:
+                ref_date = datetime.strptime(reference_date, "%Y-%m-%d").date()
+            except ValueError:
+                ref_date = None
+        
+        utilization = get_category_utilization_summary(
+            db=sync_db,
+            tenant_id=employee.tenant_id,
+            employee_id=employee_id,
+            category_code=category_code,
+            reference_date=ref_date
+        )
+        
+        return utilization
+    finally:
+        sync_db.close()
 
 
 @router.post("/", response_model=ClaimResponse, status_code=status.HTTP_201_CREATED)
@@ -1254,6 +1338,22 @@ async def update_claim(
             claim_payload_data.get("document_id")
         )
         
+        # Check cumulative limit for this category
+        from database import SyncSessionLocal as SessionLocal
+        sync_db_cl = SessionLocal()
+        try:
+            cumulative_check = check_cumulative_limit(
+                db=sync_db_cl,
+                tenant_id=claim.tenant_id,
+                employee_id=claim.employee_id,
+                category_code=check_category,
+                claim_amount=check_amount,
+                claim_date=check_date,
+                exclude_claim_id=claim.id  # Exclude current claim for edits
+            )
+        finally:
+            sync_db_cl.close()
+        
         # Regenerate policy checks
         policy_checks = generate_policy_checks(
             claim_data={
@@ -1265,10 +1365,11 @@ async def update_claim(
                 "vendor": payload.get("vendor") or (claim.claim_payload or {}).get("vendor"),
             },
             has_document=has_documents,
-            policy_limit=None,  # TODO: Get from policy_categories table based on category
+            policy_limit=None,  # Using cumulative check instead
             submission_window_days=15,
             is_potential_duplicate=is_potential_dup,
-            fiscal_year_start=fiscal_year_start
+            fiscal_year_start=fiscal_year_start,
+            cumulative_limit_check=cumulative_check
         )
         
         # Update policy_checks in payload

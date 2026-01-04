@@ -1315,50 +1315,92 @@ export default function ClaimDetails() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {claim.policyChecks.map((check) => (
-                      <div
-                        key={check.id}
-                        className={cn(
-                          "flex items-start gap-3 rounded-lg p-3 transition-all",
-                          check.status === 'pass' ? "bg-success/10" :
-                            check.status === 'warning' ? "bg-warning/10" :
-                              check.status === 'fail' ? "bg-destructive/10" :
-                                "bg-secondary"
-                        )}
-                      >
-                        <div className={cn(
-                          "shrink-0 mt-0.5",
-                          check.status === 'pass' ? "text-success" :
-                            check.status === 'warning' ? "text-warning" :
-                              check.status === 'fail' ? "text-destructive" :
-                                "text-muted-foreground"
-                        )}>
-                          {check.status === 'pass' ? (
-                            <CheckCircle className="h-4 w-4" />
-                          ) : check.status === 'warning' ? (
-                            <AlertTriangle className="h-4 w-4" />
-                          ) : (
-                            <XCircle className="h-4 w-4" />
+                    {claim.policyChecks.map((check) => {
+                      // Handle both backend (cumulative_limit) and frontend (cumulative-limit) IDs
+                      const isCumulativeLimit = check.id === 'cumulative_limit' || check.id === 'cumulative-limit';
+                      const hasUtilization = isCumulativeLimit && check.details?.max_amount && check.details?.utilization_percent != null;
+                      
+                      return (
+                        <div
+                          key={check.id}
+                          className={cn(
+                            "rounded-lg p-3 transition-all",
+                            check.status === 'pass' ? "bg-success/10" :
+                              check.status === 'warning' ? "bg-warning/10" :
+                                check.status === 'fail' ? "bg-destructive/10" :
+                                  "bg-secondary"
+                          )}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={cn(
+                              "shrink-0 mt-0.5",
+                              check.status === 'pass' ? "text-success" :
+                                check.status === 'warning' ? "text-warning" :
+                                  check.status === 'fail' ? "text-destructive" :
+                                    "text-muted-foreground"
+                            )}>
+                              {check.status === 'pass' ? (
+                                <CheckCircle className="h-4 w-4" />
+                              ) : check.status === 'warning' ? (
+                                <AlertTriangle className="h-4 w-4" />
+                              ) : (
+                                <XCircle className="h-4 w-4" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className={cn(
+                                "text-sm font-medium",
+                                check.status === 'pass' ? "text-foreground" :
+                                  check.status === 'warning' ? "text-warning" :
+                                    check.status === 'fail' ? "text-destructive" :
+                                      "text-muted-foreground"
+                              )}>
+                                {check.label}
+                              </p>
+                              {check.message && (
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {check.message}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {/* Show utilization bar for cumulative limit check */}
+                          {hasUtilization && (
+                            <div className="mt-3 pt-2 border-t border-border/50">
+                              <div className="flex items-center justify-between text-xs mb-1.5">
+                                <span className="text-muted-foreground">
+                                  {check.details?.frequency_display || 'Period'} utilization
+                                </span>
+                                <span className={cn(
+                                  "font-medium",
+                                  check.details!.utilization_percent! > 100 ? "text-destructive" :
+                                  check.details!.utilization_percent! > 80 ? "text-warning" :
+                                  "text-success"
+                                )}>
+                                  {check.details!.utilization_percent!.toFixed(1)}%
+                                </span>
+                              </div>
+                              <div className="w-full bg-secondary rounded-full h-2">
+                                <div 
+                                  className={cn(
+                                    "h-2 rounded-full transition-all",
+                                    check.details!.utilization_percent! > 100 ? "bg-destructive" :
+                                    check.details!.utilization_percent! > 80 ? "bg-warning" :
+                                    "bg-success"
+                                  )}
+                                  style={{ width: `${Math.min(check.details!.utilization_percent!, 100)}%` }}
+                                />
+                              </div>
+                              <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                                <span>Used: ₹{(check.details?.cumulative_used || 0).toLocaleString('en-IN')}</span>
+                                <span>Limit: ₹{(check.details?.max_amount || 0).toLocaleString('en-IN')}</span>
+                              </div>
+                            </div>
                           )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className={cn(
-                            "text-sm font-medium",
-                            check.status === 'pass' ? "text-foreground" :
-                              check.status === 'warning' ? "text-warning" :
-                                check.status === 'fail' ? "text-destructive" :
-                                  "text-muted-foreground"
-                          )}>
-                            {check.label}
-                          </p>
-                          {check.message && (
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {check.message}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </CardContent>
                 </Card>
               )}

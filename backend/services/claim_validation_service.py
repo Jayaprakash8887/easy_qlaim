@@ -15,6 +15,7 @@ from schemas import (
 )
 from services.ai_analysis import generate_policy_checks
 from services.duplicate_detection import check_duplicate_claim
+from services.cumulative_limit_service import check_cumulative_limit
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,21 @@ class ClaimValidationService:
         # Get tenant's fiscal year start
         fiscal_year_start = self._get_tenant_fiscal_year_start(request.tenant_id)
         
+        # Check cumulative limit for this category
+        cumulative_check = None
+        if request.employee_id:
+            try:
+                cumulative_check = check_cumulative_limit(
+                    db=self.db,
+                    tenant_id=request.tenant_id,
+                    employee_id=request.employee_id,
+                    category_code=request.category_code,
+                    claim_amount=request.amount,
+                    claim_date=request.claim_date
+                )
+            except Exception as e:
+                logger.warning(f"Cumulative limit check failed: {e}")
+        
         policy_checks = generate_policy_checks(
             claim_data=claim_data,
             has_document=request.has_receipt,
@@ -105,7 +121,8 @@ class ClaimValidationService:
             submission_window_days=submission_window,
             is_potential_duplicate=is_potential_duplicate,
             policy_effective_from=policy_effective_from,
-            fiscal_year_start=fiscal_year_start
+            fiscal_year_start=fiscal_year_start,
+            cumulative_limit_check=cumulative_check
         )
         
         # 4. Filter and map checks to ValidationCheckResult

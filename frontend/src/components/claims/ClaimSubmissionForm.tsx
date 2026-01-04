@@ -103,6 +103,17 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
   const [lastProcessedFileId, setLastProcessedFileId] = useState<string | null>(null);
   // Track policy checks from SmartClaimForm to display in ClaimReview
   const [policyChecks, setPolicyChecks] = useState<PolicyCheckItem[]>([]);
+  // Track category utilization for cumulative limit display
+  const [categoryUtilization, setCategoryUtilization] = useState<{
+    max_amount?: number;
+    cumulative_used?: number;
+    remaining?: number;
+    utilization_percent?: number;
+    frequency?: string;
+    frequency_display?: string;
+    period_start?: string;
+    period_end?: string;
+  } | null>(null);
   const { user } = useAuth();
   const createBatchClaimsWithDocument = useCreateBatchClaimsWithDocument();
 
@@ -216,6 +227,30 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
   const selectedPolicy = selectedAllowanceId
     ? allowancePolicies.find((p) => p.id === selectedAllowanceId)
     : null;
+
+  // Fetch category utilization when allowance is selected
+  useEffect(() => {
+    const fetchUtilization = async () => {
+      if (!selectedPolicy?.category_code || !user?.id) {
+        setCategoryUtilization(null);
+        return;
+      }
+      
+      try {
+        const response = await fetch(
+          `/api/v1/claims/category-utilization/${user.id}/${selectedPolicy.category_code}`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setCategoryUtilization(data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch category utilization:', error);
+      }
+    };
+    
+    fetchUtilization();
+  }, [selectedPolicy?.category_code, user?.id]);
 
   // Calculate working days (excluding weekends)
   const workingDaysCount = useMemo(() => {
@@ -448,8 +483,48 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
       message: allowanceData.projectCode ? `Project: ${allowanceData.projectCode}` : 'Select a project code'
     });
 
+    // Cumulative limit check (based on fetched utilization data)
+    if (categoryUtilization && categoryUtilization.max_amount) {
+      const newTotal = (categoryUtilization.cumulative_used || 0) + calculatedTotalAmount;
+      const newUtilization = (newTotal / categoryUtilization.max_amount) * 100;
+      const remaining = categoryUtilization.max_amount - newTotal;
+      
+      let status: 'pass' | 'warning' | 'fail' = 'pass';
+      let message = '';
+      
+      if (newTotal > categoryUtilization.max_amount) {
+        status = 'fail';
+        const excess = newTotal - categoryUtilization.max_amount;
+        message = `Exceeds ${categoryUtilization.frequency_display || 'period'} limit by ${formatCurrency(excess)}`;
+      } else if (newUtilization > 80) {
+        status = 'warning';
+        message = `${newUtilization.toFixed(1)}% of ${categoryUtilization.frequency_display || 'period'} limit used after this claim`;
+      } else {
+        message = `${formatCurrency(remaining)} remaining of ${formatCurrency(categoryUtilization.max_amount)} ${categoryUtilization.frequency_display || 'period'} limit`;
+      }
+      
+      checks.push({
+        id: 'cumulative-limit',
+        label: 'Within Period Limit',
+        status,
+        message,
+        details: {
+          frequency: categoryUtilization.frequency,
+          frequency_display: categoryUtilization.frequency_display,
+          period_start: categoryUtilization.period_start,
+          period_end: categoryUtilization.period_end,
+          cumulative_used: categoryUtilization.cumulative_used,
+          new_total: newTotal,
+          max_amount: categoryUtilization.max_amount,
+          remaining_before: categoryUtilization.remaining,
+          remaining_after: remaining,
+          utilization_percent: newUtilization,
+        }
+      });
+    }
+
     return checks;
-  }, [allowanceData, selectedPolicy, formatCurrency, workingDaysCount, netWorkingDays, leaveDaysCount, calculatedTotalAmount, calculatedDistance]);
+  }, [allowanceData, selectedPolicy, formatCurrency, workingDaysCount, netWorkingDays, leaveDaysCount, calculatedTotalAmount, calculatedDistance, categoryUtilization]);
 
   const handleClaimTypeSelect = (type: ClaimTypeOption) => {
     setClaimType(type);

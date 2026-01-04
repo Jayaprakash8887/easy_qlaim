@@ -126,6 +126,21 @@ export interface PolicyCheck {
   label: string;
   status: 'pass' | 'fail' | 'warning' | 'checking';
   message?: string;
+  details?: {
+    // Cumulative limit details
+    frequency?: string;
+    frequency_display?: string;
+    period_start?: string;
+    period_end?: string;
+    cumulative_used?: number;
+    claim_count?: number;
+    new_total?: number;
+    max_amount?: number;
+    remaining_before?: number;
+    remaining_after?: number;
+    utilization_percent?: number;
+    frequency_count?: number;
+  };
 }
 
 // Document interface

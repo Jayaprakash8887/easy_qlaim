@@ -207,7 +207,8 @@ def generate_policy_checks(
     submission_window_days: Optional[int] = None,
     is_potential_duplicate: bool = False,
     policy_effective_from: Optional[date] = None,
-    fiscal_year_start: str = "apr"  # Month code like 'jan', 'apr', etc.
+    fiscal_year_start: str = "apr",  # Month code like 'jan', 'apr', etc.
+    cumulative_limit_check: Optional[Dict[str, Any]] = None  # Result from check_cumulative_limit()
 ) -> Dict[str, Any]:
     """
     Generate policy compliance checks for a claim.
@@ -215,6 +216,10 @@ def generate_policy_checks(
     Returns a dictionary with:
     - compliance_score: Overall compliance percentage (0-100)
     - checks: List of individual check results
+    
+    Args:
+        cumulative_limit_check: Optional result from cumulative_limit_service.check_cumulative_limit()
+                               containing status, message, and details about usage vs limits
     """
     checks = []
     passed_count = 0
@@ -368,7 +373,26 @@ def generate_policy_checks(
     elif dup_status == "warning":
         passed_count += 0.5
     
-    # 7. Financial Year Check
+    # 7. Cumulative Limit Check (NEW - checks usage vs policy limits per period)
+    if cumulative_limit_check:
+        cum_status = cumulative_limit_check.get("status", "warning")
+        cum_message = cumulative_limit_check.get("message", "Could not verify cumulative limit")
+        cum_details = cumulative_limit_check.get("details", {})
+        
+        checks.append({
+            "id": "cumulative_limit",
+            "label": "Within period limit",
+            "status": cum_status,
+            "message": cum_message,
+            "details": cum_details  # Include usage details for frontend display
+        })
+        total_count += 1
+        if cum_status == "pass":
+            passed_count += 1
+        elif cum_status == "warning":
+            passed_count += 0.5
+    
+    # 8. Financial Year Check
     # Check if claim date falls within current financial year based on tenant settings
     fy_status = "warning"
     fy_message = "Could not validate financial year"
