@@ -779,6 +779,7 @@ class PolicyCategoryUpdate(BaseModel):
     submission_window_days: Optional[int] = None
     is_active: Optional[bool] = None
     display_order: Optional[int] = None
+    custom_fields: Optional[List[Dict[str, Any]]] = None
 
 
 class PolicyCategoryResponse(BaseModel):
@@ -801,6 +802,7 @@ class PolicyCategoryResponse(BaseModel):
     submission_window_days: Optional[int]
     is_active: bool
     display_order: int
+    custom_fields: List[Dict[str, Any]] = []
     source_text: Optional[str]
     ai_confidence: Optional[float]
     created_at: datetime

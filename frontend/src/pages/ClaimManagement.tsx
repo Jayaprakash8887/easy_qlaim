@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
 import {
     Loader2,
     AlertCircle,
@@ -45,13 +46,19 @@ import {
     XCircle,
     FileCheck,
     Search,
-    Trash2
+    Trash2,
+    Plus
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRegions } from '@/hooks/useRegions';
 import { useFormatting } from '@/hooks/useFormatting';
+import { 
+    type CustomFieldDefinition,
+    FIELD_TYPE_OPTIONS,
+    getEmptyCustomField 
+} from '@/components/policies/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -67,6 +74,7 @@ interface ExtractedClaim {
     requires_receipt: boolean;
     is_active: boolean;
     ai_confidence?: number;
+    custom_fields?: CustomFieldDefinition[];
     created_at: string;
     policy_upload_id: string;
     policy_name: string;
@@ -223,13 +231,53 @@ export default function ClaimManagement() {
             requires_receipt: category.requires_receipt,
             description: category.description,
             is_active: category.is_active,
+            custom_fields: category.custom_fields || [],
         });
         setIsEditOpen(true);
     };
 
     const handleSaveEdit = () => {
         if (!selectedCategory) return;
+        
+        // Validate custom fields before saving
+        if (editForm.custom_fields && editForm.custom_fields.length > 0) {
+            for (const field of editForm.custom_fields) {
+                if (!field.name.trim() || !field.label.trim()) {
+                    toast({ title: 'Error', description: 'All custom fields must have a name and label.', variant: 'destructive' });
+                    return;
+                }
+                if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(field.name)) {
+                    toast({ title: 'Error', description: `Field name "${field.name}" is invalid. Use letters, numbers, and underscores only, starting with a letter.`, variant: 'destructive' });
+                    return;
+                }
+            }
+        }
+        
         updateMutation.mutate({ id: selectedCategory.id, updates: editForm });
+    };
+
+    // Custom field handlers
+    const addCustomField = () => {
+        setEditForm(prev => ({
+            ...prev,
+            custom_fields: [...(prev.custom_fields || []), getEmptyCustomField()],
+        }));
+    };
+
+    const removeCustomField = (index: number) => {
+        setEditForm(prev => ({
+            ...prev,
+            custom_fields: (prev.custom_fields || []).filter((_, i) => i !== index),
+        }));
+    };
+
+    const updateCustomField = (index: number, field: Partial<CustomFieldDefinition>) => {
+        setEditForm(prev => ({
+            ...prev,
+            custom_fields: (prev.custom_fields || []).map((f, i) =>
+                i === index ? { ...f, ...field } : f
+            ),
+        }));
     };
 
     const filteredClaims = claims?.filter(claim => {
@@ -395,7 +443,7 @@ export default function ClaimManagement() {
 
             {/* Edit Dialog */}
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-                <DialogContent>
+                <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Edit Claim Category</DialogTitle>
                         <DialogDescription>
@@ -509,6 +557,119 @@ export default function ClaimManagement() {
                             </div>
                         </div>
                     </div>
+
+                    <Separator />
+
+                    {/* Custom Fields Section */}
+                    <div className="space-y-4 py-4">
+                        <div className="flex items-center justify-between">
+                            <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Custom Fields</h4>
+                            <Button type="button" variant="outline" size="sm" onClick={addCustomField}>
+                                <Plus className="h-4 w-4 mr-1" />
+                                Add Field
+                            </Button>
+                        </div>
+
+                        {(!editForm.custom_fields || editForm.custom_fields.length === 0) ? (
+                            <p className="text-sm text-muted-foreground text-center py-4">
+                                No custom fields defined. Click "Add Field" to create custom fields for this claim.
+                            </p>
+                        ) : (
+                            <div className="space-y-4 max-h-[300px] overflow-y-auto">
+                                {editForm.custom_fields.map((field, index) => (
+                                    <Card key={index} className="p-4">
+                                        <div className="space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-sm font-medium">Field {index + 1}</span>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-red-600"
+                                                    onClick={() => removeCustomField(index)}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-3">
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs">Field Name *</Label>
+                                                    <Input
+                                                        value={field.name}
+                                                        onChange={(e) => updateCustomField(index, { name: e.target.value })}
+                                                        placeholder="field_name"
+                                                        className="text-sm"
+                                                    />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs">Label *</Label>
+                                                    <Input
+                                                        value={field.label}
+                                                        onChange={(e) => updateCustomField(index, { label: e.target.value })}
+                                                        placeholder="Field Label"
+                                                        className="text-sm"
+                                                    />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs">Type</Label>
+                                                    <Select
+                                                        value={field.type}
+                                                        onValueChange={(value: CustomFieldDefinition['type']) =>
+                                                            updateCustomField(index, { type: value })}
+                                                    >
+                                                        <SelectTrigger className="text-sm">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {FIELD_TYPE_OPTIONS.map((opt) => (
+                                                                <SelectItem key={opt.value} value={opt.value}>
+                                                                    {opt.label}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs">Placeholder</Label>
+                                                    <Input
+                                                        value={field.placeholder || ''}
+                                                        onChange={(e) => updateCustomField(index, { placeholder: e.target.value })}
+                                                        placeholder="Enter placeholder text"
+                                                        className="text-sm"
+                                                    />
+                                                </div>
+                                                <div className="flex items-center space-x-2 pt-5">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={field.required}
+                                                        onChange={(e) => updateCustomField(index, { required: e.target.checked })}
+                                                        className="h-4 w-4"
+                                                    />
+                                                    <Label className="text-xs">Required</Label>
+                                                </div>
+                                            </div>
+                                            {field.type === 'select' && (
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs">Options (comma-separated)</Label>
+                                                    <Input
+                                                        value={field.options.join(', ')}
+                                                        onChange={(e) => updateCustomField(index, {
+                                                            options: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
+                                                        })}
+                                                        placeholder="Option 1, Option 2, Option 3"
+                                                        className="text-sm"
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </Card>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsEditOpen(false)}>
                             Cancel

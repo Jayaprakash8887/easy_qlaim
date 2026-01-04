@@ -476,6 +476,7 @@ def list_extracted_claims(
             submission_window_days=cat.submission_window_days,
             is_active=cat.is_active,
             display_order=cat.display_order,
+            custom_fields=cat.custom_fields or [],
             source_text=cat.source_text,
             ai_confidence=cat.ai_confidence,
             created_at=cat.created_at,
@@ -521,6 +522,7 @@ def list_extracted_claims(
             submission_window_days=cc.submission_window_days,
             is_active=cc.is_active,
             display_order=cc.display_order,
+            custom_fields=cc.custom_fields or [],
             source_text=None,  # Custom claims have no source text
             ai_confidence=None,  # Custom claims are manually defined
             created_at=cc.created_at,
@@ -894,6 +896,7 @@ async def update_category(
         submission_window_days=category.submission_window_days,
         is_active=category.is_active,
         display_order=category.display_order,
+        custom_fields=category.custom_fields or [],
         source_text=category.source_text,
         ai_confidence=category.ai_confidence,
         created_at=category.created_at,

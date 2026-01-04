@@ -812,6 +812,9 @@ class PolicyCategory(Base):
     is_active = Column(Boolean, default=True)
     display_order = Column(Integer, default=0)
     
+    # Custom fields definition (JSON array of field definitions)
+    custom_fields = Column(JSONB, default=[])
+    
     # Source tracking
     source_text = Column(Text)  # Original text from policy for reference
     ai_confidence = Column(Float)  # AI confidence score for extraction
