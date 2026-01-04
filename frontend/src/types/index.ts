@@ -99,6 +99,25 @@ export interface Claim {
   settledDate?: Date;
   paymentReference?: string;
   paymentMethod?: string;
+  // Allowance calculation details
+  calculationDetails?: {
+    calculation_type?: string;
+    rate_per_unit?: number;
+    // Per day fields
+    period_start?: string;
+    period_end?: string;
+    working_days?: number;
+    leave_days?: number;
+    net_working_days?: number;
+    per_day_rate?: number;
+    // Per km fields
+    from_location?: { lat: number; lng: number; address: string };
+    to_location?: { lat: number; lng: number; address: string };
+    distance_one_way_km?: number;
+    num_trips?: number;
+    total_distance_km?: number;
+    rate_per_km?: number;
+  };
 }
 
 // Policy Check interface

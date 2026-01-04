@@ -176,6 +176,8 @@ async function fetchClaimById(id: string, tenantId: string): Promise<Claim | und
     paymentMethod: claim.payment_method || payload.settlement?.payment_method || undefined,
     // Approval history from claim_payload - only actual stored history
     approvalHistory: buildApprovalHistory(claim, payload),
+    // Allowance calculation details
+    calculationDetails: payload.custom_fields?.calculation_details || undefined,
   };
 }
 

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import {
     Dialog,
     DialogContent,
@@ -8,7 +9,7 @@ import {
     DialogTitle,
     DialogFooter,
 } from '@/components/ui/dialog';
-import { MapPin, X, Navigation } from 'lucide-react';
+import { MapPin, X, Navigation, Search, Loader2 } from 'lucide-react';
 
 // Import Leaflet
 import L from 'leaflet';
@@ -66,6 +67,35 @@ const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
     }
 };
 
+// Search for locations using Nominatim
+interface SearchResult {
+    place_id: number;
+    lat: string;
+    lon: string;
+    display_name: string;
+    type: string;
+}
+
+const searchLocations = async (query: string): Promise<SearchResult[]> => {
+    if (!query || query.length < 3) return [];
+    
+    try {
+        const response = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=in`,
+            {
+                headers: {
+                    'Accept-Language': 'en',
+                    'User-Agent': 'EasyQlaim/1.0'
+                }
+            }
+        );
+        return await response.json();
+    } catch (error) {
+        console.error('Search error:', error);
+        return [];
+    }
+};
+
 export function LocationPicker({
     value,
     onChange,
@@ -78,6 +108,13 @@ export function LocationPicker({
     const [error, setError] = useState<string | null>(null);
     const [selectedLocation, setSelectedLocation] = useState<LocationValue | null>(value || null);
     const [mapReady, setMapReady] = useState(false);
+    
+    // Search state
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const [showResults, setShowResults] = useState(false);
+    const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<L.Map | null>(null);
@@ -266,6 +303,53 @@ export function LocationPicker({
         );
     };
 
+    // Handle search input change with debounce
+    const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const query = e.target.value;
+        setSearchQuery(query);
+        setShowResults(true);
+        
+        // Clear existing timeout
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
+        }
+        
+        if (query.length < 3) {
+            setSearchResults([]);
+            setIsSearching(false);
+            return;
+        }
+        
+        // Debounce search
+        setIsSearching(true);
+        searchTimeoutRef.current = setTimeout(async () => {
+            const results = await searchLocations(query);
+            setSearchResults(results);
+            setIsSearching(false);
+        }, 300);
+    };
+
+    // Handle selecting a search result
+    const handleSelectResult = (result: SearchResult) => {
+        const lat = parseFloat(result.lat);
+        const lng = parseFloat(result.lon);
+        
+        setSelectedLocation({
+            lat,
+            lng,
+            address: result.display_name
+        });
+        
+        if (mapRef.current && markerRef.current) {
+            mapRef.current.setView([lat, lng], 15);
+            markerRef.current.setLatLng([lat, lng]);
+        }
+        
+        setSearchQuery('');
+        setSearchResults([]);
+        setShowResults(false);
+    };
+
     const displayValue = value?.address || (value ? `${value.lat.toFixed(6)}, ${value.lng.toFixed(6)}` : '');
 
     return (
@@ -301,6 +385,40 @@ export function LocationPicker({
                     </DialogHeader>
 
                     <div className="space-y-4">
+                        {/* Search input */}
+                        <div className="relative">
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    type="text"
+                                    placeholder="Search for a place or address..."
+                                    value={searchQuery}
+                                    onChange={handleSearchChange}
+                                    onFocus={() => setShowResults(true)}
+                                    className="pl-9 pr-9"
+                                />
+                                {isSearching && (
+                                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                                )}
+                            </div>
+                            
+                            {/* Search results dropdown */}
+                            {showResults && searchResults.length > 0 && (
+                                <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-60 overflow-auto">
+                                    {searchResults.map((result) => (
+                                        <button
+                                            key={result.place_id}
+                                            className="w-full text-left px-3 py-2 hover:bg-accent text-sm border-b last:border-b-0 flex items-start gap-2"
+                                            onClick={() => handleSelectResult(result)}
+                                        >
+                                            <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0 text-muted-foreground" />
+                                            <span className="line-clamp-2">{result.display_name}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
                         {/* Current location button */}
                         <div className="flex items-center justify-between">
                             <Button
@@ -327,7 +445,7 @@ export function LocationPicker({
                         )}
 
                         {/* Map container */}
-                        <div className="relative" style={{ height: '400px' }}>
+                        <div className="relative" style={{ height: '350px' }}>
                             <div
                                 ref={mapContainerRef}
                                 className="w-full h-full rounded-lg border"

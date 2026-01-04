@@ -823,6 +823,99 @@ export default function ClaimDetails() {
                     </div>
 
                   </div>
+                  
+                  {/* Allowance Calculation Details */}
+                  {claim.calculationDetails && (
+                    <div className="sm:col-span-2 mt-4 pt-4 border-t">
+                      <p className="text-sm font-medium text-muted-foreground mb-3">Allowance Calculation Details</p>
+                      <div className="bg-muted/50 rounded-lg p-4">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {/* Period - common for all types */}
+                          {claim.calculationDetails.period_start && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">Period</p>
+                              <p className="text-sm font-medium">
+                                {formatDate(claim.calculationDetails.period_start)} - {formatDate(claim.calculationDetails.period_end)}
+                              </p>
+                            </div>
+                          )}
+                          
+                          {/* Working days info */}
+                          {claim.calculationDetails.working_days !== undefined && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">Working Days</p>
+                              <p className="text-sm font-medium">{claim.calculationDetails.working_days} days</p>
+                            </div>
+                          )}
+                          
+                          {claim.calculationDetails.leave_days !== undefined && claim.calculationDetails.leave_days > 0 && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">Leaves/Holidays</p>
+                              <p className="text-sm font-medium text-destructive">-{claim.calculationDetails.leave_days} days</p>
+                            </div>
+                          )}
+                          
+                          {claim.calculationDetails.net_working_days !== undefined && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">Net Working Days</p>
+                              <p className="text-sm font-medium">{claim.calculationDetails.net_working_days} days</p>
+                            </div>
+                          )}
+                          
+                          {/* Per day specific */}
+                          {claim.calculationDetails.calculation_type === 'per_day' && claim.calculationDetails.per_day_rate && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">Per Day Rate</p>
+                              <p className="text-sm font-medium">{formatCurrency(claim.calculationDetails.per_day_rate)}</p>
+                            </div>
+                          )}
+                          
+                          {/* Per km specific */}
+                          {claim.calculationDetails.calculation_type === 'per_km' && (
+                            <>
+                              {claim.calculationDetails.from_location && (
+                                <div className="sm:col-span-2">
+                                  <p className="text-xs text-muted-foreground">From Location</p>
+                                  <p className="text-sm font-medium">{claim.calculationDetails.from_location.address}</p>
+                                </div>
+                              )}
+                              {claim.calculationDetails.to_location && (
+                                <div className="sm:col-span-2">
+                                  <p className="text-xs text-muted-foreground">To Location</p>
+                                  <p className="text-sm font-medium">{claim.calculationDetails.to_location.address}</p>
+                                </div>
+                              )}
+                              {claim.calculationDetails.distance_one_way_km && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">One-way Distance</p>
+                                  <p className="text-sm font-medium">{claim.calculationDetails.distance_one_way_km.toFixed(1)} km</p>
+                                </div>
+                              )}
+                              {claim.calculationDetails.num_trips && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Number of Trips</p>
+                                  <p className="text-sm font-medium">{claim.calculationDetails.num_trips} round trip(s)</p>
+                                </div>
+                              )}
+                              {claim.calculationDetails.total_distance_km && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Total Distance</p>
+                                  <p className="text-sm font-medium">{claim.calculationDetails.total_distance_km.toFixed(1)} km</p>
+                                </div>
+                              )}
+                              {claim.calculationDetails.rate_per_km && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Rate per KM</p>
+                                  <p className="text-sm font-medium">{formatCurrency(claim.calculationDetails.rate_per_km)}</p>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
                   {(claim.description || isHrEditing) && (
                     <div className="sm:col-span-2">
                       <p className="text-sm text-muted-foreground">Description</p>
