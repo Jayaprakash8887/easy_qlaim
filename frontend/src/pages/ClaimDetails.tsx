@@ -687,18 +687,63 @@ export default function ClaimDetails() {
                         )}
                       </div>
                     </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground flex items-center gap-2">
-                        <Calendar className="h-4 w-4" />
-                        Expense Date
-                      </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <p className="font-medium">
-                          {formatDate(claim.claimDate || claim.submissionDate)}
+                    {claim.calculationDetails?.period_start ? (
+                      // For allowance claims with period data, show From Date and To Date
+                      <>
+                        <div>
+                          <p className="text-sm text-muted-foreground flex items-center gap-2">
+                            <Calendar className="h-4 w-4" />
+                            From Date
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="font-medium">
+                              {formatDate(claim.calculationDetails.period_start)}
+                            </p>
+                            {getDataSourceBadge(claim.dataSource?.date || 'manual')}
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground flex items-center gap-2">
+                            <Calendar className="h-4 w-4" />
+                            To Date
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="font-medium">
+                              {formatDate(claim.calculationDetails.period_end)}
+                            </p>
+                            {getDataSourceBadge(claim.dataSource?.date || 'manual')}
+                          </div>
+                        </div>
+                        {claim.calculationDetails.leave_days !== undefined && claim.calculationDetails.leave_days > 0 && (
+                          <div>
+                            <p className="text-sm text-muted-foreground flex items-center gap-2">
+                              <Calendar className="h-4 w-4" />
+                              Leaves/Holidays
+                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <p className="font-medium text-destructive">
+                                {claim.calculationDetails.leave_days} days
+                              </p>
+                              {getDataSourceBadge('manual')}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      // For regular reimbursement claims, show Expense Date
+                      <div>
+                        <p className="text-sm text-muted-foreground flex items-center gap-2">
+                          <Calendar className="h-4 w-4" />
+                          Expense Date
                         </p>
-                        {getDataSourceBadge(claim.dataSource?.date || 'manual')}
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="font-medium">
+                            {formatDate(claim.claimDate || claim.submissionDate)}
+                          </p>
+                          {getDataSourceBadge(claim.dataSource?.date || 'manual')}
+                        </div>
                       </div>
-                    </div>
+                    )}
                     <div>
                       <p className="text-sm text-muted-foreground flex items-center gap-2">
                         <Building className="h-4 w-4" />

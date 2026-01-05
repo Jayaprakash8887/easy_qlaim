@@ -489,12 +489,39 @@ export default function ApprovalQueue() {
                   <p className="text-sm text-muted-foreground">Description</p>
                   <p className="font-medium">{currentClaim.description || 'N/A'}</p>
                 </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Expense Date</p>
-                  <p className="font-medium">
-                    {formatDate(currentClaim.claimDate || currentClaim.submissionDate)}
-                  </p>
-                </div>
+                {currentClaim.calculationDetails?.period_start ? (
+                  // For allowance claims, show From Date and To Date
+                  <>
+                    <div>
+                      <p className="text-sm text-muted-foreground">From Date</p>
+                      <p className="font-medium">
+                        {formatDate(currentClaim.calculationDetails.period_start)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">To Date</p>
+                      <p className="font-medium">
+                        {formatDate(currentClaim.calculationDetails.period_end)}
+                      </p>
+                    </div>
+                    {currentClaim.calculationDetails.leave_days !== undefined && currentClaim.calculationDetails.leave_days > 0 && (
+                      <div>
+                        <p className="text-sm text-muted-foreground">Leaves/Holidays</p>
+                        <p className="font-medium text-destructive">
+                          {currentClaim.calculationDetails.leave_days} days
+                        </p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  // For regular claims, show Expense Date
+                  <div>
+                    <p className="text-sm text-muted-foreground">Expense Date</p>
+                    <p className="font-medium">
+                      {formatDate(currentClaim.claimDate || currentClaim.submissionDate)}
+                    </p>
+                  </div>
+                )}
                 <div>
                   <p className="text-sm text-muted-foreground">Project</p>
                   <p className="font-medium">{currentClaim.projectName || currentClaim.projectCode || 'N/A'}</p>

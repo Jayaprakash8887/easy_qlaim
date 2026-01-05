@@ -745,9 +745,14 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
         }
         
         // Build calculation details for audit/reporting
+        // Include period data for ALL allowance types (needed for approvals)
         let calculationDetails: Record<string, unknown> = {
           calculation_type: calcType,
           rate_per_unit: selectedPolicy.rate_per_unit,
+          period_start: allowanceData.periodStart,
+          period_end: allowanceData.periodEnd,
+          working_days: workingDaysCount,
+          leave_days: leaveDaysCount,
         };
         
         if (calcType === 'per_km') {
@@ -765,14 +770,11 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
         } else if (calcType === 'per_day') {
           calculationDetails = {
             ...calculationDetails,
-            period_start: allowanceData.periodStart,
-            period_end: allowanceData.periodEnd,
-            working_days: workingDaysCount,
-            leave_days: leaveDaysCount,
             net_working_days: netWorkingDays,
             per_day_rate: parseFloat(allowanceData.perDayRate) || 0,
           };
         }
+        // Fixed amount allowances will use the base calculationDetails with period info
 
         const allowanceClaimItems: BatchClaimItem[] = [{
           category: selectedPolicy.category_code || selectedPolicy.category_name || 'allowance',
