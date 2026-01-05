@@ -212,10 +212,21 @@ ENABLE_AI_VALIDATION=True
 VITE_API_URL=http://localhost:8000
 VITE_API_VERSION=v1
 
+# Google Maps Configuration
+# Get API key from: https://console.cloud.google.com/apis/credentials
+# Required APIs: Maps JavaScript API, Places API, Geocoding API
+VITE_GOOGLE_MAPS_API_KEY=your-google-maps-api-key
+
+# Get Map ID from: Google Cloud Console → Maps Platform → Map Management
+# Create with type: JavaScript, Vector
+VITE_GOOGLE_MAPS_ID=your-google-maps-id
+
 # Features
 VITE_ENABLE_MOCK=false
 VITE_DEBUG=true
 ```
+
+> **Note:** If Google Maps credentials are not configured, the application automatically falls back to OpenStreetMap.
 
 ---
 

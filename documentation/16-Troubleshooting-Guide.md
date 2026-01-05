@@ -234,35 +234,45 @@ npm run type-check
 
 #### 5.3 Google Maps Blank/Not Loading
 
-**Symptom:** Maps component shows blank area, no map tiles visible
+**Symptom:** Maps component shows blank area, no map tiles visible, or falls back to OpenStreetMap
 
-**Cause:** Google Maps API key not properly passed to Docker container
+**Cause:** Google Maps API key or Map ID not properly configured
 
 **Solutions:**
 
-1. **Check environment variable**
+1. **Check environment variables in docker-compose.yml**
    ```bash
-   # Ensure VITE_GOOGLE_MAPS_API_KEY is set in docker-compose.yml
-   # Under frontend service environment section:
+   # Ensure both variables are set under frontend service:
    environment:
      - VITE_GOOGLE_MAPS_API_KEY=${VITE_GOOGLE_MAPS_API_KEY}
+     - VITE_GOOGLE_MAPS_ID=${VITE_GOOGLE_MAPS_ID}
    ```
 
-2. **Verify .env file**
+2. **Verify .env file (project root)**
    ```bash
-   # In project root .env file
    VITE_GOOGLE_MAPS_API_KEY=your-actual-api-key
+   VITE_GOOGLE_MAPS_ID=your-map-id
    ```
 
-3. **Rebuild frontend container**
+3. **Recreate frontend container** (restart is not enough for new env vars)
    ```bash
-   docker compose up --build frontend
+   docker compose up -d --force-recreate frontend
    ```
 
-4. **Verify API key in browser**
-   - Open browser DevTools → Network tab
-   - Look for requests to `maps.googleapis.com`
-   - Check if key parameter is present and correct
+4. **Verify environment in container**
+   ```bash
+   docker exec reimbursement_frontend printenv | grep GOOGLE
+   ```
+
+5. **Check Google Cloud Console settings**
+   - Enable required APIs: Maps JavaScript API, Places API, Geocoding API
+   - Create a Map ID: Google Maps Platform → Map Management → Create Map ID
+   - Select **JavaScript** and **Vector** when creating Map ID
+   - Check API key restrictions allow your domain/localhost
+
+6. **Verify in browser DevTools**
+   - Open Console tab for error messages
+   - Check Network tab for `maps.googleapis.com` requests
 
 #### 5.4 Form Validation Error Shows [object Object]
 

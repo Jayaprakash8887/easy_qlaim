@@ -236,7 +236,9 @@ For per-km calculations, the system provides an interactive map-based location p
 | API Key Required | Yes | No |
 
 **Google Maps (Primary):**
-- **Requirement:** `VITE_GOOGLE_MAPS_API_KEY` environment variable
+- **Requirements:** 
+  - `VITE_GOOGLE_MAPS_API_KEY` - Your Google Maps API key
+  - `VITE_GOOGLE_MAPS_ID` - Map ID from Google Cloud Console (required for Advanced Markers)
 - **Features:** Places Autocomplete, Advanced Markers, rich geocoding
 - **Accuracy:** Higher accuracy for addresses
 - **Cost:** Pay-per-use (Google Cloud billing)
@@ -252,10 +254,18 @@ For per-km calculations, the system provides an interactive map-based location p
 # docker-compose.yml
 environment:
   VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY}
+  VITE_GOOGLE_MAPS_ID: ${VITE_GOOGLE_MAPS_ID}
 
-# .env file
+# .env file (project root)
 VITE_GOOGLE_MAPS_API_KEY=your-google-maps-api-key
+VITE_GOOGLE_MAPS_ID=your-google-maps-id
 ```
+
+**Getting a Map ID:**
+1. Go to Google Cloud Console → Google Maps Platform → Map Management
+2. Click "Create Map ID"
+3. Select **JavaScript** as Map type and **Vector** for raster/vector
+4. Copy the generated Map ID
 
 **Search Functionality:**
 ```
@@ -284,7 +294,8 @@ VITE_GOOGLE_MAPS_API_KEY=your-google-maps-api-key
 ```
 
 **Usage Notes:**
-- Google Maps: Enable Maps JavaScript API and Places API in Google Cloud Console
+- Google Maps: Enable Maps JavaScript API, Places API, and Geocoding API in Google Cloud Console
+- Google Maps: Create a Map ID (required for Advanced Markers) in Map Management
 - OpenStreetMap: Nominatim usage policy max 1 request/second
 - Search results limited to 5 suggestions
 - Coordinates stored with full precision
