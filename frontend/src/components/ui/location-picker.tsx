@@ -10,7 +10,7 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog';
 import { MapPin, X, Navigation, Search, Loader2, AlertTriangle } from 'lucide-react';
-import { Loader } from '@googlemaps/js-api-loader';
+import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
 
 // Import Leaflet for fallback
 import L from 'leaflet';
@@ -53,12 +53,13 @@ const DEFAULT_ZOOM = 12;
 
 // Check if Google Maps API key is configured
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+const GOOGLE_MAPS_ID = import.meta.env.VITE_GOOGLE_MAPS_ID || '';
 const isGoogleMapsConfigured = !!GOOGLE_MAPS_API_KEY && GOOGLE_MAPS_API_KEY.length > 10;
 
-// Google Maps loader singleton
-let googleMapsLoader: Loader | null = null;
-let googleMapsLoadPromise: Promise<typeof google.maps> | null = null;
+// Google Maps loader state
+let googleMapsLoadPromise: Promise<typeof google.maps | null> | null = null;
 let googleMapsLoadFailed = false;
+let googleMapsOptionsSet = false;
 
 const loadGoogleMaps = async (): Promise<typeof google.maps | null> => {
     if (googleMapsLoadFailed) return null;
@@ -67,23 +68,31 @@ const loadGoogleMaps = async (): Promise<typeof google.maps | null> => {
         return null;
     }
 
-    if (!googleMapsLoader) {
-        googleMapsLoader = new Loader({
-            apiKey: GOOGLE_MAPS_API_KEY,
-            version: 'weekly',
-            libraries: ['places', 'marker'],
-        });
-    }
-
     if (!googleMapsLoadPromise) {
-        googleMapsLoadPromise = googleMapsLoader.load()
-            .then(() => google.maps)
-            .catch((error) => {
+        googleMapsLoadPromise = (async () => {
+            try {
+                // Set options only once before loading any library
+                if (!googleMapsOptionsSet) {
+                    setOptions({
+                        key: GOOGLE_MAPS_API_KEY,
+                        v: 'weekly',
+                    });
+                    googleMapsOptionsSet = true;
+                }
+                
+                // Load required libraries
+                await importLibrary('maps');
+                await importLibrary('places');
+                await importLibrary('marker');
+                
+                return google.maps;
+            } catch (error) {
                 console.error('Failed to load Google Maps:', error);
                 googleMapsLoadFailed = true;
                 googleMapsLoadPromise = null;
                 return null;
-            });
+            }
+        })();
     }
 
     return googleMapsLoadPromise;
@@ -236,7 +245,7 @@ export function LocationPicker({
             const map = new google.maps.Map(container, {
                 center,
                 zoom: value ? 15 : DEFAULT_ZOOM,
-                mapId: 'EASY_QLAIM_MAP', // Required for AdvancedMarkerElement
+                mapId: GOOGLE_MAPS_ID, // Required for AdvancedMarkerElement
                 mapTypeControl: false,
                 streetViewControl: false,
                 fullscreenControl: false,

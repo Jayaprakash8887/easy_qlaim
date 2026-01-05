@@ -279,6 +279,7 @@ services:
     environment:
       VITE_API_BASE_URL: /api/v1
       VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY}
+      VITE_GOOGLE_MAPS_ID: ${VITE_GOOGLE_MAPS_ID}
     volumes:
       - ./frontend:/app
       - /app/node_modules
