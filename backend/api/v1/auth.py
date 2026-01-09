@@ -657,13 +657,17 @@ async def update_tour_status(
     db: Session = Depends(get_db)
 ):
     """Mark the product tour as seen for the current user."""
+    from sqlalchemy.orm.attributes import flag_modified
     try:
         # Update user_data JSONB field
         current_data = user.user_data if user.user_data and isinstance(user.user_data, dict) else {}
         current_data['has_seen_tour'] = True
         user.user_data = current_data
+        # Flag JSONB field as modified for SQLAlchemy to detect the change
+        flag_modified(user, 'user_data')
         db.commit()
         
+        logger.info(f"Tour status marked as seen for user {user.email}")
         return {"success": True, "has_seen_tour": True}
     except Exception as e:
         logger.error(f"Failed to update tour status for {user.email}: {e}")
