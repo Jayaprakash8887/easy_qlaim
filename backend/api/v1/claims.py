@@ -1122,6 +1122,9 @@ async def list_claims(
         query = query.where(Claim.employee_id == user_id)
     # Role-based filtering (only when not in my_claims mode)
     elif role == 'manager' and user_id:
+        from sqlalchemy import or_
+        from models import Project
+        
         # Get direct reports (employees where manager_id = current user)
         direct_reports_query = select(User.id).where(
             User.manager_id == user_id,
@@ -1130,14 +1133,36 @@ async def list_claims(
         direct_reports_result = await db.execute(direct_reports_query)
         direct_report_ids = [row[0] for row in direct_reports_result.fetchall()]
         
+        # Get projects where current user is the project manager
+        project_codes_query = select(Project.project_code).where(
+            Project.manager_id == user_id,
+            Project.tenant_id == tenant_id if tenant_id else True
+        )
+        project_codes_result = await db.execute(project_codes_query)
+        managed_project_codes = [row[0] for row in project_codes_result.fetchall()]
+        
+        # Build filter conditions
+        filter_conditions = []
+        
         if direct_report_ids:
-            # Filter claims to only those from direct reports
-            query = query.where(Claim.employee_id.in_(direct_report_ids))
+            # Claims from direct reports
+            filter_conditions.append(Claim.employee_id.in_(direct_report_ids))
+        
+        if managed_project_codes:
+            # Claims from projects where user is project manager
+            # Claims store project_code in claim_payload JSONB field
+            for project_code in managed_project_codes:
+                filter_conditions.append(
+                    Claim.claim_payload['project_code'].astext == project_code
+                )
+        
+        if filter_conditions:
+            query = query.where(or_(*filter_conditions))
             # Auto-apply PENDING_MANAGER status if for_approval or no status specified
             if for_approval and not status:
                 effective_status = 'PENDING_MANAGER'
         else:
-            # No direct reports - return empty list by filtering for impossible condition
+            # No direct reports and no managed projects - return empty list
             query = query.where(Claim.employee_id == None)
     elif role == 'hr' and user_id:
         # HR: auto-apply PENDING_HR status if for_approval or no status specified
