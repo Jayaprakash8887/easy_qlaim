@@ -215,10 +215,15 @@ function TenantUsersDialog({ tenant }: { tenant: Tenant }) {
     };
 
     const handleRemoveAdmin = async (userId: string) => {
+        console.log('handleRemoveAdmin called with userId:', userId, 'tenantId:', tenant.id);
+        if (!confirm('Are you sure you want to remove this admin?')) {
+            return;
+        }
         try {
             await removeAdminMutation.mutateAsync({ tenantId: tenant.id, userId });
             toast.success('Admin role removed successfully');
         } catch (error: any) {
+            console.error('Remove admin error:', error);
             toast.error(error.message || 'Failed to remove admin');
         }
     };
