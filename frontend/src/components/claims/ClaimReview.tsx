@@ -59,6 +59,7 @@ interface ClaimReviewProps {
   files: any[];
   multipleClaims?: ExtractedClaim[];
   policyChecks?: PolicyCheck[];
+  projectName?: string;
 }
 
 // Use imported formatCategory utility
@@ -67,7 +68,7 @@ const getCategoryLabel = (category: string | undefined): string => {
   return formatCategory(category);
 };
 
-export function ClaimReview({ formData, files, multipleClaims, policyChecks }: ClaimReviewProps) {
+export function ClaimReview({ formData, files, multipleClaims, policyChecks, projectName }: ClaimReviewProps) {
   const { formatCurrency, formatDate } = useFormatting();
   
   // Calculate compliance score dynamically based on form completion
@@ -108,7 +109,7 @@ export function ClaimReview({ formData, files, multipleClaims, policyChecks }: C
     { icon: Calendar, label: "Date", value: formData.date ? formatDate(formData.date) : "Not set" },
     { icon: Building2, label: "Vendor", value: formData.vendor },
     { icon: Hash, label: "Transaction Ref", value: formData.transactionRef || "Not available" },
-    { icon: FolderKanban, label: "Project", value: formData.projectCode || "Not selected" },
+    { icon: FolderKanban, label: "Project", value: projectName || formData.projectCode || "Not selected" },
   ];
 
   const aiSummary = hasMultipleClaims

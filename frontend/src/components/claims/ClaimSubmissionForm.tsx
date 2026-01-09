@@ -1435,6 +1435,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
             files={uploadedFiles}
             multipleClaims={extractedMultipleClaims.length > 1 ? extractedMultipleClaims : undefined}
             policyChecks={policyChecks}
+            projectName={allProjects.find(p => p.code === watchedFormValues.projectCode)?.name}
           />
         )}
 
@@ -1527,8 +1528,8 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                     </div>
                   )}
                   <div className="flex justify-between py-2 border-b">
-                    <span className="text-sm font-medium">Project Code:</span>
-                    <span className="text-sm">{allowanceData.projectCode}</span>
+                    <span className="text-sm font-medium">Project:</span>
+                    <span className="text-sm">{allProjects.find(p => p.code === allowanceData.projectCode)?.name || allowanceData.projectCode}</span>
                   </div>
                   <div className="flex justify-between py-2 border-b">
                     <span className="text-sm font-medium">Region:</span>
