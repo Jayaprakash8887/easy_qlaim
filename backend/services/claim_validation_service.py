@@ -122,7 +122,8 @@ class ClaimValidationService:
             is_potential_duplicate=is_potential_duplicate,
             policy_effective_from=policy_effective_from,
             fiscal_year_start=fiscal_year_start,
-            cumulative_limit_check=cumulative_check
+            cumulative_limit_check=cumulative_check,
+            category_name=category_name
         )
         
         # 4. Filter and map checks to ValidationCheckResult

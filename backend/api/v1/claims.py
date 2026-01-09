@@ -471,6 +471,10 @@ async def create_batch_claims(
         finally:
             sync_db.close()
         
+        # Get category name for display
+        from services.category_cache import category_cache
+        category_name = category_cache.get_category_name_by_code(category, tenant_id=employee.tenant_id)
+        
         # Generate policy compliance checks
         policy_checks = generate_policy_checks(
             claim_data={
@@ -486,7 +490,8 @@ async def create_batch_claims(
             submission_window_days=15,
             is_potential_duplicate=is_potential_dup,
             fiscal_year_start=fiscal_year_start,
-            cumulative_limit_check=cumulative_check
+            cumulative_limit_check=cumulative_check,
+            category_name=category_name
         )
         claim_payload["policy_checks"] = policy_checks
         
@@ -737,6 +742,10 @@ async def create_batch_claims_with_document(
         finally:
             sync_db_cl.close()
         
+        # Get category name for display
+        from services.category_cache import category_cache
+        category_name = category_cache.get_category_name_by_code(category, tenant_id=employee.tenant_id)
+        
         # Generate policy compliance checks
         policy_checks = generate_policy_checks(
             claim_data={
@@ -752,7 +761,8 @@ async def create_batch_claims_with_document(
             submission_window_days=15,
             is_potential_duplicate=is_potential_dup,
             fiscal_year_start=fiscal_year_start,
-            cumulative_limit_check=cumulative_check
+            cumulative_limit_check=cumulative_check,
+            category_name=category_name
         )
         claim_payload["policy_checks"] = policy_checks
         
@@ -1392,6 +1402,10 @@ async def update_claim(
         finally:
             sync_db_cl.close()
         
+        # Get category name for display
+        from services.category_cache import category_cache
+        category_name = category_cache.get_category_name_by_code(check_category, tenant_id=claim.tenant_id)
+        
         # Regenerate policy checks
         policy_checks = generate_policy_checks(
             claim_data={
@@ -1407,7 +1421,8 @@ async def update_claim(
             submission_window_days=15,
             is_potential_duplicate=is_potential_dup,
             fiscal_year_start=fiscal_year_start,
-            cumulative_limit_check=cumulative_check
+            cumulative_limit_check=cumulative_check,
+            category_name=category_name
         )
         
         # Update policy_checks in payload

@@ -208,7 +208,8 @@ def generate_policy_checks(
     is_potential_duplicate: bool = False,
     policy_effective_from: Optional[date] = None,
     fiscal_year_start: str = "apr",  # Month code like 'jan', 'apr', etc.
-    cumulative_limit_check: Optional[Dict[str, Any]] = None  # Result from check_cumulative_limit()
+    cumulative_limit_check: Optional[Dict[str, Any]] = None,  # Result from check_cumulative_limit()
+    category_name: Optional[str] = None  # Display name for the category
 ) -> Dict[str, Any]:
     """
     Generate policy compliance checks for a claim.
@@ -220,6 +221,7 @@ def generate_policy_checks(
     Args:
         cumulative_limit_check: Optional result from cumulative_limit_service.check_cumulative_limit()
                                containing status, message, and details about usage vs limits
+        category_name: Optional display name for the category (defaults to category code if not provided)
     """
     checks = []
     passed_count = 0
@@ -227,12 +229,14 @@ def generate_policy_checks(
     
     # 1. Category Check
     category = claim_data.get("category", "")
+    # Use category_name if provided, otherwise fall back to category code
+    display_category = category_name or category
     category_status = "pass" if category and category.upper() != "OTHER" else ("warning" if category else "fail")
     checks.append({
         "id": "category",
         "label": "Category selected",
         "status": category_status,
-        "message": f"Category: {category}" if category else "No category selected"
+        "message": f"Category: {display_category}" if category else "No category selected"
     })
     total_count += 1
     if category_status == "pass":
