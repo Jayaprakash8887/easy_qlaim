@@ -3,6 +3,7 @@ import { UseFormReturn } from "react-hook-form";
 import { Calendar, CheckCircle2, Circle, FileText, Sparkles, Trash2, Loader2, Zap, Pencil } from "lucide-react";
 import { parse } from "date-fns";
 import { cn } from "@/lib/utils";
+import { formatRegion } from "@/lib/regionUtils";
 import { SmartFormField } from "./SmartFormField";
 import { ComplianceScore } from "./ComplianceScore";
 import { DocumentUpload, UploadedFile } from "./DocumentUpload";
@@ -2066,7 +2067,7 @@ export function SmartClaimForm({
                     : uploadedFiles.length > 0
                       ? "✅ Category auto-detected from document content"
                       : user?.region
-                        ? `Showing categories for ${Array.isArray(user.region) ? user.region.join(', ') : user.region} region`
+                        ? `Showing categories for ${formatRegion(user.region)} region`
                         : "Upload document for AI-powered auto-detection"}
                 </p>
               </div>

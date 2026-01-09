@@ -22,6 +22,7 @@ import { UploadedFile } from "./DocumentUpload";
 import { useAllowancesByRegion, ExtractedClaimCategory } from "@/hooks/usePolicies";
 import { useFormatting } from "@/hooks/useFormatting";
 import { useEmployeeProjectHistory } from "@/hooks/useEmployees";
+import { formatRegion } from "@/lib/regionUtils";
 import {
   Select,
   SelectContent,
@@ -1036,7 +1037,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
               <h2 className="text-2xl font-bold text-foreground mb-2">Select Allowance Type</h2>
               <p className="text-muted-foreground">
                 {user?.region
-                  ? `Showing allowances available for ${Array.isArray(user.region) ? user.region.join(', ') : user.region} region`
+                  ? `Showing allowances available for ${formatRegion(user.region)} region`
                   : 'Choose the allowance category that applies'}
               </p>
             </div>
@@ -1049,7 +1050,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
             ) : allowancePolicies.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-muted-foreground">
-                  No allowances available for your region ({Array.isArray(user?.region) ? user.region.join(', ') : (user?.region || 'Not specified')}).
+                  No allowances available for your region ({formatRegion(user?.region)}).
                 </p>
                 <p className="text-sm text-muted-foreground mt-2">
                   Please contact HR if you believe this is an error.
@@ -1531,7 +1532,7 @@ export function ClaimSubmissionForm({ onClose }: ClaimSubmissionFormProps) {
                   </div>
                   <div className="flex justify-between py-2 border-b">
                     <span className="text-sm font-medium">Region:</span>
-                    <Badge variant="secondary">{selectedPolicy.policy_region}</Badge>
+                    <Badge variant="secondary">{formatRegion(selectedPolicy.policy_region)}</Badge>
                   </div>
                   <div className="flex justify-between py-2">
                     <span className="text-sm font-medium">Policy:</span>
