@@ -1,12 +1,15 @@
 """
 Dashboard and analytics endpoints with caching for performance
 """
+import logging
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, case
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any, Optional
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from database import get_sync_db
 from models import Claim, User, Approval, AgentExecution
