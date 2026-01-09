@@ -99,7 +99,7 @@ class EmailService:
         Returns:
             True if email sent successfully, False otherwise
         """
-        subject = f"Welcome to Expense Report - Admin Access for {tenant_name}"
+        subject = f"Welcome to Easy Qlaim - Admin Access for {tenant_name}"
         
         html_content = f"""
         <!DOCTYPE html>
@@ -122,11 +122,11 @@ class EmailService:
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>Welcome to Expense Report</h1>
+                    <h1>Welcome to Easy Qlaim</h1>
                 </div>
                 <div class="content">
                     <p>Hello,</p>
-                    <p>You have been assigned as an <strong>Administrator</strong> for <strong>{tenant_name}</strong> on the Expense Report platform.</p>
+                    <p>You have been assigned as an <strong>Administrator</strong> for <strong>{tenant_name}</strong> on the Easy Qlaim platform.</p>
                     
                     <div class="credentials">
                         <h3 style="margin-top: 0;">Your Login Credentials</h3>
@@ -148,14 +148,14 @@ class EmailService:
                         <li>Review and approve claims</li>
                     </ul>
                     
-                    <a href="{login_url}" class="button">Login to Expense Report</a>
+                    <a href="{login_url}" class="button">Login to Easy Qlaim</a>
                     
                     <div class="warning">
                         <strong>⚠️ Important:</strong> Please change your password immediately after your first login for security purposes.
                     </div>
                 </div>
                 <div class="footer">
-                    <p>This is an automated message from the Expense Report System.</p>
+                    <p>This is an automated message from Easy Qlaim.</p>
                     <p>If you did not expect this email, please contact your system administrator.</p>
                 </div>
             </div>
@@ -164,9 +164,9 @@ class EmailService:
         """
         
         text_content = f"""
-Welcome to Expense Report
+Welcome to Easy Qlaim
 
-You have been assigned as an Administrator for {tenant_name} on the Expense Report platform.
+You have been assigned as an Administrator for {tenant_name} on the Easy Qlaim platform.
 
 Your Login Credentials:
 - Email / Username: {to_email}
@@ -182,7 +182,7 @@ As an administrator, you can:
 - Set up expense policies
 - Review and approve claims
 
-This is an automated message from the Expense Report System.
+This is an automated message from Easy Qlaim.
 If you did not expect this email, please contact your system administrator.
         """
         

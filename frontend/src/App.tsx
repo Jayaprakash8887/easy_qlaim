@@ -326,6 +326,16 @@ const App = () => (
                   </Suspense>
                 }
               />
+              <Route
+                path="/designations"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <Designations />
+                    </ProtectedRoute>
+                  </Suspense>
+                }
+              />
               {/* System Admin Routes */}
               <Route
                 path="/admin/tenants"

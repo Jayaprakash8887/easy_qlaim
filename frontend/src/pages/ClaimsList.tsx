@@ -77,7 +77,7 @@ export default function ClaimsList() {
 
   const { user } = useAuth();
   const tenantId = user?.tenantId;
-  const { data: claims = [], isLoading, error, refetch } = useClaims(tenantId);
+  const { data: claims = [], isLoading, error, refetch } = useClaims({ myClaims: true });
   const deleteClaim = useDeleteClaim();
   const { formatDate, formatCurrency } = useFormatting();
 

@@ -1087,11 +1087,13 @@ async def list_claims(
     user_id: Optional[UUID] = None,
     role: Optional[str] = None,
     for_approval: bool = False,
+    my_claims: bool = False,
     db: AsyncSession = Depends(get_async_db),
 ):
     """List claims with pagination and filters
     
     Role-based filtering:
+    - my_claims=True: Only shows the user's own claims (for "My Claims" page)
     - manager: Only sees claims from direct reports (employees where manager_id = user_id)
               When for_approval=True or no status provided, auto-filters to PENDING_MANAGER
     - hr: When for_approval=True or no status provided, auto-filters to PENDING_HR
@@ -1101,6 +1103,7 @@ async def list_claims(
     
     Args:
         for_approval: If True, automatically applies role-appropriate pending status filter
+        my_claims: If True, only returns claims submitted by the user (ignores role-based filtering)
     """
     from services.category_cache import category_cache
     from services.cached_data import cached_data
@@ -1115,8 +1118,11 @@ async def list_claims(
     # If status is explicitly provided, use it; otherwise apply role-based defaults for approval views
     effective_status = status
     
-    # Role-based filtering
-    if role == 'manager' and user_id:
+    # If my_claims=True, only show the user's own claims regardless of role
+    if my_claims and user_id:
+        query = query.where(Claim.employee_id == user_id)
+    # Role-based filtering (only when not in my_claims mode)
+    elif role == 'manager' and user_id:
         # Get direct reports (employees where manager_id = current user)
         direct_reports_query = select(User.id).where(
             User.manager_id == user_id,

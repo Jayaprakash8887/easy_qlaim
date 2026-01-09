@@ -20,13 +20,18 @@ function getAuthHeadersWithJson(): HeadersInit {
 }
 
 // API functions
-async function fetchClaims(tenantId?: string, userId?: string, role?: string, options?: { status?: string; limit?: number; forApproval?: boolean }): Promise<Claim[]> {
+async function fetchClaims(tenantId?: string, userId?: string, role?: string, options?: { status?: string; limit?: number; forApproval?: boolean; myClaims?: boolean }): Promise<Claim[]> {
   const params = new URLSearchParams();
   if (tenantId) {
     params.append('tenant_id', tenantId);
   }
-  // For manager role, pass user_id and role for filtering to direct reports only
-  if (userId && role) {
+  // For "My Claims" page - only show user's own claims
+  if (options?.myClaims && userId) {
+    params.append('user_id', userId);
+    params.append('my_claims', 'true');
+  }
+  // For manager role approval queue, pass user_id and role for filtering to direct reports only
+  else if (userId && role) {
     params.append('user_id', userId);
     params.append('role', role);
   }
@@ -237,10 +242,10 @@ async function updateClaimStatus(id: string, status: ClaimStatus, tenantId: stri
 }
 
 // Custom hooks
-export function useClaims(options?: { status?: string; limit?: number; forApproval?: boolean }) {
+export function useClaims(options?: { status?: string; limit?: number; forApproval?: boolean; myClaims?: boolean }) {
   const { user } = useAuth();
   return useQuery({
-    queryKey: ['claims', user?.tenantId, user?.id, user?.role, options?.status, options?.limit, options?.forApproval],
+    queryKey: ['claims', user?.tenantId, user?.id, user?.role, options?.status, options?.limit, options?.forApproval, options?.myClaims],
     queryFn: () => fetchClaims(user?.tenantId, user?.id, user?.role, options),
     enabled: !!user?.tenantId,
     staleTime: 30 * 1000, // 30 seconds - reduced for fresher approval data

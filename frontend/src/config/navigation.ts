@@ -135,6 +135,11 @@ export const adminOnlyNavigation: NavItem[] = [
     ],
   },
   {
+    label: 'Designations',
+    href: '/designations',
+    icon: 'Briefcase',
+  },
+  {
     label: 'Approval Rules',
     href: '/approval-rules',
     icon: 'ShieldCheck',
