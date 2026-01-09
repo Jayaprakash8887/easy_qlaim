@@ -22,6 +22,7 @@ import { useClaims } from '@/hooks/useClaims';
 import { useAuth } from '@/contexts/AuthContext';
 import { Link } from 'react-router-dom';
 import { useFormatting } from '@/hooks/useFormatting';
+import { formatCategory } from '@/lib/categoryUtils';
 
 export default function SettlementsCompleted() {
   const { user } = useAuth();
@@ -167,9 +168,9 @@ export default function SettlementsCompleted() {
                       {claim.employeeName}
                     </TableCell>
                     <TableCell>
-                      {typeof claim.category === 'string'
+                      {claim.categoryName || formatCategory(typeof claim.category === 'string'
                         ? claim.category
-                        : claim.category?.name || '-'}
+                        : claim.category?.name)}
                     </TableCell>
                     <TableCell className="font-semibold">
                       {formatCurrency(claim.amount)}
@@ -238,7 +239,7 @@ export default function SettlementsCompleted() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Category</p>
-                  <p className="font-medium">{selectedClaim.category}</p>
+                  <p className="font-medium">{selectedClaim.categoryName || formatCategory(selectedClaim.category)}</p>
                 </div>
               </div>
               

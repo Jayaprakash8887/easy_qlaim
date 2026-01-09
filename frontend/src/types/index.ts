@@ -58,6 +58,7 @@ export interface Claim {
   claimNumber: string;
   type: ClaimType;
   category: ExpenseCategory | string;
+  categoryName?: string;  // Human-readable category name from API
   title: string;
   amount: number;
   date?: Date;

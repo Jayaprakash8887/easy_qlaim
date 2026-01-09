@@ -37,6 +37,7 @@ import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { Claim } from '@/types';
 import { useFormatting } from '@/hooks/useFormatting';
+import { formatCategory } from '@/lib/categoryUtils';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -300,9 +301,9 @@ export default function SettlementsPending() {
                       {claim.employeeName}
                     </TableCell>
                     <TableCell>
-                      {typeof claim.category === 'string'
+                      {claim.categoryName || formatCategory(typeof claim.category === 'string'
                         ? claim.category
-                        : claim.category?.name || '-'}
+                        : claim.category?.name)}
                     </TableCell>
                     <TableCell className="font-semibold">
                       {formatCurrency(claim.amount)}

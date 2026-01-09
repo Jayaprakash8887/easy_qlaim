@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useFormatting } from '@/hooks/useFormatting';
+import { formatCategory } from '@/lib/categoryUtils';
 
 interface Settlement {
   id: string;
@@ -36,6 +37,7 @@ interface Settlement {
   employeeName: string;
   amount: number;
   category: string;
+  categoryName?: string;  // Human-readable category name
   approvedDate: Date;
   status: 'pending' | 'processing' | 'settled';
   paymentMethod?: string;
@@ -289,7 +291,7 @@ export default function Settlements() {
                   <TableCell className="font-medium">
                     {settlement.employeeName}
                   </TableCell>
-                  <TableCell>{settlement.category}</TableCell>
+                  <TableCell>{settlement.categoryName || formatCategory(settlement.category)}</TableCell>
                   <TableCell className="font-semibold">
                     {formatCurrency(settlement.amount)}
                   </TableCell>

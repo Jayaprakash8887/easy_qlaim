@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/table';
 import { useFormatting } from '@/hooks/useFormatting';
 import { useClients } from '@/hooks/useClients';
+import { formatCategory } from '@/lib/categoryUtils';
 import {
   useFinanceMetrics,
   useClaimsByProject,
@@ -606,7 +607,7 @@ export default function Reports() {
                         <TableCell className="font-medium">{claim.claim_number}</TableCell>
                         <TableCell>{claim.employee_name}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">{claim.category}</Badge>
+                          <Badge variant="outline">{claim.category_name || formatCategory(claim.category)}</Badge>
                         </TableCell>
                         <TableCell className="text-right font-medium">
                           {formatCurrency(claim.amount)}
