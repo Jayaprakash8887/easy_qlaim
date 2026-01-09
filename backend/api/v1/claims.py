@@ -167,7 +167,12 @@ async def _get_next_approver(db: AsyncSession, claim: Claim, employee: User) -> 
     """
     Get the next approver for a claim based on its status.
     Returns (email, name) tuple or (None, None) if not found.
+    
+    Uses designation-to-role mapping to find users with HR/FINANCE roles.
     """
+    from database import SyncSessionLocal
+    from services.role_service import get_first_user_with_role
+    
     try:
         status = claim.status
         
@@ -180,30 +185,24 @@ async def _get_next_approver(db: AsyncSession, claim: Claim, employee: User) -> 
                     return (manager.email, manager.full_name or manager.username)
         
         elif status == "PENDING_HR":
-            # Get any HR user in the same tenant
-            hr_result = await db.execute(
-                select(User).where(
-                    User.tenant_id == claim.tenant_id,
-                    User.is_active == True,
-                    User.roles.contains(["HR"])
-                ).limit(1)
-            )
-            hr_user = hr_result.scalar_one_or_none()
-            if hr_user and hr_user.email:
-                return (hr_user.email, hr_user.full_name or hr_user.username)
+            # Get any HR user in the same tenant (via designation-to-role mapping)
+            sync_db = SyncSessionLocal()
+            try:
+                hr_user = get_first_user_with_role(claim.tenant_id, "HR", sync_db)
+                if hr_user and hr_user.email:
+                    return (hr_user.email, hr_user.full_name or hr_user.username)
+            finally:
+                sync_db.close()
         
         elif status == "PENDING_FINANCE":
-            # Get any Finance user in the same tenant
-            fin_result = await db.execute(
-                select(User).where(
-                    User.tenant_id == claim.tenant_id,
-                    User.is_active == True,
-                    User.roles.contains(["FINANCE"])
-                ).limit(1)
-            )
-            fin_user = fin_result.scalar_one_or_none()
-            if fin_user and fin_user.email:
-                return (fin_user.email, fin_user.full_name or fin_user.username)
+            # Get any Finance user in the same tenant (via designation-to-role mapping)
+            sync_db = SyncSessionLocal()
+            try:
+                fin_user = get_first_user_with_role(claim.tenant_id, "FINANCE", sync_db)
+                if fin_user and fin_user.email:
+                    return (fin_user.email, fin_user.full_name or fin_user.username)
+            finally:
+                sync_db.close()
         
         return (None, None)
     except Exception as e:
@@ -1642,12 +1641,15 @@ async def return_to_employee(
         )
         db.add(comment)
     else:
-        # Fallback: find a user with appropriate role
+        # Fallback: find a user with appropriate role (via designation-to-role mapping)
+        from database import SyncSessionLocal
+        from services.role_service import get_first_user_with_role
         role_to_find = role_map.get(previous_status, "MANAGER")
-        approver_user = await db.execute(
-            select(User).where(User.roles.contains([role_to_find])).limit(1)
-        )
-        approver = approver_user.scalar_one_or_none()
+        sync_db = SyncSessionLocal()
+        try:
+            approver = get_first_user_with_role(claim.tenant_id, role_to_find, sync_db)
+        finally:
+            sync_db.close()
         if approver:
             comment = Comment(
                 id=uuid4(),
@@ -1793,12 +1795,15 @@ async def approve_claim(
             )
             db.add(comment)
         else:
-            # Fallback: find a user with appropriate role
+            # Fallback: find a user with appropriate role (via designation-to-role mapping)
+            from database import SyncSessionLocal
+            from services.role_service import get_first_user_with_role
             role_to_find = role_map.get(previous_status, "MANAGER")
-            approver_user = await db.execute(
-                select(User).where(User.roles.contains([role_to_find])).limit(1)
-            )
-            approver = approver_user.scalar_one_or_none()
+            sync_db = SyncSessionLocal()
+            try:
+                approver = get_first_user_with_role(claim.tenant_id, role_to_find, sync_db)
+            finally:
+                sync_db.close()
             if approver:
                 comment = Comment(
                     id=uuid4(),
@@ -1937,12 +1942,15 @@ async def reject_claim(
             )
             db.add(comment)
         else:
-            # Fallback: find a user with appropriate role
+            # Fallback: find a user with appropriate role (via designation-to-role mapping)
+            from database import SyncSessionLocal
+            from services.role_service import get_first_user_with_role
             role_to_find = role_map.get(previous_status, "MANAGER")
-            approver_user = await db.execute(
-                select(User).where(User.roles.contains([role_to_find])).limit(1)
-            )
-            approver = approver_user.scalar_one_or_none()
+            sync_db = SyncSessionLocal()
+            try:
+                approver = get_first_user_with_role(claim.tenant_id, role_to_find, sync_db)
+            finally:
+                sync_db.close()
             if approver:
                 comment = Comment(
                     id=uuid4(),

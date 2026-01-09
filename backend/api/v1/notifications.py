@@ -468,12 +468,9 @@ async def notify_approvers(
             notifications_created += 1
     
     elif claim.status == "PENDING_HR":
-        # Notify all HR users in the same tenant
-        hr_users = db.query(User).filter(
-            User.tenant_id == claim.tenant_id,
-            User.is_active == True,
-            User.roles.contains(["HR"])
-        ).all()
+        # Notify all HR users in the same tenant (via designation-to-role mapping)
+        from services.role_service import get_users_with_role
+        hr_users = get_users_with_role(claim.tenant_id, "HR", db)
         
         for hr_user in hr_users:
             notification = Notification(
@@ -491,12 +488,9 @@ async def notify_approvers(
             notifications_created += 1
     
     elif claim.status == "PENDING_FINANCE":
-        # Notify all Finance users in the same tenant
-        finance_users = db.query(User).filter(
-            User.tenant_id == claim.tenant_id,
-            User.is_active == True,
-            User.roles.contains(["FINANCE"])
-        ).all()
+        # Notify all Finance users in the same tenant (via designation-to-role mapping)
+        from services.role_service import get_users_with_role
+        finance_users = get_users_with_role(claim.tenant_id, "FINANCE", db)
         
         for finance_user in finance_users:
             notification = Notification(

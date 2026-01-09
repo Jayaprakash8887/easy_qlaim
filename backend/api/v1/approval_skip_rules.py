@@ -50,7 +50,7 @@ def get_approval_skip_for_employee(
         db: Database session
         tenant_id: Tenant UUID
         employee_email: Employee's email address
-        employee_designation: Employee's designation code
+        employee_designation: Employee's designation name OR code (will check both)
         claim_amount: Amount of the claim
         category_code: Optional category code for the claim
         project_code: Optional project code for the claim
@@ -66,7 +66,35 @@ def get_approval_skip_for_employee(
         )
     ).order_by(ApprovalSkipRule.priority, ApprovalSkipRule.rule_name).all()
     
-    logger.debug(f"Evaluating {len(rules)} skip rules for employee '{employee_email}' (designation: {employee_designation}, amount: {claim_amount}, project: {project_code})")
+    # Look up designation code from designation name (Employee.designation stores the name, not code)
+    # We need to match against both name and code for flexibility
+    designation_code = None
+    designation_name = employee_designation
+    if employee_designation:
+        # Try to find the designation by name first (most common case)
+        designation_obj = db.query(Designation).filter(
+            and_(
+                Designation.tenant_id == tenant_id,
+                Designation.name.ilike(employee_designation)
+            )
+        ).first()
+        
+        if designation_obj:
+            designation_code = designation_obj.code
+            designation_name = designation_obj.name
+        else:
+            # Maybe it's already a code - try to find by code
+            designation_obj = db.query(Designation).filter(
+                and_(
+                    Designation.tenant_id == tenant_id,
+                    Designation.code.ilike(employee_designation)
+                )
+            ).first()
+            if designation_obj:
+                designation_code = designation_obj.code
+                designation_name = designation_obj.name
+    
+    logger.debug(f"Evaluating {len(rules)} skip rules for employee '{employee_email}' (designation name: {designation_name}, designation code: {designation_code}, amount: {claim_amount}, project: {project_code})")
     
     for rule in rules:
         # Check if rule applies to this employee
@@ -80,8 +108,15 @@ def get_approval_skip_for_employee(
                 match_reason = f"Email '{employee_email}' matches rule"
                 
         elif rule.match_type == "designation" and rule.designations:
-            # Match by designation
-            if employee_designation and employee_designation.upper() in [d.upper() for d in rule.designations]:
+            # Match by designation code (skip rules store codes)
+            # Check both the code and the original designation value for flexibility
+            rule_designations_upper = [d.upper() for d in rule.designations]
+            
+            if designation_code and designation_code.upper() in rule_designations_upper:
+                matches = True
+                match_reason = f"Designation code '{designation_code}' matches rule"
+            elif employee_designation and employee_designation.upper() in rule_designations_upper:
+                # Also check if the original value matches (in case it's already a code)
                 matches = True
                 match_reason = f"Designation '{employee_designation}' matches rule"
         

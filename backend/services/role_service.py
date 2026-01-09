@@ -219,3 +219,81 @@ def normalize_user_roles(roles: List[str], is_tenant_user: bool = True) -> List[
     # Order roles consistently
     role_order = ['EMPLOYEE', 'MANAGER', 'HR', 'FINANCE', 'ADMIN', 'SYSTEM_ADMIN']
     return [r for r in role_order if r in roles_set]
+
+
+def get_users_with_role(tenant_id: UUID, role: str, db: Session, limit: int = None) -> List[User]:
+    """
+    Find all users in a tenant who have a specific role through designation mapping.
+    
+    This function checks both:
+    1. Roles stored directly on user.roles (for legacy/system roles)
+    2. Roles derived from designation-to-role mappings
+    
+    Args:
+        tenant_id: UUID of the tenant
+        role: Role to search for (e.g., 'HR', 'FINANCE', 'MANAGER')
+        db: Database session
+        limit: Optional limit on number of results
+        
+    Returns:
+        List of User objects that have the specified role
+    """
+    from sqlalchemy import or_
+    
+    role_upper = role.upper()
+    
+    # Step 1: Find designation IDs that have this role mapped
+    designation_ids_with_role = db.query(DesignationRoleMapping.designation_id).filter(
+        DesignationRoleMapping.role == role_upper
+    ).subquery()
+    
+    # Step 2: Find designation names for those designation IDs (active designations only)
+    designations_with_role = db.query(Designation.name).filter(
+        Designation.id.in_(designation_ids_with_role),
+        Designation.tenant_id == tenant_id,
+        Designation.is_active == True
+    ).all()
+    
+    designation_names = [d.name for d in designations_with_role]
+    
+    # Step 3: Find users who either:
+    #   a) Have the role directly in user.roles array
+    #   b) Have a designation that maps to this role
+    query = db.query(User).filter(
+        User.tenant_id == tenant_id,
+        User.is_active == True
+    )
+    
+    if designation_names:
+        # Check both: direct role in user.roles OR designation matches
+        query = query.filter(
+            or_(
+                User.roles.contains([role_upper]),
+                User.designation.in_(designation_names)
+            )
+        )
+    else:
+        # No designations map to this role, check only user.roles
+        query = query.filter(User.roles.contains([role_upper]))
+    
+    if limit:
+        query = query.limit(limit)
+    
+    return query.all()
+
+
+def get_first_user_with_role(tenant_id: UUID, role: str, db: Session) -> Optional[User]:
+    """
+    Find the first user in a tenant who has a specific role.
+    Convenience wrapper around get_users_with_role.
+    
+    Args:
+        tenant_id: UUID of the tenant
+        role: Role to search for
+        db: Database session
+        
+    Returns:
+        First User with the role, or None if not found
+    """
+    users = get_users_with_role(tenant_id, role, db, limit=1)
+    return users[0] if users else None

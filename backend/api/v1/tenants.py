@@ -235,13 +235,15 @@ async def get_tenant_users(
             detail="Tenant not found"
         )
     
-    query = db.query(User).filter(User.tenant_id == tenant_id)
-    
-    # Filter for admin users only by default
+    # Filter for admin users using designation-to-role mapping
     if admin_only:
-        query = query.filter(User.roles.contains(['ADMIN']))
-    
-    users = query.offset(skip).limit(limit).all()
+        from services.role_service import get_users_with_role
+        users = get_users_with_role(tenant_id, "ADMIN", db)
+        # Apply pagination manually since get_users_with_role doesn't support it
+        users = users[skip:skip + limit] if skip or limit else users
+    else:
+        query = db.query(User).filter(User.tenant_id == tenant_id)
+        users = query.offset(skip).limit(limit).all()
     
     return [
         {
