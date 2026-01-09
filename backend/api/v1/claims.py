@@ -1646,7 +1646,7 @@ async def return_to_employee(
         "approver_id": str(return_data.approver_id) if return_data.approver_id else None,
         "approver_name": return_data.approver_name,
         "approver_role": return_data.approver_role,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat() + "Z"  # Add Z suffix to indicate UTC
     })
     # Flag claim_payload as modified for SQLAlchemy to detect JSONB changes
     flag_modified(claim, "claim_payload")
@@ -1896,7 +1896,7 @@ async def approve_claim(
         "approver_id": approver_id,
         "approver_name": approver_name,
         "approver_role": approver_role,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat() + "Z"  # Add Z suffix to indicate UTC
     })
     # Flag claim_payload as modified for SQLAlchemy to detect JSONB changes
     flag_modified(claim, "claim_payload")
@@ -2039,7 +2039,7 @@ async def reject_claim(
             "approver_id": str(reject_data.approver_id) if reject_data.approver_id else None,
             "approver_name": reject_data.approver_name,
             "approver_role": reject_data.approver_role,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat() + "Z"  # Add Z suffix to indicate UTC
         })
         # Flag claim_payload as modified for SQLAlchemy to detect JSONB changes
         flag_modified(claim, "claim_payload")
