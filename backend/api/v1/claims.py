@@ -282,7 +282,8 @@ def _get_initial_claim_status(
     employee_email: str,
     employee_designation_code: Optional[str],
     claim_amount: float,
-    category_code: Optional[str] = None
+    category_code: Optional[str] = None,
+    project_code: Optional[str] = None
 ) -> tuple[str, dict]:
     """
     Determine the initial claim status based on approval skip rules.
@@ -305,7 +306,8 @@ def _get_initial_claim_status(
             employee_email=employee_email,
             employee_designation=employee_designation_code,
             claim_amount=claim_amount,
-            category_code=category_code
+            category_code=category_code,
+            project_code=project_code
         )
     finally:
         sync_db.close()
@@ -760,7 +762,8 @@ async def create_batch_claims_with_document(
             employee_email=employee.email,
             employee_designation_code=employee.designation,
             claim_amount=claim_item.amount,
-            category_code=category
+            category_code=category,
+            project_code=batch.project_code
         )
         
         # Store skip info in claim payload for audit trail
@@ -927,7 +930,8 @@ async def create_claim(
         employee_email=employee.email,
         employee_designation_code=employee.designation,
         claim_amount=float(claim.amount),
-        category_code=claim.category
+        category_code=claim.category,
+        project_code=claim.project_code
     )
     
     # Prepare claim payload with skip info if applicable
@@ -1010,6 +1014,9 @@ async def submit_claim(
     emp_result = await db.execute(select(Employee).where(Employee.id == claim.employee_id))
     employee = emp_result.scalar_one_or_none()
     
+    # Get project_code from claim payload if available
+    claim_project_code = claim.claim_payload.get("project_code") if claim.claim_payload else None
+    
     # Check approval skip rules
     if employee:
         initial_status, skip_info = _get_initial_claim_status(
@@ -1017,7 +1024,8 @@ async def submit_claim(
             employee_email=employee.email,
             employee_designation_code=employee.designation,
             claim_amount=float(claim.amount),
-            category_code=claim.category
+            category_code=claim.category,
+            project_code=claim_project_code
         )
         
         # Store skip info in claim payload if rules applied
@@ -1731,7 +1739,13 @@ async def approve_claim(
     approve_data: ApproveRejectClaim = None,
     db: AsyncSession = Depends(get_async_db),
 ):
-    """Approve a claim - moves to next approval stage"""
+    """Approve a claim - moves to next approval stage, respecting skip rules and auto-approval settings"""
+    from models import SystemSettings
+    from utils.timezone import (
+        DEFAULT_AUTO_APPROVAL_THRESHOLD,
+        DEFAULT_MAX_AUTO_APPROVAL_AMOUNT,
+        DEFAULT_ENABLE_AUTO_APPROVAL
+    )
     
     result = await db.execute(select(Claim).where(Claim.id == claim_id))
     claim = result.scalar_one_or_none()
@@ -1742,16 +1756,77 @@ async def approve_claim(
             detail="Claim not found"
         )
     
-    # Define status transitions
-    status_transitions = {
-        "PENDING_MANAGER": "MANAGER_APPROVED",
-        "MANAGER_APPROVED": "PENDING_HR",  # Auto-transition to HR
-        "PENDING_HR": "HR_APPROVED",
-        "HR_APPROVED": "PENDING_FINANCE",  # Auto-transition to Finance
-        "PENDING_FINANCE": "FINANCE_APPROVED",
-    }
+    # Get approval skip info from claim payload (set at claim creation time)
+    skip_info = claim.claim_payload.get("approval_skip_info", {}) if claim.claim_payload else {}
+    skip_hr = skip_info.get("skip_hr", False)
+    skip_finance = skip_info.get("skip_finance", False)
     
-    if claim.status not in status_transitions:
+    # Auto-approval eligibility flag (checked after manager approval)
+    auto_approval_eligible = False
+    
+    if claim.tenant_id:
+        # Fetch tenant settings for auto-approval
+        settings_result = await db.execute(
+            select(SystemSettings).where(
+                SystemSettings.tenant_id == claim.tenant_id,
+                SystemSettings.setting_key.in_([
+                    "enable_auto_approval",
+                    "auto_skip_after_manager",
+                    "auto_approval_threshold",
+                    "max_auto_approval_amount",
+                    "policy_compliance_threshold"
+                ])
+            )
+        )
+        settings_rows = settings_result.scalars().all()
+        tenant_settings = {s.setting_key: s.setting_value for s in settings_rows}
+        
+        enable_auto_approval = tenant_settings.get("enable_auto_approval", "true").lower() == "true"
+        auto_skip_after_manager = tenant_settings.get("auto_skip_after_manager", "true").lower() == "true"
+        auto_approval_threshold = float(tenant_settings.get("auto_approval_threshold", DEFAULT_AUTO_APPROVAL_THRESHOLD)) / 100.0
+        max_auto_approval_amount = float(tenant_settings.get("max_auto_approval_amount", DEFAULT_MAX_AUTO_APPROVAL_AMOUNT))
+        policy_compliance_threshold = float(tenant_settings.get("policy_compliance_threshold", "80")) / 100.0
+        
+        # Get claim's AI confidence and validation data
+        validation = claim.claim_payload.get("validation", {}) if claim.claim_payload else {}
+        ai_analysis = claim.claim_payload.get("ai_analysis", {}) if claim.claim_payload else {}
+        confidence = validation.get("confidence", 0) or ai_analysis.get("ai_confidence", 0) or 0
+        if isinstance(confidence, (int, float)) and confidence > 1:
+            confidence = confidence / 100.0  # Normalize if stored as percentage
+        claim_amount = float(claim.amount) if claim.amount else 0.0
+        
+        # Get policy compliance score (from validation or policy_checks)
+        policy_checks = claim.claim_payload.get("policy_checks", {}) if claim.claim_payload else {}
+        policy_compliance = validation.get("policy_compliance", 0) or policy_checks.get("compliance_score", 0) or 0
+        if isinstance(policy_compliance, (int, float)) and policy_compliance > 1:
+            policy_compliance = policy_compliance / 100.0  # Normalize if stored as percentage
+        
+        # Check for policy violations
+        failed_rules = [r for r in validation.get("rules_checked", []) if r.get("result") == "fail"]
+        
+        # Determine if auto-approval conditions are met (only applies after manager approval)
+        # Must meet BOTH AI confidence threshold AND policy compliance threshold
+        if enable_auto_approval and auto_skip_after_manager and not failed_rules:
+            meets_confidence = confidence >= auto_approval_threshold
+            meets_policy_compliance = policy_compliance >= policy_compliance_threshold
+            within_amount = claim_amount <= max_auto_approval_amount
+            
+            if meets_confidence and meets_policy_compliance and within_amount:
+                auto_approval_eligible = True
+                logger.info(
+                    f"Claim {claim.claim_number}: Auto-approval eligible - "
+                    f"AI confidence {confidence*100:.1f}% >= {auto_approval_threshold*100:.1f}%, "
+                    f"policy compliance {policy_compliance*100:.1f}% >= {policy_compliance_threshold*100:.1f}%, "
+                    f"amount {claim_amount} <= {max_auto_approval_amount}"
+                )
+            elif meets_confidence and within_amount and not meets_policy_compliance:
+                logger.info(
+                    f"Claim {claim.claim_number}: Auto-approval NOT eligible - "
+                    f"policy compliance {policy_compliance*100:.1f}% < {policy_compliance_threshold*100:.1f}%"
+                )
+    
+    # Define status transitions
+    if claim.status not in ["PENDING_MANAGER", "MANAGER_APPROVED", "PENDING_HR", "HR_APPROVED", "PENDING_FINANCE"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot approve claim in {claim.status} status"
@@ -1759,15 +1834,40 @@ async def approve_claim(
     
     # Get next status
     previous_status = claim.status
-    next_status = status_transitions[claim.status]
     
-    # If manager approved, move directly to pending HR
-    if next_status == "MANAGER_APPROVED":
-        claim.status = "PENDING_HR"
-    elif next_status == "HR_APPROVED":
-        claim.status = "PENDING_FINANCE"
+    # Determine next status based on current status
+    # Priority: 1) Auto-approval rules → FINANCE_APPROVED, 2) Skip rules for individual level skipping
+    if previous_status == "PENDING_MANAGER":
+        # Manager approved - first check auto-approval, then skip rules
+        if auto_approval_eligible:
+            # Auto-approval met: skip directly to FINANCE_APPROVED
+            claim.status = "FINANCE_APPROVED"
+            logger.info(f"Claim {claim.claim_number}: Manager approved, auto-approval criteria met → FINANCE_APPROVED")
+        elif skip_hr and skip_finance:
+            # Skip rules: both HR and Finance skipped
+            claim.status = "FINANCE_APPROVED"
+            logger.info(f"Claim {claim.claim_number}: Manager approved, HR and Finance skipped per designation skip rules → FINANCE_APPROVED")
+        elif skip_hr:
+            # Skip rules: HR skipped, go to Finance
+            claim.status = "PENDING_FINANCE"
+            logger.info(f"Claim {claim.claim_number}: Manager approved, HR skipped per skip rules → PENDING_FINANCE")
+        else:
+            # Normal flow: go to HR
+            claim.status = "PENDING_HR"
+    elif previous_status == "PENDING_HR":
+        # HR approved - check skip rules for Finance
+        if skip_finance:
+            claim.status = "FINANCE_APPROVED"
+            logger.info(f"Claim {claim.claim_number}: HR approved, Finance skipped per skip rules → FINANCE_APPROVED")
+        else:
+            claim.status = "PENDING_FINANCE"
+    elif previous_status == "PENDING_FINANCE":
+        claim.status = "FINANCE_APPROVED"
     else:
-        claim.status = next_status
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot approve claim in {previous_status} status"
+        )
     
     claim.can_edit = False
     
