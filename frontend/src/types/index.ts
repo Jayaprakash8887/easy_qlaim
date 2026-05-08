@@ -58,6 +58,7 @@ export interface Claim {
   claimNumber: string;
   type: ClaimType;
   category: ExpenseCategory | string;
+  categoryName?: string;  // Human-readable category name from API
   title: string;
   amount: number;
   date?: Date;
@@ -99,6 +100,25 @@ export interface Claim {
   settledDate?: Date;
   paymentReference?: string;
   paymentMethod?: string;
+  // Allowance calculation details
+  calculationDetails?: {
+    calculation_type?: string;
+    rate_per_unit?: number;
+    // Per day fields
+    period_start?: string;
+    period_end?: string;
+    working_days?: number;
+    leave_days?: number;
+    net_working_days?: number;
+    per_day_rate?: number;
+    // Per km fields
+    from_location?: { lat: number; lng: number; address: string };
+    to_location?: { lat: number; lng: number; address: string };
+    distance_one_way_km?: number;
+    num_trips?: number;
+    total_distance_km?: number;
+    rate_per_km?: number;
+  };
 }
 
 // Policy Check interface
@@ -107,6 +127,21 @@ export interface PolicyCheck {
   label: string;
   status: 'pass' | 'fail' | 'warning' | 'checking';
   message?: string;
+  details?: {
+    // Cumulative limit details
+    frequency?: string;
+    frequency_display?: string;
+    period_start?: string;
+    period_end?: string;
+    cumulative_used?: number;
+    claim_count?: number;
+    new_total?: number;
+    max_amount?: number;
+    remaining_before?: number;
+    remaining_after?: number;
+    utilization_percent?: number;
+    frequency_count?: number;
+  };
 }
 
 // Document interface
@@ -188,6 +223,9 @@ export interface Project {
   managerId: string;
   memberIds: string[];
   ibuId?: string;
+  clientId?: string;
+  clientName?: string;
+  clientCode?: string;
 }
 
 // IBU (Independent Business Unit) interface
@@ -215,4 +253,35 @@ export interface Region {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+// Approval Skip Rule interface
+export interface ApprovalSkipRule {
+  id: string;
+  tenant_id: string;
+  rule_name: string;
+  description?: string;
+  match_type: 'designation' | 'email' | 'project';
+  designations: string[];
+  emails: string[];
+  project_codes: string[];
+  skip_manager_approval: boolean;
+  skip_hr_approval: boolean;
+  skip_finance_approval: boolean;
+  max_amount_threshold?: number;
+  category_codes: string[];
+  priority: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Approval Skip Result (from check endpoint)
+export interface ApprovalSkipResult {
+  skip_manager: boolean;
+  skip_hr: boolean;
+  skip_finance: boolean;
+  applied_rule_id?: string;
+  applied_rule_name?: string;
+  reason: string;
 }

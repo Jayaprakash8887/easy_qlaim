@@ -9,7 +9,10 @@ import {
   Sparkles,
   Tag,
   Hash,
-  Receipt
+  Receipt,
+  XCircle,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 import { ComplianceScore } from "./ComplianceScore";
 import { cn } from "@/lib/utils";
@@ -27,6 +30,14 @@ interface ClaimFormData {
   description?: string;
   projectCode?: string;
   costCenter?: string;
+}
+
+// Policy check interface
+interface PolicyCheck {
+  id: string;
+  label: string;
+  status: 'pass' | 'fail' | 'warning' | 'checking';
+  message: string;
 }
 
 // Interface for multiple extracted claims
@@ -47,6 +58,8 @@ interface ClaimReviewProps {
   formData: ClaimFormData;
   files: any[];
   multipleClaims?: ExtractedClaim[];
+  policyChecks?: PolicyCheck[];
+  projectName?: string;
 }
 
 // Use imported formatCategory utility
@@ -55,7 +68,7 @@ const getCategoryLabel = (category: string | undefined): string => {
   return formatCategory(category);
 };
 
-export function ClaimReview({ formData, files, multipleClaims }: ClaimReviewProps) {
+export function ClaimReview({ formData, files, multipleClaims, policyChecks, projectName }: ClaimReviewProps) {
   const { formatCurrency, formatDate } = useFormatting();
   
   // Calculate compliance score dynamically based on form completion
@@ -96,7 +109,7 @@ export function ClaimReview({ formData, files, multipleClaims }: ClaimReviewProp
     { icon: Calendar, label: "Date", value: formData.date ? formatDate(formData.date) : "Not set" },
     { icon: Building2, label: "Vendor", value: formData.vendor },
     { icon: Hash, label: "Transaction Ref", value: formData.transactionRef || "Not available" },
-    { icon: FolderKanban, label: "Project", value: formData.projectCode || "Not selected" },
+    { icon: FolderKanban, label: "Project", value: projectName || formData.projectCode || "Not selected" },
   ];
 
   const aiSummary = hasMultipleClaims
@@ -242,18 +255,27 @@ export function ClaimReview({ formData, files, multipleClaims }: ClaimReviewProp
           </div>
 
           <div className="space-y-2">
-            {[
-              "Amount within budget",
-              "All required docs attached",
-              "Valid expense date",
-              "Proper categorization",
-              "No duplicate detected",
-            ].map((check, idx) => (
-              <div key={idx} className="flex items-center gap-2 text-sm">
-                <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
-                <span className="text-muted-foreground">{check}</span>
-              </div>
-            ))}
+            {policyChecks && policyChecks.length > 0 ? (
+              policyChecks.map((check) => (
+                <div key={check.id} className="flex items-center gap-2 text-sm">
+                  {check.status === 'pass' && (
+                    <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
+                  )}
+                  {check.status === 'fail' && (
+                    <XCircle className="h-4 w-4 text-destructive shrink-0" />
+                  )}
+                  {check.status === 'warning' && (
+                    <AlertCircle className="h-4 w-4 text-warning shrink-0" />
+                  )}
+                  {check.status === 'checking' && (
+                    <Loader2 className="h-4 w-4 text-muted-foreground animate-spin shrink-0" />
+                  )}
+                  <span className="text-muted-foreground">{check.label}</span>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground text-center">Policy validation complete</p>
+            )}
           </div>
         </div>
       </div>

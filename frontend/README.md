@@ -55,11 +55,11 @@ Reinvo-Dash is a comprehensive expense management solution built with React, Typ
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                   FUTURE (Planned)                           │
-│  🚧 FastAPI backend with REST API                           │
-│  🚧 Google ADK multi-agent AI system                        │
-│  🚧 PaddleOCR for document processing                       │
-│  🚧 DocumentDB for data persistence                         │
+│                   CURRENT (Backend)                          │
+│  ✅ FastAPI backend with REST API                           │
+│  ✅ Google Gemini AI integration                            │
+│  ✅ Multi-provider OCR (Google Vision, Tesseract)           │
+│  ✅ PostgreSQL/MongoDB for data persistence                 │
 │  🚧 Real-time notifications & WebSockets                    │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -157,12 +157,12 @@ Reinvo-Dash is a comprehensive expense management solution built with React, Typ
 | **React Hook Form** | Performant form handling with minimal re-renders |
 | **Zod** | Runtime type validation, great DX with TypeScript |
 
-### Planned Backend (See [System Architecture](#system-architecture))
+### Backend Stack (See [System Architecture](#system-architecture))
 - **Python + FastAPI** - Fast, modern, async API framework
 - **Google Gemini 2.0** - Advanced AI reasoning and multimodal support
-- **Google ADK** - Multi-agent orchestration framework
-- **DocumentDB.io** - PostgreSQL-based with MongoDB API (best of both worlds)
-- **PaddleOCR** - Open-source, self-hosted, 95%+ accuracy
+- **Multi-provider LLM Support** - OpenAI, Anthropic, AWS Bedrock, Ollama
+- **PostgreSQL + MongoDB** - Relational and document storage
+- **Multi-provider OCR** - Google Vision, Azure, Tesseract
 - **Celery + Redis** - Distributed task processing at scale
 
 ---
@@ -662,26 +662,24 @@ The application is currently built as a **React SPA (Single Page Application)** 
                         │
                         │ (Future API Integration)
                         ▼
-┌─────────────────────────────────────────────────────┐
-│              PLANNED BACKEND                        │
+┌─────────────────────────────────────────────────────────────┐
+│              BACKEND                                │
 │                                                     │
 │  ┌─────────────────────────────────────────────┐   │
 │  │         FastAPI REST API                    │   │
 │  └──────────────┬──────────────────────────────┘   │
 │                 │                                   │
 │  ┌──────────────▼──────────────┐                   │
-│  │    Google ADK Agent System  │                   │
+│  │    AI Services Layer        │                   │
 │  │  ┌────────────────────────┐ │                   │
-│  │  │  Document Agent (OCR)  │ │                   │
-│  │  │  Validation Agent      │ │                   │
-│  │  │  Approval Agent        │ │                   │
-│  │  │  Learning Agent        │ │                   │
+│  │  │  OCR Service (Vision)  │ │                   │
+│  │  │  Validation Service    │ │                   │
+│  │  │  Gemini AI Integration │ │                   │
 │  │  └────────────────────────┘ │                   │
 │  └─────────────────────────────┘                   │
 │                 │                                   │
 │  ┌──────────────▼──────────────┐                   │
-│  │      DocumentDB.io          │                   │
-│  │  (MongoDB-compatible)       │                   │
+│  │      PostgreSQL / MongoDB   │                   │
 │  └─────────────────────────────┘                   │
 └─────────────────────────────────────────────────────┘
 ```
@@ -813,23 +811,23 @@ All mock data follows the same structure as planned API responses:
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| **Agentic Framework** | Google ADK | Multi-agent orchestration |
 | **LLM** | Google Gemini 2.0 | AI reasoning and validation |
-| **Database** | DocumentDB.io | MongoDB-compatible storage |
+| **AI Providers** | OpenAI, Anthropic, Ollama | Multi-provider support |
+| **Database** | PostgreSQL + MongoDB | Relational and document storage |
 | **Backend** | Python + FastAPI | REST API server |
 | **Task Queue** | Celery + Redis | Async job processing |
-| **OCR** | PaddleOCR | Document text extraction |
-| **Storage** | GCP | Document storage |
+| **OCR** | Google Vision, Tesseract | Document text extraction |
+| **Storage** | GCP / Azure / S3 | Document storage |
 | **Auth** | Keycloak | SSO and RBAC |
 
-### Multi-Agent System (Planned)
+### AI Services Architecture
 
-The backend will use **Google ADK** to orchestrate multiple AI agents:
+The backend uses **Google Gemini API** with custom AI services:
 
 #### Agent Types
 
 1. **Document Agent**
-   - OCR processing with PaddleOCR
+   - OCR processing with Tesseract + Google Vision
    - Data extraction and validation
    - Confidence scoring
 
@@ -952,12 +950,12 @@ npm run build
 - [ ] API endpoints for all CRUD operations
 - [ ] WebSocket for real-time updates
 
-**Phase 2: AI Integration (Q2 2026)**
-- [ ] Google ADK agent system
-- [ ] PaddleOCR integration
-- [ ] Gemini 2.0 for validation
+**Phase 2: AI Enhancement (Q2 2026)**
+- [x] Gemini AI integration
+- [x] Multi-provider OCR (Google Vision, Tesseract)
+- [x] AI-powered validation
 - [ ] Auto-approval engine
-- [ ] Confidence scoring system
+- [ ] Enhanced confidence scoring system
 
 **Phase 3: Advanced Features (Q3 2026)**
 - [ ] Mobile apps (iOS/Android)
@@ -1135,8 +1133,8 @@ When reporting bugs, please include:
 | **Backend API** | 🚧 Planned | FastAPI + agents (see architecture below) |
 | **Database** | 🚧 Planned | DocumentDB.io integration |
 | **Authentication** | 🚧 Planned | Keycloak SSO |
-| **OCR Processing** | 🚧 Planned | PaddleOCR integration |
-| **AI Agents** | 🚧 Planned | Google ADK + Gemini 2.0 |
+| **OCR Processing** | ✅ Complete | Tesseract + Google Vision |
+| **AI Services** | ✅ Complete | Gemini API + Multi-provider LLM |
 
 ---
 
@@ -1199,10 +1197,10 @@ The frontend is **fully functional** with mock data and ready for backend integr
      │      ┌────────────────────────────────────────────────┐
      │      │         CELERY WORKERS (3-5 instances)         │
      │      │  ┌──────────────────────────────────────────┐  │
-     │      │  │    AGENTIC AI LAYER (Google ADK)         │  │
+     │      │  │    AI SERVICES LAYER (Gemini API)        │  │
      │      │  │                                          │  │
      │      │  │  ┌────────────────────────────────────┐ │  │
-     │      │  │  │  ORCHESTRATOR AGENT                │ │  │
+     │      │  │  │  AI SERVICE COORDINATOR            │ │  │
      │      │  │  │  • Claim routing                   │ │  │
      │      │  │  │  • Workflow coordination           │ │  │
      │      │  │  │  • Task delegation                 │ │  │
@@ -1210,7 +1208,7 @@ The frontend is **fully functional** with mock data and ready for backend integr
      │      │  │       │           │                     │  │
      │      │  │  ┌────▼────┐  ┌───▼────┐  ┌──────────┐ │  │
      │      │  │  │DOCUMENT │  │VALIDTN │  │INTEGRATN │ │  │
-     │      │  │  │ AGENT   │  │ AGENT  │  │  AGENT   │ │  │
+     │      │  │  │ SERVICE │  │ SERVICE│  │  SERVICE │ │  │
      │      │  │  │• OCR    │  │• Policy│  │• Employee│ │  │
      │      │  │  │• Verify │  │• Rules │  │• Project │ │  │
      │      │  │  │• Track  │  │• AI    │  │• Timesheet│ │  │
@@ -1232,7 +1230,7 @@ The frontend is **fully functional** with mock data and ready for backend integr
                                  │
 ┌────────────────────────────────▼────────────────────────────────┐
 │  External Services & Storage                                     │
-│  • PaddleOCR (Self-hosted OCR)                                   │
+│  • Tesseract + Google Vision (OCR)                               │
 │  • GCP Storage (Documents)                                       │
 │  • SMTP/SendGrid (Notifications)                                 │
 │  • [Future] Kronos API (Timesheet)                               │
@@ -1343,7 +1341,7 @@ Send notification to user
 **Purpose:** Extract and verify claim data from documents
 
 **Key Responsibilities:**
-- Perform OCR using PaddleOCR (self-hosted, 95%+ accuracy)
+- Perform OCR using Tesseract + Google Vision (multi-provider)
 - Extract structured data (amount, date, vendor, category)
 - Generate field-level confidence scores
 - Track data source (OCR/Manual/Edited)
@@ -1369,7 +1367,8 @@ Each field extracted has metadata:
 5. Date validity checks
 
 **Tools Available:**
-- `paddleocr.extract_text()` - PaddleOCR (self-hosted, 95%+ accuracy)
+- `tesseract_ocr.extract_text()` - Tesseract OCR
+- `google_vision.extract_text()` - Google Cloud Vision
 - `gemini.structure_data()` - LLM parsing
 - `detect_manipulation()` - Fraud detection
 - `verify_vendor()` - External validation
@@ -1639,7 +1638,7 @@ Send notification to user
     - Manages workflow state
 
 2. **document_agent_task** (Document Agent)
-    - OCR extraction via PaddleOCR
+    - OCR extraction via Tesseract/Google Vision
     - Field tracking and verification
     - Fraud detection
 
@@ -2975,14 +2974,14 @@ Response: {timesheet_id, created: true}
 - [ ] Set up DocumentDB cluster
 - [ ] Set up Redis cluster
 - [ ] Configure GCP storage
-- [ ] Deploy PaddleOCR service
+- [x] Configure OCR service (Tesseract)
 - [ ] Configure Keycloak authentication
 - [ ] Set up SSL certificates
 
 **Deployment Steps:**
 1. Deploy DocumentDB cluster
 2. Deploy Redis cluster (broker + result backend)
-3. Deploy PaddleOCR service
+3. Configure OCR service (Tesseract + Google Vision)
 4. Deploy FastAPI backend services
 5. Deploy Celery workers (3-5 instances)
 6. Deploy Flower monitoring UI
@@ -2995,7 +2994,7 @@ Response: {timesheet_id, created: true}
 **Post-Deployment:**
 - [ ] Verify all services healthy
 - [ ] Test claim submission
-- [ ] Test OCR extraction (PaddleOCR)
+- [x] Test OCR extraction (Tesseract + Google Vision)
 - [ ] Verify Celery tasks executing
 - [ ] Monitor Flower UI for task status
 - [ ] Test approval workflow
@@ -3080,7 +3079,7 @@ Response: {timesheet_id, created: true}
 
 ## Glossary
 
-**ADK** - Agent Development Kit (Google's framework)  
+
 **Allowance** - Fixed amount claim without supporting documents  
 **BSON** - Binary JSON (MongoDB document format)  
 **DocumentDB.io** - PostgreSQL-based MongoDB-compatible database  

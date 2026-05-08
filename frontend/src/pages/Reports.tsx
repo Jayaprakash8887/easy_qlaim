@@ -13,6 +13,7 @@ import {
   CreditCard,
   FileText,
   Loader2,
+  Briefcase,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -35,6 +36,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useFormatting } from '@/hooks/useFormatting';
+import { useClients } from '@/hooks/useClients';
+import { formatCategory } from '@/lib/categoryUtils';
 import {
   useFinanceMetrics,
   useClaimsByProject,
@@ -77,17 +80,26 @@ const PAYMENT_METHOD_COLORS: Record<string, string> = {
 export default function Reports() {
   const [dateRange, setDateRange] = useState('6m');
   const [period, setPeriod] = useState('month');
-  const { formatCurrency } = useFormatting();
+  const [clientFilter, setClientFilter] = useState<string>('all');
+  const { formatCurrency, formatDate } = useFormatting();
+
+  // Fetch clients for filter
+  const { data: clientsData } = useClients();
+  const clients = clientsData?.filter(c => c.is_active) || [];
 
   // Fetch data from APIs
   const { data: financeMetrics, isLoading: loadingMetrics } = useFinanceMetrics(undefined, period);
-  const { data: claimsByProject, isLoading: loadingProjects } = useClaimsByProject(undefined, period);
+  const { data: claimsByProject, isLoading: loadingProjects } = useClaimsByProject(
+    undefined, 
+    period, 
+    clientFilter !== 'all' ? clientFilter : undefined
+  );
   const { data: settlementAnalytics, isLoading: loadingSettlements } = useSettlementAnalytics(undefined, dateRange);
   const { data: pendingSettlements, isLoading: loadingPending } = usePendingSettlements();
   const { data: claimsTrend, isLoading: loadingTrend } = useClaimsTrend(undefined, dateRange);
   const { data: expenseBreakdown, isLoading: loadingBreakdown } = useExpenseBreakdown(undefined, period);
   const { data: topClaimants, isLoading: loadingClaimants } = useTopClaimants(undefined, 10, period);
-  const { data: claimsByStatus } = useClaimsByStatus();
+  const { data: claimsByStatus } = useClaimsByStatus(null); // Pass null to get tenant-wide data
 
   // Handle export
   const handleExport = () => {
@@ -139,6 +151,22 @@ export default function Reports() {
           </p>
         </div>
         <div className="flex gap-2">
+          {clients.length > 0 && (
+            <Select value={clientFilter} onValueChange={setClientFilter}>
+              <SelectTrigger className="w-[180px]">
+                <Briefcase className="mr-2 h-4 w-4" />
+                <SelectValue placeholder="All Clients" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Clients</SelectItem>
+                {clients.map((client) => (
+                  <SelectItem key={client.id} value={client.id}>
+                    {client.client_code} - {client.client_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Select value={period} onValueChange={setPeriod}>
             <SelectTrigger className="w-[150px]">
               <Calendar className="mr-2 h-4 w-4" />
@@ -579,13 +607,13 @@ export default function Reports() {
                         <TableCell className="font-medium">{claim.claim_number}</TableCell>
                         <TableCell>{claim.employee_name}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">{claim.category}</Badge>
+                          <Badge variant="outline">{claim.category_name || formatCategory(claim.category)}</Badge>
                         </TableCell>
                         <TableCell className="text-right font-medium">
                           {formatCurrency(claim.amount)}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {claim.approved_date ? new Date(claim.approved_date).toLocaleDateString() : '-'}
+                          {formatDate(claim.approved_date)}
                         </TableCell>
                         <TableCell>
                           <Badge 
@@ -628,6 +656,12 @@ export default function Reports() {
                           <Building2 className="h-4 w-4 text-muted-foreground" />
                           <span className="font-medium">{project.project_name}</span>
                           <Badge variant="outline" className="text-xs">{project.project_code}</Badge>
+                          {project.client_name && (
+                            <Badge variant="secondary" className="text-xs">
+                              <Briefcase className="h-3 w-3 mr-1" />
+                              {project.client_code}
+                            </Badge>
+                          )}
                         </div>
                         <div className="text-right">
                           <span className="font-medium">{formatCurrency(project.budget_utilized)}</span>
@@ -652,6 +686,12 @@ export default function Reports() {
                         <span>Claims Total: {formatCurrency(project.claims_amount)}</span>
                         <span>•</span>
                         <span>Settled: {formatCurrency(project.settled_amount)}</span>
+                        {project.client_name && (
+                          <>
+                            <span>•</span>
+                            <span>Client: {project.client_name}</span>
+                          </>
+                        )}
                       </div>
                     </div>
                   ))}

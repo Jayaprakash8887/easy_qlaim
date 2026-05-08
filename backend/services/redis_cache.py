@@ -632,6 +632,62 @@ class RedisCacheService:
             logger.error(f"Failed to clear cache: {e}")
             return False
 
+    async def invalidate_dashboard_cache(self, tenant_id: str = None, employee_id: str = None) -> int:
+        """
+        Invalidate dashboard cache when claim status changes.
+        This should be called whenever a claim is created, updated, approved, rejected, returned, or settled.
+        
+        Args:
+            tenant_id: Optional tenant ID to scope the invalidation
+            employee_id: Optional employee ID to scope the invalidation
+        
+        Returns:
+            Number of cache keys deleted
+        """
+        deleted = 0
+        try:
+            # Dashboard cache key patterns to invalidate
+            patterns = [
+                "dashboard:summary*",
+                "dashboard:claims_by_status*",
+                "dashboard:claims_by_category*",
+            ]
+            
+            # If tenant_id is provided, also invalidate tenant-specific keys
+            if tenant_id:
+                patterns.extend([
+                    f"dashboard:summary:{tenant_id}*",
+                    f"dashboard:claims_by_status:{tenant_id}*",
+                    f"dashboard:claims_by_category:{tenant_id}*",
+                ])
+            
+            # If employee_id is provided, also invalidate employee-specific keys
+            if employee_id:
+                if tenant_id:
+                    patterns.extend([
+                        f"dashboard:summary:{tenant_id}:{employee_id}",
+                        f"dashboard:claims_by_status:{tenant_id}:{employee_id}",
+                        f"dashboard:claims_by_category:{tenant_id}:{employee_id}",
+                    ])
+                else:
+                    patterns.extend([
+                        f"dashboard:summary:*:{employee_id}",
+                        f"dashboard:claims_by_status:*:{employee_id}",
+                        f"dashboard:claims_by_category:*:{employee_id}",
+                    ])
+            
+            for pattern in patterns:
+                count = await self.delete_pattern_async(pattern)
+                deleted += count
+            
+            if deleted > 0:
+                logger.info(f"Invalidated {deleted} dashboard cache keys (tenant={tenant_id}, employee={employee_id})")
+            
+            return deleted
+        except Exception as e:
+            logger.error(f"Failed to invalidate dashboard cache: {e}")
+            return 0
+
 
 # Global singleton instance
 redis_cache = RedisCacheService()

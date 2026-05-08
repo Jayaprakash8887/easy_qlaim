@@ -10,19 +10,103 @@ from typing import List, Optional
 from uuid import UUID, uuid4
 from datetime import date
 import hashlib
+import secrets
+import string
+import logging
 
 from database import get_sync_db
-from models import User, EmployeeProjectAllocation, Project
+from models import User, EmployeeProjectAllocation, Project, Tenant
 from services.role_service import get_user_roles
+from services.email_service import get_email_service
+from services.keycloak_service import get_keycloak_service
+from config import get_settings
 # Employee is now an alias for User in models.py
 Employee = User
 from schemas import (
     EmployeeCreate, EmployeeResponse, 
     EmployeeProjectAllocationCreate, EmployeeProjectAllocationUpdate,
-    EmployeeProjectAllocationResponse, EmployeeProjectHistoryResponse
+    EmployeeProjectAllocationResponse, EmployeeProjectHistoryResponse,
+    BulkEmployeeImport, BulkEmployeeImportResult, BulkEmployeeImportResponse
 )
 
+logger = logging.getLogger(__name__)
+settings = get_settings()
 router = APIRouter()
+
+
+def _sync_project_allocations(
+    db: Session,
+    user_id: UUID,
+    tenant_id: UUID,
+    new_project_ids: List[str],
+    existing_allocations: List[EmployeeProjectAllocation] = None
+) -> None:
+    """
+    Sync the EmployeeProjectAllocation table with the list of project_ids.
+    This ensures that when projects are assigned via the Employee form,
+    the allocations are properly created/deactivated.
+    """
+    # Convert to set of strings for comparison
+    new_project_id_set = set(str(pid) for pid in new_project_ids) if new_project_ids else set()
+    
+    # Get existing active allocations if not provided
+    if existing_allocations is None:
+        existing_allocations = db.query(EmployeeProjectAllocation).filter(
+            EmployeeProjectAllocation.employee_id == user_id,
+            EmployeeProjectAllocation.status == "ACTIVE"
+        ).all()
+    
+    existing_project_ids = set(str(alloc.project_id) for alloc in existing_allocations)
+    
+    # Projects to add (in new list but not in existing)
+    projects_to_add = new_project_id_set - existing_project_ids
+    
+    # Projects to remove (in existing but not in new list)
+    projects_to_remove = existing_project_ids - new_project_id_set
+    
+    # Create new allocations
+    for project_id_str in projects_to_add:
+        try:
+            project_uuid = UUID(project_id_str)
+            # Verify project exists
+            project = db.query(Project).filter(Project.id == project_uuid).first()
+            if project:
+                allocation = EmployeeProjectAllocation(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    employee_id=user_id,
+                    project_id=project_uuid,
+                    role="MEMBER",
+                    allocation_percentage=100,
+                    allocated_date=date.today(),
+                    status="ACTIVE"
+                )
+                db.add(allocation)
+                logger.info(f"Created project allocation for employee {user_id} to project {project_id_str}")
+        except Exception as e:
+            logger.error(f"Error creating allocation for project {project_id_str}: {e}")
+    
+    # Deactivate removed allocations
+    for alloc in existing_allocations:
+        if str(alloc.project_id) in projects_to_remove:
+            alloc.status = "REMOVED"
+            alloc.deallocated_date = date.today()
+            logger.info(f"Deactivated project allocation for employee {user_id} from project {alloc.project_id}")
+
+
+def generate_temporary_password(length: int = 12) -> str:
+    """Generate a secure temporary password"""
+    alphabet = string.ascii_letters + string.digits + "!@#$%&*"
+    password = ''.join(secrets.choice(alphabet) for _ in range(length))
+    # Ensure at least one of each type
+    password = (
+        secrets.choice(string.ascii_uppercase) +
+        secrets.choice(string.ascii_lowercase) +
+        secrets.choice(string.digits) +
+        secrets.choice("!@#$%&*") +
+        password[4:]
+    )
+    return password
 
 
 async def _invalidate_employee_cache(employee_id: UUID = None, employee_code: str = None, email: str = None):
@@ -55,6 +139,7 @@ def _user_to_employee_response(user: User, db: Session) -> dict:
         "employee_id": user.employee_code,
         "first_name": user.first_name,
         "last_name": user.last_name,
+        "full_name": user.full_name or f"{user.first_name} {user.last_name}",
         "email": user.email,
         "phone": user.phone,
         "mobile": user.mobile,
@@ -66,6 +151,7 @@ def _user_to_employee_response(user: User, db: Session) -> dict:
         "employment_status": user.employment_status or "ACTIVE",
         "region": user.region,
         "roles": roles,
+        "avatar_url": user.avatar_url,
         "employee_data": user.user_data or {},
         "created_at": user.created_at,
     }
@@ -130,17 +216,26 @@ async def create_employee(
     db: Session = Depends(get_sync_db)
 ):
     """Create a new employee (creates a User with employee data)"""
-    # Check if employee_code already exists
+    # tenant_id is required - must be provided in the request
+    if not employee_data.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="tenant_id is required when creating an employee"
+        )
+    employee_tenant_id = employee_data.tenant_id
+    
+    # Check if employee_code already exists within the same tenant
     existing = db.query(User).filter(
+        User.tenant_id == employee_tenant_id,
         User.employee_code == employee_data.employee_id
     ).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Employee with ID {employee_data.employee_id} already exists"
+            detail=f"Employee with ID {employee_data.employee_id} already exists in this tenant"
         )
     
-    # Check if email already exists
+    # Check if email already exists (email is globally unique)
     existing_email = db.query(User).filter(
         User.email == employee_data.email
     ).first()
@@ -157,23 +252,20 @@ async def create_employee(
     # Generate username from email
     username = employee_data.email.split('@')[0]
     
-    # Generate a default hashed password
-    default_password = hashlib.sha256(f"temp_{employee_data.employee_id}".encode()).hexdigest()
+    # Generate a secure temporary password
+    temp_password = generate_temporary_password()
+    hashed_password = hashlib.sha256(temp_password.encode()).hexdigest()
     
-    # tenant_id is required - must be provided in the request
-    if not employee_data.tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="tenant_id is required when creating an employee"
-        )
-    employee_tenant_id = employee_data.tenant_id
+    # Get tenant info for email branding
+    tenant = db.query(Tenant).filter(Tenant.id == employee_tenant_id).first()
+    tenant_name = tenant.name if tenant else "Easy Qlaim"
     
     user = User(
         id=uuid4(),
         tenant_id=employee_tenant_id,
         username=username,
         email=employee_data.email,
-        hashed_password=default_password,
+        hashed_password=hashed_password,
         employee_code=employee_data.employee_id,
         first_name=employee_data.first_name,
         last_name=employee_data.last_name,
@@ -183,6 +275,7 @@ async def create_employee(
         address=employee_data.address,
         department=employee_data.department,
         designation=employee_data.designation,
+        region=employee_data.region,  # Region/location for policy applicability
         manager_id=UUID(employee_data.manager_id) if employee_data.manager_id else None,
         date_of_joining=employee_data.date_of_joining,
         user_data=user_data,
@@ -195,9 +288,254 @@ async def create_employee(
     db.commit()
     db.refresh(user)
     
-    # Note: No cache invalidation needed for new employee since it's not in cache yet
+    # Sync project allocations to EmployeeProjectAllocation table
+    if employee_data.project_ids:
+        _sync_project_allocations(
+            db=db,
+            user_id=user.id,
+            tenant_id=user.tenant_id,
+            new_project_ids=employee_data.project_ids
+        )
+        db.commit()
+    
+    # Create Keycloak user if KEYCLOAK_ENABLED
+    keycloak_user_created = False
+    if settings.KEYCLOAK_ENABLED:
+        try:
+            keycloak = get_keycloak_service()
+            keycloak_user_id = await keycloak.create_user(
+                email=employee_data.email,
+                password=temp_password,
+                first_name=employee_data.first_name,
+                last_name=employee_data.last_name,
+                enabled=True,
+                email_verified=False,
+                attributes={
+                    "tenant_id": [str(employee_tenant_id)],
+                    "employee_id": [str(user.id)],
+                    "employee_code": [employee_data.employee_id]
+                }
+            )
+            if keycloak_user_id:
+                keycloak_user_created = True
+                logger.info(f"Keycloak user created for employee {employee_data.email} with ID {keycloak_user_id}")
+            else:
+                logger.warning(f"Keycloak user creation returned no ID for employee {employee_data.email}")
+        except Exception as e:
+            logger.error(f"Failed to create Keycloak user for employee {employee_data.email}: {str(e)}")
+            # Continue even if Keycloak fails - user can still be created locally
+    
+    # Send welcome email with credentials
+    try:
+        email_service = get_email_service()
+        login_url = settings.FRONTEND_URL or "http://localhost:5173"
+        
+        background_tasks.add_task(
+            email_service.send_employee_welcome_email,
+            to_email=employee_data.email,
+            employee_name=f"{employee_data.first_name} {employee_data.last_name}",
+            tenant_name=tenant_name,
+            temporary_password=temp_password,
+            login_url=login_url
+        )
+        logger.info(f"Welcome email queued for employee {employee_data.email}")
+    except Exception as e:
+        logger.error(f"Failed to queue welcome email for employee {employee_data.email}: {str(e)}")
+        # Don't fail the request if email fails
     
     return _user_to_employee_response(user, db)
+
+
+@router.post("/bulk", status_code=status.HTTP_200_OK)
+async def bulk_import_employees(
+    import_data: BulkEmployeeImport,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_sync_db)
+):
+    """
+    Bulk import employees from CSV/list.
+    Creates multiple employees in a single transaction.
+    Returns detailed results for each employee.
+    Also creates Keycloak users and sends welcome emails.
+    """
+    
+    if not import_data.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="tenant_id is required"
+        )
+    
+    # Get tenant info for email branding
+    tenant = db.query(Tenant).filter(Tenant.id == import_data.tenant_id).first()
+    tenant_name = tenant.name if tenant else "Easy Qlaim"
+    
+    results = []
+    success_count = 0
+    failed_count = 0
+    created_users = []  # Track created users for Keycloak/email processing
+    
+    for emp_data in import_data.employees:
+        try:
+            # Check if employee_code already exists within the same tenant
+            existing = db.query(User).filter(
+                User.tenant_id == import_data.tenant_id,
+                User.employee_code == emp_data.employee_id
+            ).first()
+            if existing:
+                results.append(BulkEmployeeImportResult(
+                    employee_id=emp_data.employee_id,
+                    email=emp_data.email,
+                    success=False,
+                    error=f"Employee ID {emp_data.employee_id} already exists in this tenant"
+                ))
+                failed_count += 1
+                continue
+            
+            # Check if email already exists (email is globally unique)
+            existing_email = db.query(User).filter(
+                User.email == emp_data.email
+            ).first()
+            if existing_email:
+                results.append(BulkEmployeeImportResult(
+                    employee_id=emp_data.employee_id,
+                    email=emp_data.email,
+                    success=False,
+                    error=f"Email {emp_data.email} already exists"
+                ))
+                failed_count += 1
+                continue
+            
+            # Store project_ids in user_data JSONB field
+            user_data = dict(emp_data.employee_data) if emp_data.employee_data else {}
+            user_data['project_ids'] = emp_data.project_ids if emp_data.project_ids else []
+            
+            # Generate username from email
+            username = emp_data.email.split('@')[0]
+            
+            # Generate a secure temporary password
+            temp_password = generate_temporary_password()
+            hashed_password = hashlib.sha256(temp_password.encode()).hexdigest()
+            
+            user = User(
+                id=uuid4(),
+                tenant_id=import_data.tenant_id,
+                username=username,
+                email=emp_data.email,
+                hashed_password=hashed_password,
+                employee_code=emp_data.employee_id,
+                first_name=emp_data.first_name,
+                last_name=emp_data.last_name,
+                full_name=f"{emp_data.first_name} {emp_data.last_name}",
+                phone=emp_data.phone,
+                mobile=emp_data.mobile,
+                address=emp_data.address,
+                department=emp_data.department,
+                designation=emp_data.designation,
+                region=emp_data.region,  # Region/location for policy applicability
+                manager_id=UUID(emp_data.manager_id) if emp_data.manager_id else None,
+                date_of_joining=emp_data.date_of_joining,
+                user_data=user_data,
+                employment_status="ACTIVE",
+                roles=["EMPLOYEE"],
+                is_active=True
+            )
+            
+            db.add(user)
+            
+            # Store user info for post-commit processing
+            created_users.append({
+                'user': user,
+                'temp_password': temp_password,
+                'username': username,
+                'emp_data': emp_data
+            })
+            
+            results.append(BulkEmployeeImportResult(
+                employee_id=emp_data.employee_id,
+                email=emp_data.email,
+                success=True
+            ))
+            success_count += 1
+            
+        except Exception as e:
+            results.append(BulkEmployeeImportResult(
+                employee_id=emp_data.employee_id,
+                email=emp_data.email,
+                success=False,
+                error=str(e)
+            ))
+            failed_count += 1
+    
+    # Commit all successful inserts
+    if success_count > 0:
+        db.commit()
+        
+        # Process Keycloak users and welcome emails after commit
+        keycloak = None
+        if settings.KEYCLOAK_ENABLED:
+            try:
+                keycloak = get_keycloak_service()
+            except Exception as e:
+                logger.error(f"Failed to get Keycloak service for bulk import: {str(e)}")
+        
+        email_service = None
+        try:
+            email_service = get_email_service()
+        except Exception as e:
+            logger.error(f"Failed to get email service for bulk import: {str(e)}")
+        
+        login_url = settings.FRONTEND_URL or "http://localhost:5173"
+        
+        for user_info in created_users:
+            user = user_info['user']
+            temp_password = user_info['temp_password']
+            username = user_info['username']
+            emp_data = user_info['emp_data']
+            
+            # Create Keycloak user if enabled
+            if keycloak:
+                try:
+                    keycloak_user_id = await keycloak.create_user(
+                        email=emp_data.email,
+                        password=temp_password,
+                        first_name=emp_data.first_name,
+                        last_name=emp_data.last_name,
+                        enabled=True,
+                        email_verified=False,
+                        attributes={
+                            "tenant_id": [str(import_data.tenant_id)],
+                            "employee_id": [str(user.id)],
+                            "employee_code": [emp_data.employee_id]
+                        }
+                    )
+                    if keycloak_user_id:
+                        logger.info(f"Keycloak user created for employee {emp_data.email} with ID {keycloak_user_id}")
+                    else:
+                        logger.warning(f"Keycloak user creation returned no ID for employee {emp_data.email}")
+                except Exception as e:
+                    logger.error(f"Failed to create Keycloak user for employee {emp_data.email}: {str(e)}")
+            
+            # Queue welcome email
+            if email_service:
+                try:
+                    background_tasks.add_task(
+                        email_service.send_employee_welcome_email,
+                        to_email=emp_data.email,
+                        employee_name=f"{emp_data.first_name} {emp_data.last_name}",
+                        tenant_name=tenant_name,
+                        temporary_password=temp_password,
+                        login_url=login_url
+                    )
+                    logger.info(f"Welcome email queued for employee {emp_data.email}")
+                except Exception as e:
+                    logger.error(f"Failed to queue welcome email for employee {emp_data.email}: {str(e)}")
+    
+    return BulkEmployeeImportResponse(
+        total=len(import_data.employees),
+        success_count=success_count,
+        failed_count=failed_count,
+        results=results
+    )
 
 
 @router.put("/{employee_id}", response_model=EmployeeResponse)
@@ -223,6 +561,19 @@ async def update_employee(
     old_employee_code = user.employee_code
     old_email = user.email
     
+    # Check if new employee_code conflicts with another user in the same tenant
+    if employee_data.employee_id != old_employee_code:
+        existing = db.query(User).filter(
+            User.tenant_id == user.tenant_id,
+            User.employee_code == employee_data.employee_id,
+            User.id != employee_id
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Employee with ID {employee_data.employee_id} already exists in this tenant"
+            )
+    
     # Update fields
     user.employee_code = employee_data.employee_id
     user.first_name = employee_data.first_name
@@ -247,12 +598,21 @@ async def update_employee(
     # Store project_ids in user_data JSONB field
     user_data = dict(user.user_data) if user.user_data else {}
     # Always store project_ids, even if empty
-    user_data['project_ids'] = employee_data.project_ids if employee_data.project_ids else []
+    new_project_ids = employee_data.project_ids if employee_data.project_ids else []
+    user_data['project_ids'] = new_project_ids
     if employee_data.employee_data:
         user_data.update(employee_data.employee_data)
     user.user_data = user_data
     # Flag the JSONB field as modified so SQLAlchemy detects the change
     flag_modified(user, 'user_data')
+    
+    # Sync project allocations to EmployeeProjectAllocation table
+    _sync_project_allocations(
+        db=db,
+        user_id=user.id,
+        tenant_id=user.tenant_id,
+        new_project_ids=new_project_ids
+    )
     
     # Note: Roles are NOT updated here - they are derived from designation-to-role mappings
     
@@ -433,12 +793,15 @@ async def allocate_employee_to_project(
     db.add(allocation)
     
     # Also update user_data.project_ids for quick access
-    user_data = user.user_data or {}
-    project_ids = user_data.get('project_ids', [])
+    # Need to create a new dict to trigger SQLAlchemy change detection for JSONB
+    user_data = dict(user.user_data) if user.user_data else {}
+    project_ids = list(user_data.get('project_ids', []))
     if str(allocation_data.project_id) not in project_ids:
         project_ids.append(str(allocation_data.project_id))
         user_data['project_ids'] = project_ids
         user.user_data = user_data
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(user, 'user_data')
     
     db.commit()
     db.refresh(allocation)

@@ -151,6 +151,7 @@ class KeycloakService:
                         "client_id": self.client_id,
                         "username": username,
                         "password": password,
+                        "scope": "openid profile email",
                     }
                 )
                 if response.status_code == 200:
@@ -175,6 +176,7 @@ class KeycloakService:
                         "grant_type": "refresh_token",
                         "client_id": self.client_id,
                         "refresh_token": refresh_token,
+                        "scope": "openid profile email",
                     }
                 )
                 if response.status_code == 200:

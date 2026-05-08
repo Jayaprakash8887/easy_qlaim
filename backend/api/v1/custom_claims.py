@@ -12,11 +12,52 @@ from datetime import datetime
 import logging
 
 from database import get_sync_db
-from models import CustomClaim, User
+from models import CustomClaim, User, Region
 from schemas import (
     CustomClaimCreate, CustomClaimUpdate, CustomClaimResponse, CustomClaimListResponse
 )
 from api.v1.auth import require_tenant_id
+
+
+def validate_regions_exist(db: Session, tenant_id: UUID, region_codes: List[str]) -> None:
+    """Validate that all provided region codes or names exist for the tenant.
+    'GLOBAL' is a special value meaning the claim applies to all regions.
+    Accepts both region codes (e.g., 'IND') or region names (e.g., 'India', 'INDIA').
+    """
+    if not region_codes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one region is required"
+        )
+    
+    # Filter out 'GLOBAL' as it's a special value, not a database region
+    codes_to_validate = [code for code in region_codes if code.upper() != 'GLOBAL']
+    
+    # If only GLOBAL was provided, that's valid
+    if not codes_to_validate:
+        return
+    
+    # Query regions by code OR name (case-insensitive)
+    from sqlalchemy import func
+    existing_regions = db.query(Region).filter(
+        Region.tenant_id == tenant_id,
+        Region.is_active == True,
+        (Region.code.in_(codes_to_validate)) | (func.upper(Region.name).in_([c.upper() for c in codes_to_validate]))
+    ).all()
+    
+    # Build set of valid identifiers (both codes and uppercase names)
+    valid_identifiers = set()
+    for r in existing_regions:
+        valid_identifiers.add(r.code)
+        valid_identifiers.add(r.name.upper())
+    
+    # Check which provided values are invalid
+    invalid_codes = [c for c in codes_to_validate if c not in valid_identifiers and c.upper() not in valid_identifiers]
+    if invalid_codes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid regions: {', '.join(invalid_codes)}. Please create these regions first."
+        )
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +144,11 @@ async def create_custom_claim(
     """
     Create a new custom claim definition.
     Custom claims are standalone claim types not linked to any policy document.
+    Region is mandatory - at least one valid region must be specified.
     """
+    # Validate that regions exist
+    validate_regions_exist(db, tenant_id, claim_data.region)
+    
     # Generate unique claim code
     claim_code = generate_custom_claim_code(db)
     
@@ -187,7 +232,8 @@ async def list_custom_claims(
     
     # Apply filters
     if region:
-        query = query.filter(CustomClaim.region == region)
+        # Note: CustomClaim.region is an ARRAY type, so we use .any() to check if value is in array
+        query = query.filter(CustomClaim.region.any(region))
     if category_type:
         query = query.filter(CustomClaim.category_type == category_type)
     if is_active is not None:
@@ -291,6 +337,10 @@ async def update_custom_claim(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Custom claim not found"
         )
+    
+    # Validate regions if being updated
+    if claim_data.region is not None:
+        validate_regions_exist(db, tenant_id, claim_data.region)
     
     # Update fields if provided
     update_data = claim_data.dict(exclude_unset=True)

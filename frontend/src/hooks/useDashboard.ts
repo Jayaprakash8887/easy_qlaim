@@ -1,7 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Auth helper
+function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
 
 interface DashboardSummary {
   total_claims: number;
@@ -72,7 +78,7 @@ function buildUrl(base: string, params: Record<string, string | number | undefin
 // Fetch dashboard summary
 async function fetchDashboardSummary(employeeId?: string, tenantId?: string): Promise<DashboardSummary> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/summary`, { employee_id: employeeId, tenant_id: tenantId });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch dashboard summary');
   }
@@ -82,7 +88,7 @@ async function fetchDashboardSummary(employeeId?: string, tenantId?: string): Pr
 // Fetch claims by status
 async function fetchClaimsByStatus(employeeId?: string, tenantId?: string): Promise<ClaimByStatus[]> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/claims-by-status`, { employee_id: employeeId, tenant_id: tenantId });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch claims by status');
   }
@@ -92,7 +98,7 @@ async function fetchClaimsByStatus(employeeId?: string, tenantId?: string): Prom
 // Fetch claims by category
 async function fetchClaimsByCategory(employeeId?: string, tenantId?: string): Promise<ClaimByCategory[]> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/claims-by-category`, { employee_id: employeeId, tenant_id: tenantId });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch claims by category');
   }
@@ -102,7 +108,7 @@ async function fetchClaimsByCategory(employeeId?: string, tenantId?: string): Pr
 // Fetch recent activity
 async function fetchRecentActivity(limit: number = 10, employeeId?: string, tenantId?: string): Promise<RecentActivity[]> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/recent-activity`, { limit, employee_id: employeeId, tenant_id: tenantId });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch recent activity');
   }
@@ -112,7 +118,7 @@ async function fetchRecentActivity(limit: number = 10, employeeId?: string, tena
 // Fetch AI metrics
 async function fetchAIMetrics(tenantId?: string): Promise<AIMetrics> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/ai-metrics`, { tenant_id: tenantId });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch AI metrics');
   }
@@ -126,7 +132,7 @@ async function fetchPendingApprovals(tenantId?: string, userId?: string, role?: 
     user_id: userId,
     role: role
   });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch pending approvals');
   }
@@ -134,9 +140,10 @@ async function fetchPendingApprovals(tenantId?: string, userId?: string, role?: 
 }
 
 // Hooks
-export function useDashboardSummary(employeeId?: string, tenantId?: string) {
+export function useDashboardSummary(employeeId?: string | null, tenantId?: string) {
   const { user } = useAuth();
-  const effectiveEmployeeId = employeeId || user?.id;
+  // Pass null to skip employee filtering, undefined will default to current user
+  const effectiveEmployeeId = employeeId === null ? undefined : (employeeId || user?.id);
   const effectiveTenantId = tenantId || user?.tenantId;
 
   return useQuery({
@@ -148,9 +155,10 @@ export function useDashboardSummary(employeeId?: string, tenantId?: string) {
   });
 }
 
-export function useClaimsByStatus(employeeId?: string, tenantId?: string) {
+export function useClaimsByStatus(employeeId?: string | null, tenantId?: string) {
   const { user } = useAuth();
-  const effectiveEmployeeId = employeeId || user?.id;
+  // Pass null to skip employee filtering, undefined will default to current user
+  const effectiveEmployeeId = employeeId === null ? undefined : (employeeId || user?.id);
   const effectiveTenantId = tenantId || user?.tenantId;
 
   return useQuery({
@@ -229,7 +237,7 @@ interface HRMetrics {
 
 async function fetchHRMetrics(tenantId?: string): Promise<HRMetrics> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/hr-metrics`, { tenant_id: tenantId });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch HR metrics');
   }
@@ -252,7 +260,7 @@ export function useHRMetrics(tenantId?: string) {
 // Fetch draft claims (AI suggestions)
 async function fetchDraftClaims(employeeId?: string, limit: number = 5, tenantId?: string): Promise<RecentActivity[]> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/recent-activity`, { limit, employee_id: employeeId, tenant_id: tenantId, status: 'DRAFT' });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch draft claims');
   }
@@ -284,7 +292,7 @@ interface AllowanceSummary {
 
 async function fetchAllowanceSummary(employeeId?: string, tenantId?: string): Promise<AllowanceSummary[]> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/allowance-summary`, { employee_id: employeeId, tenant_id: tenantId });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch allowance summary');
   }
@@ -315,7 +323,7 @@ interface AdminStats {
 
 async function fetchAdminStats(tenantId?: string): Promise<AdminStats> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/admin-stats`, { tenant_id: tenantId });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch admin stats');
   }
@@ -350,7 +358,7 @@ interface FinanceMetrics {
 
 async function fetchFinanceMetrics(tenantId?: string, period: string = 'month'): Promise<FinanceMetrics> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/finance-metrics`, { tenant_id: tenantId, period });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch finance metrics');
   }
@@ -380,24 +388,31 @@ interface ClaimsByProject {
   claims_count: number;
   claims_amount: number;
   settled_amount: number;
+  client_id?: string;
+  client_name?: string;
+  client_code?: string;
 }
 
-async function fetchClaimsByProject(tenantId?: string, period: string = 'month'): Promise<ClaimsByProject[]> {
-  const url = buildUrl(`${API_BASE_URL}/dashboard/claims-by-project`, { tenant_id: tenantId, period });
-  const response = await fetch(url);
+async function fetchClaimsByProject(tenantId?: string, period: string = 'month', clientId?: string): Promise<ClaimsByProject[]> {
+  const url = buildUrl(`${API_BASE_URL}/dashboard/claims-by-project`, { 
+    tenant_id: tenantId, 
+    period,
+    client_id: clientId
+  });
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch claims by project');
   }
   return response.json();
 }
 
-export function useClaimsByProject(tenantId?: string, period: string = 'month') {
+export function useClaimsByProject(tenantId?: string, period: string = 'month', clientId?: string) {
   const { user } = useAuth();
   const effectiveTenantId = tenantId || user?.tenantId;
 
   return useQuery({
-    queryKey: ['claims-by-project', effectiveTenantId, period],
-    queryFn: () => fetchClaimsByProject(effectiveTenantId, period),
+    queryKey: ['claims-by-project', effectiveTenantId, period, clientId],
+    queryFn: () => fetchClaimsByProject(effectiveTenantId, period, clientId),
     enabled: !!effectiveTenantId,
     refetchInterval: 180000,
     staleTime: 120000,
@@ -414,7 +429,7 @@ interface SettlementAnalytics {
 
 async function fetchSettlementAnalytics(tenantId?: string, period: string = '6m'): Promise<SettlementAnalytics> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/settlement-analytics`, { tenant_id: tenantId, period });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch settlement analytics');
   }
@@ -462,7 +477,7 @@ interface PendingSettlementsResponse {
 
 async function fetchPendingSettlements(tenantId?: string): Promise<PendingSettlementsResponse> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/pending-settlements`, { tenant_id: tenantId });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch pending settlements');
   }
@@ -494,7 +509,7 @@ interface ClaimsTrendData {
 
 async function fetchClaimsTrend(tenantId?: string, period: string = '6m'): Promise<ClaimsTrendData[]> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/claims-trend`, { tenant_id: tenantId, period });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch claims trend');
   }
@@ -525,7 +540,7 @@ interface ExpenseBreakdown {
 
 async function fetchExpenseBreakdown(tenantId?: string, period: string = 'month'): Promise<ExpenseBreakdown> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/expense-breakdown`, { tenant_id: tenantId, period });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch expense breakdown');
   }
@@ -556,7 +571,7 @@ interface TopClaimant {
 
 async function fetchTopClaimants(tenantId?: string, limit: number = 10, period: string = 'month'): Promise<TopClaimant[]> {
   const url = buildUrl(`${API_BASE_URL}/dashboard/top-claimants`, { tenant_id: tenantId, limit, period });
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch top claimants');
   }

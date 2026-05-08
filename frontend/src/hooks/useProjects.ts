@@ -1,15 +1,32 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Project } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { extractErrorMessage } from '@/lib/utils';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Auth helpers
+function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+function getAuthHeadersWithJson(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+  };
+}
 
 // API functions
 async function fetchProjects(tenantId?: string): Promise<Project[]> {
   const url = tenantId
     ? `${API_BASE_URL}/projects/?tenant_id=${tenantId}`
     : `${API_BASE_URL}/projects/`;
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch projects');
   }
@@ -29,11 +46,16 @@ async function fetchProjects(tenantId?: string): Promise<Project[]> {
     managerId: proj.manager_id || '',
     memberIds: [],
     ibuId: proj.ibu_id || undefined,
+    clientId: proj.client_id || undefined,
+    clientName: proj.client_name || undefined,
+    clientCode: proj.client_code || undefined,
   }));
 }
 
 async function fetchProjectById(id: string): Promise<Project | undefined> {
-  const response = await fetch(`${API_BASE_URL}/projects/${id}`);
+  const response = await fetch(`${API_BASE_URL}/projects/${id}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     if (response.status === 404) return undefined;
     throw new Error('Failed to fetch project');
@@ -53,15 +75,16 @@ async function fetchProjectById(id: string): Promise<Project | undefined> {
     managerId: proj.manager_id || '',
     memberIds: [],
     ibuId: proj.ibu_id || undefined,
+    clientId: proj.client_id || undefined,
+    clientName: proj.client_name || undefined,
+    clientCode: proj.client_code || undefined,
   };
 }
 
 async function createProject(project: Omit<Project, 'id'>): Promise<Project> {
   const response = await fetch(`${API_BASE_URL}/projects/`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeadersWithJson(),
     body: JSON.stringify({
       project_code: project.code,
       project_name: project.name,
@@ -69,13 +92,15 @@ async function createProject(project: Omit<Project, 'id'>): Promise<Project> {
       budget_allocated: project.budget,
       start_date: project.startDate.toISOString().split('T')[0],
       end_date: project.endDate?.toISOString().split('T')[0],
+      manager_id: project.managerId || null,
       ibu_id: project.ibuId || null,
+      client_id: project.clientId || null,
     }),
   });
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.detail || 'Failed to create project');
+    throw new Error(extractErrorMessage(error, 'Failed to create project'));
   }
 
   const data = await response.json();
@@ -93,6 +118,9 @@ async function createProject(project: Omit<Project, 'id'>): Promise<Project> {
     managerId: data.manager_id || '',
     memberIds: [],
     ibuId: data.ibu_id || undefined,
+    clientId: data.client_id || undefined,
+    clientName: data.client_name || undefined,
+    clientCode: data.client_code || undefined,
   };
 }
 
@@ -132,6 +160,7 @@ export function useCreateProject() {
     mutationFn: createProject,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project-members-all'] });
     },
   });
 }
@@ -139,9 +168,7 @@ export function useCreateProject() {
 async function updateProject(id: string, project: Partial<Project>): Promise<Project> {
   const response = await fetch(`${API_BASE_URL}/projects/${id}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeadersWithJson(),
     body: JSON.stringify({
       project_code: project.code,
       project_name: project.name,
@@ -152,12 +179,13 @@ async function updateProject(id: string, project: Partial<Project>): Promise<Pro
       status: project.status?.toUpperCase(),
       manager_id: project.managerId,
       ibu_id: project.ibuId || null,
+      client_id: project.clientId || null,
     }),
   });
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.detail || 'Failed to update project');
+    throw new Error(extractErrorMessage(error, 'Failed to update project'));
   }
 
   const data = await response.json();
@@ -175,6 +203,9 @@ async function updateProject(id: string, project: Partial<Project>): Promise<Pro
     managerId: data.manager_id || '',
     memberIds: [],
     ibuId: data.ibu_id || undefined,
+    clientId: data.client_id || undefined,
+    clientName: data.client_name || undefined,
+    clientCode: data.client_code || undefined,
   };
 }
 
@@ -185,6 +216,7 @@ export function useUpdateProject() {
     mutationFn: ({ id, data }: { id: string; data: Partial<Project> }) => updateProject(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project-members-all'] });
     },
   });
 }
@@ -211,7 +243,9 @@ async function fetchAllProjectMembers(tenantId?: string): Promise<ProjectMember[
   const url = tenantId
     ? `${API_BASE_URL}/projects/members/all?tenant_id=${tenantId}`
     : `${API_BASE_URL}/projects/members/all`;
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch all project members');
   }

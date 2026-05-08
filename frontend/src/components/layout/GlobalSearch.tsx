@@ -19,7 +19,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { useFormatting } from '@/hooks/useFormatting';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Auth helper
+function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
 
 interface SearchResult {
   id: string;
@@ -79,7 +85,8 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
         claimsParams.append('tenant_id', user.tenantId);
       }
       const claimsResponse = await fetch(
-        `${API_BASE_URL}/claims/?${claimsParams.toString()}`
+        `${API_BASE_URL}/claims/?${claimsParams.toString()}`,
+        { headers: getAuthHeaders() }
       );
       if (claimsResponse.ok) {
         const claimsData = await claimsResponse.json();
@@ -126,7 +133,8 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
         empParams.append('search', searchQuery);
 
         const employeesResponse = await fetch(
-          `${API_BASE_URL}/employees/?${empParams.toString()}`
+          `${API_BASE_URL}/employees/?${empParams.toString()}`,
+          { headers: getAuthHeaders() }
         );
         if (employeesResponse.ok) {
           const employees = await employeesResponse.json();
@@ -153,7 +161,8 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
         projectParams.append('search', searchQuery);
 
         const projectsResponse = await fetch(
-          `${API_BASE_URL}/projects/?${projectParams.toString()}`
+          `${API_BASE_URL}/projects/?${projectParams.toString()}`,
+          { headers: getAuthHeaders() }
         );
         if (projectsResponse.ok) {
           const projects = await projectsResponse.json();
@@ -174,7 +183,8 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
       // Search tenants - only for System Admin
       if (user?.role === 'system_admin') {
         const tenantsResponse = await fetch(
-          `${API_BASE_URL}/tenants/?search=${encodeURIComponent(searchQuery)}`
+          `${API_BASE_URL}/tenants/?search=${encodeURIComponent(searchQuery)}`,
+          { headers: getAuthHeaders() }
         );
         if (tenantsResponse.ok) {
           const tenants = await tenantsResponse.json();

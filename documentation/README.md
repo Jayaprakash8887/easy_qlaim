@@ -73,6 +73,10 @@ Welcome to the Easy Qlaim documentation. This folder contains comprehensive docu
 |---------|------|-------------|
 | 1.0 | December 2025 | Initial comprehensive documentation |
 | 1.1 | December 2025 | Added Integrations API documentation (API keys, webhooks, SSO, HRMS, ERP, Slack/Teams) |
+| 1.2 | December 2025 | Added Approval Skip Rules feature for CXO/Executive fast-track approvals |
+| 1.3 | December 2025 | Consolidated Approval Rules into dedicated menu (Auto-Approval + Skip Rules tabs) |
+| 1.4 | December 2025 | Added Communication Integrations (Slack/Teams) with automatic claim notifications |
+| 1.5 | January 2026 | Added Client Management feature (Client API, Project-Client linking, Reports filtering) |
 
 ---
 

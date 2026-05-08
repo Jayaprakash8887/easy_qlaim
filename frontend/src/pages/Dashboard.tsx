@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, CheckCircle, XCircle, Wallet, Users, TrendingUp, AlertCircle, DollarSign, FileText, Building2, Settings, Shield, Activity, Server, RotateCcw, Banknote } from 'lucide-react';
 import { SummaryCard } from '@/components/dashboard/SummaryCard';
@@ -6,8 +7,11 @@ import { RecentActivity } from '@/components/dashboard/RecentActivity';
 import { AISuggestionsCard } from '@/components/dashboard/AISuggestionsCard';
 import { AllowanceOverviewCards, AllowancePolicyAlerts } from '@/components/dashboard/AllowanceWidgets';
 import { useAuth } from '@/contexts/AuthContext';
-import { useDashboardSummary, useClaimsByStatus, useHRMetrics, useAdminStats, formatCurrency } from '@/hooks/useDashboard';
+import { useTour } from '@/contexts/TourContext';
+import { useDashboardSummary, useClaimsByStatus, useHRMetrics, useAdminStats, useFinanceMetrics, usePendingApprovals } from '@/hooks/useDashboard';
+import { useFormatting } from '@/hooks/useFormatting';
 import { useTenants, useDesignations } from '@/hooks/useSystemAdmin';
+import { useEmployees } from '@/hooks/useEmployees';
 import { CardSkeleton } from '@/components/ui/loading-skeleton';
 import { Badge } from '@/components/ui/badge';
 
@@ -15,6 +19,21 @@ import { Badge } from '@/components/ui/badge';
 function EmployeeDashboard({ userName, employeeId, tenantId }: { userName: string; employeeId: string; tenantId?: string }) {
   const { data: summary, isLoading: summaryLoading } = useDashboardSummary(employeeId, tenantId);
   const { data: claimsByStatus, isLoading: statusLoading } = useClaimsByStatus(employeeId, tenantId);
+  const { formatCurrency } = useFormatting();
+  const { hasSeenTour, startTour, isLoading: tourLoading } = useTour();
+
+  // Auto-start tour for first-time users
+  useEffect(() => {
+    // Wait for both dashboard data and tour status to finish loading
+    if (!tourLoading && !hasSeenTour && !summaryLoading) {
+      // Small delay to allow the page to render first
+      const timer = setTimeout(() => {
+        startTour();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [hasSeenTour, summaryLoading, startTour, tourLoading]);
+
 
   // Pending = any claim that is NOT Approved, Rejected, Settled, or Returned
   const excludedFromPending = ['FINANCE_APPROVED', 'REJECTED', 'SETTLED', 'RETURNED_TO_EMPLOYEE'];
@@ -30,7 +49,7 @@ function EmployeeDashboard({ userName, employeeId, tenantId }: { userName: strin
   // Calculate amounts
   const settledAmount = claimsByStatus?.find(c => c.status === 'SETTLED')?.amount || 0;
   const rejectedAmount = claimsByStatus?.find(c => c.status === 'REJECTED')?.amount || 0;
-  
+
   // Total claimed excluding rejected
   const totalClaimedExcludingRejected = claimsByStatus
     ?.filter(c => c.status !== 'REJECTED')
@@ -71,7 +90,7 @@ function EmployeeDashboard({ userName, employeeId, tenantId }: { userName: strin
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <div data-tour="dashboard-stats" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         <SummaryCard
           title="Pending Claims"
           value={pendingCount}
@@ -137,14 +156,20 @@ function EmployeeDashboard({ userName, employeeId, tenantId }: { userName: strin
 
 // Manager Dashboard - Team oversight and approvals
 function ManagerDashboard({ userName, employeeId, tenantId }: { userName: string; employeeId: string; tenantId?: string }) {
-  const { data: summary, isLoading: summaryLoading } = useDashboardSummary(undefined, tenantId);
-  const { data: claimsByStatus, isLoading: statusLoading } = useClaimsByStatus(undefined, tenantId);
+  const { data: pendingApprovalsData, isLoading: approvalsLoading } = usePendingApprovals(tenantId);
+  const { data: employees, isLoading: employeesLoading } = useEmployees();
+  const { formatCurrency } = useFormatting();
 
-  const pendingApprovals = claimsByStatus?.find(c => c.status === 'PENDING_MANAGER')?.count || 0;
-  const teamClaimsThisMonth = summary?.approved_this_month || 0;
-  const teamSpending = summary?.total_amount_claimed || 0;
+  // Count direct reports (employees where manager_id = current employeeId)
+  const teamMemberCount = employees?.filter(emp => emp.managerId === employeeId).length || 0;
 
-  if (summaryLoading || statusLoading) {
+  // Get manager's pending approvals (claims from their direct reports)
+  const pendingApprovals = pendingApprovalsData?.manager_pending || 0;
+  // Calculate team claims this month from direct reports
+  const teamClaimsThisMonth = employees?.filter(emp => emp.managerId === employeeId).length || 0;
+  const teamSpending = 0; // TODO: Add proper team spending calculation
+
+  if (approvalsLoading || employeesLoading) {
     return (
       <div className="space-y-8">
         <div>
@@ -183,6 +208,7 @@ function ManagerDashboard({ userName, employeeId, tenantId }: { userName: string
           trend={{ value: 2, isPositive: false }}
           icon={AlertCircle}
           variant="pending"
+          href="/approvals"
         />
         <SummaryCard
           title="Team Claims (Month)"
@@ -193,7 +219,7 @@ function ManagerDashboard({ userName, employeeId, tenantId }: { userName: string
         />
         <SummaryCard
           title="Team Members"
-          value="12"
+          value={teamMemberCount}
           icon={Users}
           variant="default"
         />
@@ -231,17 +257,17 @@ function ManagerDashboard({ userName, employeeId, tenantId }: { userName: string
   );
 }
 
-// HR Dashboard - Company-wide employee claims
-function HRDashboard({ userName, employeeId, tenantId }: { userName: string; employeeId: string; tenantId?: string }) {
+// HR Dashboard - Company-wide employee claims (tenant-wide statistics)
+function HRDashboard({ userName, tenantId }: { userName: string; tenantId?: string }) {
   const { data: hrMetrics, isLoading: hrMetricsLoading } = useHRMetrics(tenantId);
-  const { data: claimsByStatus, isLoading: statusLoading } = useClaimsByStatus(undefined, tenantId);
+  const { formatCurrency } = useFormatting();
 
   const hrPending = hrMetrics?.hr_pending || 0;
   const totalEmployees = hrMetrics?.total_employees || 0;
   const activeClaims = hrMetrics?.active_claims || 0;
   const monthlyValue = hrMetrics?.monthly_claims_value || 0;
 
-  if (hrMetricsLoading || statusLoading) {
+  if (hrMetricsLoading) {
     return (
       <div className="space-y-8">
         <div>
@@ -330,16 +356,21 @@ function HRDashboard({ userName, employeeId, tenantId }: { userName: string; emp
   );
 }
 
-// Finance Dashboard - Payment processing and budgets
-function FinanceDashboard({ userName, employeeId, tenantId }: { userName: string; employeeId: string; tenantId?: string }) {
-  const { data: summary, isLoading: summaryLoading } = useDashboardSummary(undefined, tenantId);
-  const { data: claimsByStatus, isLoading: statusLoading } = useClaimsByStatus(undefined, tenantId);
+// Finance Dashboard - Payment processing and budgets (tenant-wide statistics)
+function FinanceDashboard({ userName, tenantId }: { userName: string; tenantId?: string }) {
+  const { data: pendingApprovals, isLoading: approvalsLoading } = usePendingApprovals(tenantId);
+  const { data: financeMetrics, isLoading: financeLoading } = useFinanceMetrics(tenantId);
+  const { formatCurrency } = useFormatting();
 
-  const financePending = claimsByStatus?.find(c => c.status === 'PENDING_FINANCE')?.count || 0;
-  const approved = claimsByStatus?.find(c => c.status === 'FINANCE_APPROVED')?.count || 0;
-  const totalAmount = summary?.total_amount_claimed || 0;
+  const financePending = pendingApprovals?.finance_pending || 0;
+  const approvedUnpaidAmount = financeMetrics?.ready_for_settlement?.amount || 0;
+  const settledAmount = financeMetrics?.settled_this_period?.amount || 0;
+  const totalAmount = financeMetrics?.total_this_period?.amount || 0;
 
-  if (summaryLoading || statusLoading) {
+  // Calculate budget utilization based on settled vs total
+  const budgetUtilization = totalAmount > 0 ? Math.round((settledAmount / totalAmount) * 100) : 0;
+
+  if (approvalsLoading || financeLoading) {
     return (
       <div className="space-y-8">
         <div>
@@ -381,20 +412,20 @@ function FinanceDashboard({ userName, employeeId, tenantId }: { userName: string
         />
         <SummaryCard
           title="Approved (Unpaid)"
-          value={formatCurrency(totalAmount * 0.68)}
+          value={formatCurrency(approvedUnpaidAmount)}
           icon={DollarSign}
           variant="default"
         />
         <SummaryCard
           title="Paid This Month"
-          value={formatCurrency(totalAmount)}
+          value={formatCurrency(settledAmount)}
           trend={{ value: 22, isPositive: true }}
           icon={CheckCircle}
           variant="approved"
         />
         <SummaryCard
           title="Budget Utilization"
-          value="68%"
+          value={`${budgetUtilization}%`}
           trend={{ value: 12, isPositive: true }}
           icon={TrendingUp}
           variant="total"
@@ -426,17 +457,17 @@ function FinanceDashboard({ userName, employeeId, tenantId }: { userName: string
   );
 }
 
-// Admin Dashboard - System overview and all metrics
-function AdminDashboard({ userName, employeeId, tenantId }: { userName: string; employeeId: string; tenantId?: string }) {
-  const { data: summary, isLoading: summaryLoading } = useDashboardSummary(undefined, tenantId);
-  const { data: claimsByStatus, isLoading: statusLoading } = useClaimsByStatus(undefined, tenantId);
+// Admin Dashboard - System overview and all metrics (tenant-wide statistics)
+function AdminDashboard({ userName, tenantId }: { userName: string; tenantId?: string }) {
   const { data: adminStats, isLoading: adminStatsLoading } = useAdminStats(tenantId);
+  const { data: pendingApprovals, isLoading: approvalsLoading } = usePendingApprovals(tenantId);
+  const { formatCurrency } = useFormatting();
 
-  const totalClaims = summary?.total_claims || 0;
-  const pendingTotal = summary?.pending_claims || 0;
-  const financePending = claimsByStatus?.find(c => c.status === 'PENDING_FINANCE')?.count || 0;
+  const totalClaims = adminStats?.total_claims || 0;
+  const pendingTotal = pendingApprovals?.total_pending || 0;
+  const financePending = pendingApprovals?.finance_pending || 0;
 
-  if (summaryLoading || statusLoading || adminStatsLoading) {
+  if (adminStatsLoading || approvalsLoading) {
     return (
       <div className="space-y-8">
         <div>
@@ -724,11 +755,11 @@ export default function Dashboard() {
     case 'manager':
       return <ManagerDashboard userName={userName} employeeId={employeeId} tenantId={tenantId} />;
     case 'hr':
-      return <HRDashboard userName={userName} employeeId={employeeId} tenantId={tenantId} />;
+      return <HRDashboard userName={userName} tenantId={tenantId} />;
     case 'finance':
-      return <FinanceDashboard userName={userName} employeeId={employeeId} tenantId={tenantId} />;
+      return <FinanceDashboard userName={userName} tenantId={tenantId} />;
     case 'admin':
-      return <AdminDashboard userName={userName} employeeId={employeeId} tenantId={tenantId} />;
+      return <AdminDashboard userName={userName} tenantId={tenantId} />;
     case 'employee':
     default:
       return <EmployeeDashboard userName={userName} employeeId={employeeId} tenantId={tenantId} />;

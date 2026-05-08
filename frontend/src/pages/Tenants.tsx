@@ -53,6 +53,13 @@ import {
 } from '@/components/ui/tooltip';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import {
     useTenants,
     useCreateTenant,
     useUpdateTenant,
@@ -64,11 +71,14 @@ import {
     useDeleteBrandingFile,
     useUpdateBrandingColors,
     useUpdateBrandingSettings,
+    useDesignations,
     Tenant,
     TenantCreate,
     BrandingFileSpec,
-    BrandingSettings
+    BrandingSettings,
+    Designation
 } from '@/hooks/useSystemAdmin';
+import { useFormatting } from '@/hooks/useFormatting';
 
 function TenantFormDialog({
     open,
@@ -175,33 +185,45 @@ function TenantUsersDialog({ tenant }: { tenant: Tenant }) {
     const [open, setOpen] = useState(false);
     const [showAddAdmin, setShowAddAdmin] = useState(false);
     const [adminEmail, setAdminEmail] = useState('');
+    const [adminDesignation, setAdminDesignation] = useState('');
     
     const { data: admins, isLoading } = useTenantAdmins(tenant.id);
+    const { data: designations, isLoading: designationsLoading } = useDesignations(tenant.id);
     const createAdminMutation = useCreateTenantAdmin();
     const removeAdminMutation = useRemoveTenantAdmin();
 
     const handleAddAdmin = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!adminEmail.trim()) return;
+        if (!adminDesignation) {
+            return; // Designation is required
+        }
         
         try {
             const result = await createAdminMutation.mutateAsync({ 
                 tenantId: tenant.id, 
-                email: adminEmail.trim() 
+                email: adminEmail.trim(),
+                designation: adminDesignation
             });
             toast.success(result.message || 'Admin added successfully. Credentials sent via email.');
             setShowAddAdmin(false);
             setAdminEmail('');
+            setAdminDesignation('');
         } catch (error: any) {
             toast.error(error.message || 'Failed to add admin');
         }
     };
 
     const handleRemoveAdmin = async (userId: string) => {
+        console.log('handleRemoveAdmin called with userId:', userId, 'tenantId:', tenant.id);
+        if (!confirm('Are you sure you want to remove this admin?')) {
+            return;
+        }
         try {
             await removeAdminMutation.mutateAsync({ tenantId: tenant.id, userId });
             toast.success('Admin role removed successfully');
         } catch (error: any) {
+            console.error('Remove admin error:', error);
             toast.error(error.message || 'Failed to remove admin');
         }
     };
@@ -212,6 +234,7 @@ function TenantUsersDialog({ tenant }: { tenant: Tenant }) {
             if (!isOpen) {
                 setShowAddAdmin(false);
                 setAdminEmail('');
+                setAdminDesignation('');
             }
         }}>
             <DialogTrigger asChild>
@@ -299,7 +322,9 @@ function TenantUsersDialog({ tenant }: { tenant: Tenant }) {
                             <h4 className="font-medium text-sm mb-3">Add New Administrator</h4>
                             <form onSubmit={handleAddAdmin} className="space-y-4">
                                 <div className="space-y-2">
-                                    <Label htmlFor="admin-email">Email Address</Label>
+                                    <Label htmlFor="admin-email">
+                                        Email Address <span className="text-destructive">*</span>
+                                    </Label>
                                     <Input
                                         id="admin-email"
                                         type="email"
@@ -312,10 +337,47 @@ function TenantUsersDialog({ tenant }: { tenant: Tenant }) {
                                         Enter the email address for the new administrator. If the user doesn't exist, a new account will be created and login credentials will be sent to this email.
                                     </p>
                                 </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="admin-designation">
+                                        Designation <span className="text-destructive">*</span>
+                                    </Label>
+                                    <Select
+                                        value={adminDesignation}
+                                        onValueChange={setAdminDesignation}
+                                        disabled={designationsLoading || !designations || designations.filter((d: Designation) => d.is_active && d.roles?.some(r => r.toLowerCase() === 'admin')).length === 0}
+                                    >
+                                        <SelectTrigger id="admin-designation" className={!adminDesignation && !designationsLoading ? "border-muted-foreground/50" : ""}>
+                                            <SelectValue placeholder={
+                                                designationsLoading 
+                                                    ? "Loading designations..." 
+                                                    : (!designations || designations.filter((d: Designation) => d.is_active && d.roles?.some(r => r.toLowerCase() === 'admin')).length === 0)
+                                                        ? "No admin designations available"
+                                                        : "Select a designation (required)"
+                                            } />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {designations && designations.filter((d: Designation) => d.is_active && d.roles?.some(r => r.toLowerCase() === 'admin')).map((designation: Designation) => (
+                                                <SelectItem key={designation.id} value={designation.name}>
+                                                    {designation.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground">
+                                        {(!designations || designations.filter((d: Designation) => d.is_active && d.roles?.some(r => r.toLowerCase() === 'admin')).length === 0) && !designationsLoading ? (
+                                            <span className="text-amber-600 dark:text-amber-400">
+                                                ⚠️ No designations with Admin role configured. Please map the Admin role to at least one designation in the Designations page.
+                                            </span>
+                                        ) : (
+                                            "Select the designation for this administrator. Only designations with Admin role are shown."
+                                        )}
+                                    </p>
+                                </div>
                                 <div className="flex gap-2">
                                     <Button 
                                         type="submit" 
-                                        disabled={createAdminMutation.isPending || !adminEmail.trim()}
+                                        disabled={createAdminMutation.isPending || !adminEmail.trim() || !adminDesignation}
+                                        title={!adminDesignation ? "Please select a designation" : !adminEmail.trim() ? "Please enter email address" : "Add administrator"}
                                     >
                                         {createAdminMutation.isPending ? 'Adding...' : 'Add Administrator'}
                                     </Button>
@@ -325,6 +387,7 @@ function TenantUsersDialog({ tenant }: { tenant: Tenant }) {
                                         onClick={() => {
                                             setShowAddAdmin(false);
                                             setAdminEmail('');
+                                            setAdminDesignation('');
                                         }}
                                     >
                                         Cancel
@@ -480,13 +543,13 @@ function BrandingFileUpload({ fileType, spec, currentUrl, tenantId, onUploadSucc
                     <div className="flex items-center justify-center bg-muted/30 rounded-md p-4 min-h-[80px]">
                         {fileType === 'login_background' ? (
                             <img
-                                src={`http://localhost:8000${currentUrl}`}
+                                src={currentUrl}
                                 alt={spec.name}
                                 className="max-h-20 max-w-full object-contain rounded"
                             />
                         ) : (
                             <img
-                                src={`http://localhost:8000${currentUrl}`}
+                                src={currentUrl}
                                 alt={spec.name}
                                 className="max-h-16 max-w-full object-contain"
                             />
@@ -861,6 +924,7 @@ export default function Tenants() {
     const [showInactive, setShowInactive] = useState(false);
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
     const [editTenant, setEditTenant] = useState<Tenant | undefined>();
+    const { formatDate } = useFormatting();
 
     const { data: tenants, isLoading, error } = useTenants(showInactive);
     const updateTenant = useUpdateTenant();
@@ -1006,7 +1070,7 @@ export default function Tenants() {
                                             )}
                                         </TableCell>
                                         <TableCell>
-                                            {new Date(tenant.created_at).toLocaleDateString()}
+                                            {formatDate(tenant.created_at)}
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <div className="flex items-center justify-end gap-1">

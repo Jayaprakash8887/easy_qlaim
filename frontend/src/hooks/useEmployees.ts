@@ -1,8 +1,23 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Employee } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { extractErrorMessage } from '@/lib/utils';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Auth helpers
+function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+function getAuthHeadersWithJson(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+  };
+}
 
 // Map backend employee to frontend Employee type
 function mapBackendEmployee(backendEmployee: any): Employee {
@@ -70,7 +85,9 @@ async function fetchEmployees(tenantId?: string): Promise<Employee[]> {
     params.append('tenant_id', tenantId);
   }
   const url = `${API_BASE_URL}/employees/${params.toString() ? '?' + params.toString() : ''}`;
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch employees');
   }
@@ -79,7 +96,9 @@ async function fetchEmployees(tenantId?: string): Promise<Employee[]> {
 }
 
 async function fetchEmployeeById(id: string, tenantId: string): Promise<Employee | undefined> {
-  const response = await fetch(`${API_BASE_URL}/employees/${id}?tenant_id=${tenantId}`);
+  const response = await fetch(`${API_BASE_URL}/employees/${id}?tenant_id=${tenantId}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     if (response.status === 404) return undefined;
     throw new Error('Failed to fetch employee');
@@ -101,16 +120,14 @@ async function createEmployee(employee: Partial<Employee> & { tenantId?: string 
     department: employee.department,
     designation: employee.designation,
     region: employee.region || null,
-    date_of_joining: employee.joinDate,
+    date_of_joining: employee.joinDate || null,
     manager_id: employee.managerId || null,
-    project_ids: employee.projectIds ? [employee.projectIds] : [],
+    project_ids: Array.isArray(employee.projectIds) ? employee.projectIds : (employee.projectIds ? [employee.projectIds] : []),
   };
 
   const response = await fetch(`${API_BASE_URL}/employees/`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeadersWithJson(),
     body: JSON.stringify(backendEmployee),
   });
 
@@ -129,22 +146,20 @@ async function updateEmployee(id: string, employee: Partial<Employee>, tenantId:
     first_name: employee.firstName,
     last_name: employee.lastName,
     email: employee.email,
-    phone: employee.phone,
-    mobile: employee.mobile,
-    address: employee.address,
-    department: employee.department,
+    phone: employee.phone || '',
+    mobile: employee.mobile || '',
+    address: employee.address || '',
+    department: employee.department || null,
     designation: employee.designation,
-    region: employee.region || null,
-    date_of_joining: employee.joinDate,
+    region: Array.isArray(employee.region) ? employee.region : (employee.region ? [employee.region] : []),
+    date_of_joining: employee.joinDate || null,
     manager_id: employee.managerId || null,
-    project_ids: employee.projectIds ? [employee.projectIds] : [],
+    project_ids: Array.isArray(employee.projectIds) ? employee.projectIds : (employee.projectIds ? [employee.projectIds] : []),
   };
 
   const response = await fetch(`${API_BASE_URL}/employees/${id}?tenant_id=${tenantId}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeadersWithJson(),
     body: JSON.stringify(backendEmployee),
   });
 
@@ -229,7 +244,9 @@ export interface EmployeeProjectHistory {
 
 // Fetch employee project history
 async function fetchEmployeeProjectHistory(employeeId: string, tenantId: string, includeInactive: boolean = true): Promise<EmployeeProjectHistory[]> {
-  const response = await fetch(`${API_BASE_URL}/employees/${employeeId}/project-history?include_inactive=${includeInactive}&tenant_id=${tenantId}`);
+  const response = await fetch(`${API_BASE_URL}/employees/${employeeId}/project-history?include_inactive=${includeInactive}&tenant_id=${tenantId}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     if (response.status === 404) return [];
     throw new Error('Failed to fetch employee project history');
@@ -266,9 +283,7 @@ interface AllocateEmployeeData {
 async function allocateEmployeeToProject(data: AllocateEmployeeData, tenantId: string): Promise<EmployeeProjectHistory> {
   const response = await fetch(`${API_BASE_URL}/employees/${data.employeeId}/allocate-project?tenant_id=${tenantId}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeadersWithJson(),
     body: JSON.stringify({
       project_id: data.projectId,
       role: data.role || 'MEMBER',
@@ -280,7 +295,7 @@ async function allocateEmployeeToProject(data: AllocateEmployeeData, tenantId: s
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.detail || 'Failed to allocate employee to project');
+    throw new Error(extractErrorMessage(error, 'Failed to allocate employee to project'));
   }
 
   return response.json();
@@ -297,6 +312,7 @@ export function useAllocateEmployeeToProject() {
       queryClient.invalidateQueries({ queryKey: ['employeeProjectHistory'] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['projectMembers'] });
+      queryClient.invalidateQueries({ queryKey: ['project-members-all'] });
     },
   });
 }

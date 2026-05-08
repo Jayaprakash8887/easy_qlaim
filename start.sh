@@ -41,28 +41,53 @@ EOF
     echo -e "${GREEN}✅ Created .env file with your API key${NC}"
 fi
 
+# Ensure secrets directory exists for Docker volume mount
+if [ ! -d "secrets" ]; then
+    mkdir -p secrets
+    echo -e "${YELLOW}📂 Created secrets/ directory for credential files${NC}"
+fi
+
+# Check for docker compose command
+if command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+else
+    echo -e "${RED}❌ Docker Compose not found! Please install it first.${NC}"
+    exit 1
+fi
+
 echo -e "${BLUE}📦 Building Docker images...${NC}"
-docker-compose build
+$DOCKER_COMPOSE build
 
 echo ""
 echo -e "${BLUE}🚀 Starting services...${NC}"
-docker-compose up -d postgres redis
+$DOCKER_COMPOSE up -d postgres redis
 
 echo ""
 echo -e "${YELLOW}⏳ Waiting for database to be ready...${NC}"
-sleep 5
+sleep 10  # Increased wait time for safety
 
 echo ""
 echo -e "${BLUE}🗄️  Initializing database...${NC}"
-docker-compose run --rm backend python -c "from database import init_db; init_db()"
+$DOCKER_COMPOSE run --rm backend python -c "from database import init_db; init_db()"
 
 echo ""
-echo -e "${BLUE}📊 Creating test data...${NC}"
-docker-compose run --rm backend python create_test_data.py
+echo -e "${BLUE}� Running database migrations...${NC}"
+for migration in backend/migrations/*.sql; do
+    if [ -f "$migration" ]; then
+        echo -e "   Running $(basename $migration)..."
+        docker exec -i reimbursement_db psql -U reimbursement_user -d reimbursement_db < "$migration" 2>/dev/null || true
+    fi
+done
+
+echo ""
+echo -e "${BLUE}�📊 Creating test data...${NC}"
+$DOCKER_COMPOSE run --rm backend python create_test_data.py
 
 echo ""
 echo -e "${BLUE}🚀 Starting all services...${NC}"
-docker-compose up -d
+$DOCKER_COMPOSE up -d
 
 echo ""
 echo -e "${GREEN}================================================${NC}"
@@ -70,14 +95,21 @@ echo -e "${GREEN}   ✅ Application is starting!${NC}"
 echo -e "${GREEN}================================================${NC}"
 echo ""
 echo -e "${YELLOW}📍 Access points:${NC}"
-echo -e "   ${GREEN}Frontend:${NC}     http://localhost:5173"
-echo -e "   ${GREEN}API Docs:${NC}     http://localhost:8000/api/docs"
-echo -e "   ${GREEN}Flower:${NC}       http://localhost:5555"
-echo -e "   ${GREEN}Health:${NC}       http://localhost:8000/health"
+echo -e "   ${GREEN}Nginx (Main):${NC}  http://localhost (port 80)"
+echo -e "   ${GREEN}Frontend:${NC}      http://localhost:5173"
+echo -e "   ${GREEN}API Docs:${NC}      http://localhost:8000/api/docs"
+echo -e "   ${GREEN}Kong Proxy:${NC}    http://localhost:8080"
+echo -e "   ${GREEN}Kong Admin:${NC}    http://localhost:8001"
+echo -e "   ${GREEN}Kong Manager:${NC}  http://localhost:8002"
+echo -e "   ${GREEN}Keycloak:${NC}      http://localhost:8180"
+echo -e "   ${GREEN}Flower:${NC}        http://localhost:5555"
+echo -e "   ${GREEN}Health:${NC}        http://localhost:8000/health"
 echo ""
 echo -e "${YELLOW}📋 Useful commands:${NC}"
 echo -e "   ${BLUE}View logs:${NC}        docker-compose logs -f"
 echo -e "   ${BLUE}View API logs:${NC}    docker-compose logs -f backend"
+echo -e "   ${BLUE}View Kong logs:${NC}   docker-compose logs -f kong"
+echo -e "   ${BLUE}View Nginx logs:${NC}  docker-compose logs -f nginx"
 echo -e "   ${BLUE}Stop all:${NC}         docker-compose down"
 echo -e "   ${BLUE}Restart:${NC}          docker-compose restart"
 echo ""

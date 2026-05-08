@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
+import { extractErrorMessage } from '@/lib/utils';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 // Types
 export interface IBU {
@@ -59,6 +60,20 @@ export interface IBUSummary {
   };
 }
 
+// Auth helpers
+function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+function getAuthHeadersWithJson(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+  };
+}
+
 // API functions
 async function fetchIBUs(tenantId: string, params?: {
   search?: string;
@@ -73,7 +88,9 @@ async function fetchIBUs(tenantId: string, params?: {
   if (params?.page) searchParams.set('page', String(params.page));
   if (params?.limit) searchParams.set('limit', String(params.limit));
   
-  const response = await fetch(`${API_BASE_URL}/ibus/?${searchParams.toString()}`);
+  const response = await fetch(`${API_BASE_URL}/ibus/?${searchParams.toString()}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch IBUs');
   }
@@ -81,7 +98,9 @@ async function fetchIBUs(tenantId: string, params?: {
 }
 
 async function fetchIBU(ibuId: string, tenantId: string): Promise<IBU> {
-  const response = await fetch(`${API_BASE_URL}/ibus/${ibuId}?tenant_id=${tenantId}`);
+  const response = await fetch(`${API_BASE_URL}/ibus/${ibuId}?tenant_id=${tenantId}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch IBU');
   }
@@ -91,12 +110,12 @@ async function fetchIBU(ibuId: string, tenantId: string): Promise<IBU> {
 async function createIBU(data: IBUCreate, tenantId: string): Promise<IBU> {
   const response = await fetch(`${API_BASE_URL}/ibus/?tenant_id=${tenantId}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeadersWithJson(),
     body: JSON.stringify(data),
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to create IBU');
+    throw new Error(extractErrorMessage(error, 'Failed to create IBU'));
   }
   return response.json();
 }
@@ -104,12 +123,12 @@ async function createIBU(data: IBUCreate, tenantId: string): Promise<IBU> {
 async function updateIBU(ibuId: string, data: IBUUpdate, tenantId: string): Promise<IBU> {
   const response = await fetch(`${API_BASE_URL}/ibus/${ibuId}?tenant_id=${tenantId}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeadersWithJson(),
     body: JSON.stringify(data),
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to update IBU');
+    throw new Error(extractErrorMessage(error, 'Failed to update IBU'));
   }
   return response.json();
 }
@@ -117,15 +136,18 @@ async function updateIBU(ibuId: string, data: IBUUpdate, tenantId: string): Prom
 async function deleteIBU(ibuId: string, tenantId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/ibus/${ibuId}?tenant_id=${tenantId}`, {
     method: 'DELETE',
+    headers: getAuthHeaders(),
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to delete IBU');
+    throw new Error(extractErrorMessage(error, 'Failed to delete IBU'));
   }
 }
 
 async function fetchIBUProjects(ibuId: string, tenantId: string): Promise<any[]> {
-  const response = await fetch(`${API_BASE_URL}/ibus/${ibuId}/projects?tenant_id=${tenantId}`);
+  const response = await fetch(`${API_BASE_URL}/ibus/${ibuId}/projects?tenant_id=${tenantId}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch IBU projects');
   }
@@ -133,7 +155,9 @@ async function fetchIBUProjects(ibuId: string, tenantId: string): Promise<any[]>
 }
 
 async function fetchIBUSummary(ibuId: string, tenantId: string): Promise<IBUSummary> {
-  const response = await fetch(`${API_BASE_URL}/ibus/${ibuId}/summary?tenant_id=${tenantId}`);
+  const response = await fetch(`${API_BASE_URL}/ibus/${ibuId}/summary?tenant_id=${tenantId}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch IBU summary');
   }

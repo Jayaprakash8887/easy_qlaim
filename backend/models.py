@@ -163,6 +163,47 @@ class IBU(Base):
     )
 
 
+class Department(Base):
+    """
+    Tenant-specific departments for organizational structure.
+    Used for employee assignment and claim categorization.
+    """
+    __tablename__ = "departments"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    
+    # Department identification
+    code = Column(String(50), nullable=False)  # Short code, e.g., "ENGG", "HR"
+    name = Column(String(255), nullable=False)  # Full name, e.g., "Engineering"
+    description = Column(Text)
+    
+    # Department head
+    head_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    
+    # Display order for UI
+    display_order = Column(Integer, default=0)
+    
+    # Additional metadata
+    extra_data = Column(JSONB, default={})
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "code", name="uq_department_tenant_code"),
+        Index("idx_departments_tenant", "tenant_id"),
+        Index("idx_departments_code", "code"),
+        Index("idx_departments_name", "name"),
+        Index("idx_departments_active", "is_active"),
+        Index("idx_departments_head", "head_id"),
+    )
+
+
 class Claim(Base):
     """Main claims table with OCR tracking, HR corrections, return workflow"""
     __tablename__ = "claims"
@@ -266,13 +307,18 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     
     # Profile / Employee Info
-    employee_code = Column(String(50), unique=True)  # e.g., EMP001
+    employee_code = Column(String(50))  # e.g., EMP001 - unique per tenant (see __table_args__)
     first_name = Column(String(100))
     last_name = Column(String(100))
     full_name = Column(String(255))  # Computed or manual
     phone = Column(String(20))
     mobile = Column(String(20))
     address = Column(Text)
+    
+    # Profile Picture / Avatar
+    avatar_url = Column(Text)  # Signed URL or public URL for display (can be long)
+    avatar_storage_path = Column(String(1000))  # Cloud storage path (e.g., gs://bucket/path)
+    avatar_blob_name = Column(String(500))  # Blob name for generating signed URLs
     
     # Employment
     department = Column(String(100))
@@ -312,6 +358,8 @@ class User(Base):
         Index("idx_users_employee_code", "employee_code"),
         Index("idx_users_department", "department"),
         Index("idx_users_manager", "manager_id"),
+        # Composite unique constraint: employee_code is unique per tenant
+        UniqueConstraint("tenant_id", "employee_code", name="uq_users_tenant_employee_code"),
     )
     
     @property
@@ -434,23 +482,73 @@ class Approval(Base):
     )
 
 
+class Client(Base):
+    """Client/Customer master for tenant organizations"""
+    __tablename__ = "clients"
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'client_code', name='uq_client_tenant_code'),
+    )
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), nullable=False)
+    
+    # Client identification
+    client_code = Column(String(50), nullable=False)  # Unique per tenant
+    client_name = Column(String(255), nullable=False)
+    description = Column(Text)
+    
+    # Contact information
+    contact_person = Column(String(255))
+    contact_email = Column(String(255))
+    contact_phone = Column(String(50))
+    address = Column(Text)
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    
+    # Additional data
+    client_data = Column(JSONB, default={})
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    projects = relationship("Project", back_populates="client", foreign_keys="Project.client_id")
+    
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'client_code', name='uq_client_tenant_code'),
+        Index("idx_clients_tenant", "tenant_id"),
+        Index("idx_clients_code", "client_code"),
+        Index("idx_clients_name", "client_name"),
+        Index("idx_clients_active", "is_active"),
+    )
+
+
 class Project(Base):
     """Project master for project-based claims"""
     __tablename__ = "projects"
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'project_code', name='uq_project_tenant_code'),
+    )
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), nullable=False)
     
     # Project info
-    project_code = Column(String(50), unique=True, nullable=False)
+    project_code = Column(String(50), nullable=False)  # Unique per tenant via composite constraint
     project_name = Column(String(255), nullable=False)
     description = Column(Text)
     manager_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
+    # Client association (optional)
+    client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id"), nullable=True)
+    
     # IBU association
     ibu_id = Column(UUID(as_uuid=True), ForeignKey("ibus.id"))
     
-    # Relationship to IBU
+    # Relationships
+    client = relationship("Client", back_populates="projects", foreign_keys=[client_id], lazy="joined")
     ibu = relationship("IBU", foreign_keys=[ibu_id], lazy="joined")
     
     # Budget
@@ -477,6 +575,7 @@ class Project(Base):
         Index("idx_projects_code", "project_code"),
         Index("idx_projects_status", "status"),
         Index("idx_projects_ibu", "ibu_id"),
+        Index("idx_projects_client", "client_id"),
     )
 
 
@@ -605,12 +704,18 @@ class EmployeeProjectAllocation(Base):
 class SystemSettings(Base):
     """System-wide settings and configurations"""
     __tablename__ = "system_settings"
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'setting_key', name='uq_settings_tenant_key'),
+        Index("idx_settings_tenant", "tenant_id"),
+        Index("idx_settings_key", "setting_key"),
+        Index("idx_settings_category", "category"),
+    )
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), nullable=False)
     
     # Setting identification
-    setting_key = Column(String(100), nullable=False, unique=True)
+    setting_key = Column(String(100), nullable=False)  # Unique per tenant via composite constraint
     setting_value = Column(Text, nullable=False)
     setting_type = Column(String(20), nullable=False, default="string")  # string, boolean, number, json
     
@@ -622,12 +727,6 @@ class SystemSettings(Base):
     updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
-    
-    __table_args__ = (
-        Index("idx_settings_tenant", "tenant_id"),
-        Index("idx_settings_key", "setting_key"),
-        Index("idx_settings_category", "category"),
-    )
 
 
 # ==================== POLICY & CRITERIA MANAGEMENT ====================
@@ -736,6 +835,13 @@ class PolicyCategory(Base):
     category_type = Column(String(20), nullable=False)  # REIMBURSEMENT or ALLOWANCE
     description = Column(Text)
     
+    # Calculation type for allowances
+    # per_day: Working Days × Per Day Rate (default)
+    # per_km: Distance × Rate per KM × Number of Trips (for conveyance)
+    # fixed: Direct amount entry (no calculation)
+    calculation_type = Column(String(20), default='per_day')
+    rate_per_unit = Column(Numeric(12, 2))  # Per-day rate OR per-km rate based on calculation_type
+    
     # Limits
     max_amount = Column(Numeric(12, 2))
     min_amount = Column(Numeric(12, 2))
@@ -760,6 +866,9 @@ class PolicyCategory(Base):
     # Status
     is_active = Column(Boolean, default=True)
     display_order = Column(Integer, default=0)
+    
+    # Custom fields definition (JSON array of field definitions)
+    custom_fields = Column(JSONB, default=[])
     
     # Source tracking
     source_text = Column(Text)  # Original text from policy for reference
@@ -1448,4 +1557,57 @@ class WebhookDeliveryLog(Base):
         Index("idx_webhook_log_event", "event_type"),
         Index("idx_webhook_log_success", "success"),
         Index("idx_webhook_log_created", "created_at"),
+    )
+
+
+class ApprovalSkipRule(Base):
+    """
+    Rules for skipping approval levels based on employee designation or email.
+    Allows CXOs and senior executives to bypass certain approval levels.
+    """
+    __tablename__ = "approval_skip_rules"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    
+    # Rule identification
+    rule_name = Column(String(100), nullable=False)  # e.g., "CXO Fast Track"
+    description = Column(Text)
+    
+    # Rule criteria - can match by designation, email, OR project
+    match_type = Column(String(20), nullable=False, default="designation")  # "designation", "email", or "project"
+    designations = Column(ARRAY(String), default=[])  # List of designation codes, e.g., ["CEO", "CFO", "CTO"]
+    emails = Column(ARRAY(String), default=[])  # Specific email addresses
+    project_codes = Column(ARRAY(String), default=[])  # Project codes for project-based skip rules
+    
+    # Approval levels to skip (these won't be required for matching employees)
+    skip_manager_approval = Column(Boolean, default=False)
+    skip_hr_approval = Column(Boolean, default=False)
+    skip_finance_approval = Column(Boolean, default=False)  # Usually kept False - Finance settles
+    
+    # Optional amount threshold (above this, normal approval flow applies)
+    max_amount_threshold = Column(Numeric(15, 2), nullable=True)  # NULL = unlimited
+    
+    # Category restrictions (optional - only applies to specific categories)
+    category_codes = Column(ARRAY(String), default=[])  # Empty = all categories
+    
+    # Priority (lower number = higher priority, checked first)
+    priority = Column(Integer, default=100)
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    
+    # Audit
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    
+    __table_args__ = (
+        Index("idx_approval_skip_tenant", "tenant_id"),
+        Index("idx_approval_skip_active", "is_active"),
+        Index("idx_approval_skip_priority", "priority"),
+        Index("idx_approval_skip_match_type", "match_type"),
     )

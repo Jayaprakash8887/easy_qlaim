@@ -14,11 +14,14 @@ import secrets
 import string
 import hashlib
 import logging
+import asyncio
 
 from database import get_sync_db
 from models import Tenant, User
 from services.role_service import is_system_admin, ensure_employee_role, normalize_user_roles
 from services.email_service import get_email_service
+from services.keycloak_service import get_keycloak_service
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -232,13 +235,15 @@ async def get_tenant_users(
             detail="Tenant not found"
         )
     
-    query = db.query(User).filter(User.tenant_id == tenant_id)
-    
-    # Filter for admin users only by default
+    # Filter for admin users using designation-to-role mapping
     if admin_only:
-        query = query.filter(User.roles.contains(['ADMIN']))
-    
-    users = query.offset(skip).limit(limit).all()
+        from services.role_service import get_users_with_role
+        users = get_users_with_role(tenant_id, "ADMIN", db)
+        # Apply pagination manually since get_users_with_role doesn't support it
+        users = users[skip:skip + limit] if skip or limit else users
+    else:
+        query = db.query(User).filter(User.tenant_id == tenant_id)
+        users = query.offset(skip).limit(limit).all()
     
     return [
         {
@@ -258,6 +263,7 @@ async def get_tenant_users(
 
 class AddAdminByEmailRequest(BaseModel):
     email: str
+    designation: Optional[str] = None  # Designation code or name
 
 
 def generate_temporary_password(length: int = 12) -> str:
@@ -327,6 +333,9 @@ async def create_tenant_admin_by_email(
         current_roles.append('ADMIN')
         # Normalize roles to ensure EMPLOYEE is always present
         existing_user.roles = normalize_user_roles(current_roles, is_tenant_user=True)
+        # Update designation if provided
+        if request.designation:
+            existing_user.designation = request.designation
         db.commit()
         db.refresh(existing_user)
         
@@ -346,6 +355,7 @@ async def create_tenant_admin_by_email(
             "last_name": existing_user.last_name,
             "full_name": existing_user.full_name,
             "roles": existing_user.roles,
+            "designation": existing_user.designation,
             "message": "Existing user promoted to administrator. Notification email sent.",
             "email_sent": True
         }
@@ -361,6 +371,33 @@ async def create_tenant_admin_by_email(
         temp_password = generate_temporary_password()
         hashed_password = hashlib.sha256(temp_password.encode()).hexdigest()
         
+        # Create user in Keycloak if enabled
+        if settings.KEYCLOAK_ENABLED:
+            try:
+                keycloak = get_keycloak_service()
+                keycloak_user_id = await keycloak.create_user(
+                    email=email,
+                    password=temp_password,
+                    first_name=first_name,
+                    last_name=last_name,
+                    enabled=True,
+                    email_verified=True,
+                    attributes={
+                        "tenant_id": [str(tenant_id)],
+                        "roles": ["EMPLOYEE", "ADMIN"]
+                    }
+                )
+                if keycloak_user_id:
+                    logger.info(f"Created Keycloak user: {email} with ID: {keycloak_user_id}")
+                else:
+                    logger.warning(f"Failed to create Keycloak user: {email}, but continuing with local DB creation")
+            except Exception as e:
+                logger.error(f"Error creating Keycloak user: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to create user in authentication system: {str(e)}"
+                )
+        
         new_user = User(
             email=email,
             username=email,  # Use email as username
@@ -370,6 +407,7 @@ async def create_tenant_admin_by_email(
             tenant_id=tenant_id,
             roles=['EMPLOYEE', 'ADMIN'],  # EMPLOYEE is default for all tenant users
             hashed_password=hashed_password,
+            designation=request.designation,  # Save the designation
             is_active=True
         )
         
@@ -395,6 +433,7 @@ async def create_tenant_admin_by_email(
             "last_name": new_user.last_name,
             "full_name": new_user.full_name,
             "roles": new_user.roles,
+            "designation": new_user.designation,
             "message": "New administrator created successfully. Credentials sent via email.",
             "email_sent": True
         }

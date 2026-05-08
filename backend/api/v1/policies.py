@@ -5,30 +5,147 @@ Handles policy document upload, AI extraction, review, and approval workflow.
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
-from typing import List, Optional
+from typing import List, Optional, Union
 from uuid import UUID
 from datetime import datetime, date
 import os
 import logging
 
 from database import get_sync_db
-from models import PolicyUpload, PolicyCategory, PolicyAuditLog, User
+from models import PolicyUpload, PolicyCategory, PolicyAuditLog, User, Region
 from schemas import (
     PolicyUploadResponse, PolicyUploadListResponse, PolicyCategoryResponse,
     PolicyCategoryUpdate, PolicyApprovalRequest, PolicyRejectRequest,
     ClaimValidationRequest, ClaimValidationResponse, ValidationCheckResult,
     ValidationStatus, ActiveCategoryResponse, PolicyAuditLogResponse,
-    ExtractedClaimListResponse
+    ExtractedClaimListResponse, PolicyMetadataUpdate
 )
 from api.v1.auth import require_tenant_id
 
 logger = logging.getLogger(__name__)
 
+
+def validate_region_exists(db: Session, tenant_id: UUID, region_code: str) -> None:
+    """Validate that the provided region code or name exists for the tenant.
+    Accepts both region code (e.g., 'IND') or region name (e.g., 'India', 'INDIA').
+    """
+    if not region_code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Region is required for policy upload"
+        )
+    
+    # Try to find by code first, then by name (case-insensitive)
+    from sqlalchemy import func
+    existing_region = db.query(Region).filter(
+        Region.tenant_id == tenant_id,
+        Region.is_active == True,
+        (Region.code == region_code) | (func.upper(Region.name) == region_code.upper())
+    ).first()
+    
+    if not existing_region:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid region: {region_code}. Please create this region first."
+        )
+
+
+def validate_regions_exist(db: Session, tenant_id: UUID, region_codes: List[str]) -> None:
+    """Validate that all provided region codes or names exist for the tenant.
+    'GLOBAL' is a special value meaning the policy applies to all regions.
+    Accepts both region codes (e.g., 'IND') or region names (e.g., 'India', 'INDIA').
+    """
+    if not region_codes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one region is required for policy upload"
+        )
+    
+    # Filter out 'GLOBAL' as it's a special value, not a database region
+    codes_to_validate = [code for code in region_codes if code.upper() != 'GLOBAL']
+    
+    # If only GLOBAL was provided, that's valid
+    if not codes_to_validate:
+        return
+    
+    # Query regions by code OR name (case-insensitive)
+    from sqlalchemy import func
+    existing_regions = db.query(Region).filter(
+        Region.tenant_id == tenant_id,
+        Region.is_active == True,
+        (Region.code.in_(codes_to_validate)) | (func.upper(Region.name).in_([c.upper() for c in codes_to_validate]))
+    ).all()
+    
+    # Build set of valid identifiers (both codes and uppercase names)
+    valid_identifiers = set()
+    for r in existing_regions:
+        valid_identifiers.add(r.code)
+        valid_identifiers.add(r.name.upper())
+    
+    # Check which provided values are invalid
+    invalid_codes = [c for c in codes_to_validate if c not in valid_identifiers and c.upper() not in valid_identifiers]
+    if invalid_codes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid regions: {', '.join(invalid_codes)}. Please create these regions first."
+        )
+
+
+def normalize_region(region: Union[str, List[str]]) -> List[str]:
+    """
+    Normalize region parameter to handle various input formats.
+    
+    The user's region in the database is stored as an array (e.g., ['IND']),
+    but the API receives it as a string. This function handles:
+    - List input: ["IND", "USA"] -> ["IND", "USA"] (pass through)
+    - Comma-separated strings: "IND,USA" -> ["IND", "USA"]
+    - Array-like strings: "['IND']" -> ["IND"]
+    - Simple strings: "IND" -> ["IND"]
+    - Empty/None: -> ["IND"] (default)
+    
+    Returns a list of normalized region codes.
+    """
+    # If already a list, normalize each element and return
+    if isinstance(region, list):
+        normalized = [r.strip().upper() for r in region if r and r.strip()]
+        return normalized if normalized else ["IND"]
+    
+    if not region or not region.strip():
+        return ["IND"]
+    
+    region = region.strip()
+    
+    # Handle array-like strings: "['IND']" or '["IND"]' or "{IND}"
+    if region.startswith(('[', '{')) and region.endswith((']', '}')):
+        # Remove brackets and quotes
+        cleaned = region.strip('[]{}').replace('"', '').replace("'", "")
+        # Split by comma and clean each element
+        regions = [r.strip().upper() for r in cleaned.split(',') if r.strip()]
+        return regions if regions else ["IND"]
+    
+    # Handle comma-separated: "IND,USA"
+    if ',' in region:
+        regions = [r.strip().upper() for r in region.split(',') if r.strip()]
+        return regions if regions else ["IND"]
+    
+    return [region.upper()] if region else ["IND"]
+
 router = APIRouter()
 
-# Upload directory for policy documents
-POLICY_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads", "policies")
+# Base upload directory for policy documents
+POLICY_UPLOAD_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
+os.makedirs(POLICY_UPLOAD_BASE_DIR, exist_ok=True)
+
+# Legacy path for backwards compatibility
+POLICY_UPLOAD_DIR = os.path.join(POLICY_UPLOAD_BASE_DIR, "policies")
 os.makedirs(POLICY_UPLOAD_DIR, exist_ok=True)
+
+
+def get_tenant_policy_upload_dir(tenant_id: str) -> str:
+    """Get tenant-specific policy upload directory."""
+    tenant_dir = os.path.join(POLICY_UPLOAD_BASE_DIR, "tenants", tenant_id, "policies")
+    os.makedirs(tenant_dir, exist_ok=True)
+    return tenant_dir
 
 
 async def _invalidate_policy_cache(policy_id: UUID = None, region: str = None):
@@ -111,7 +228,7 @@ async def upload_policy(
     file: UploadFile = File(...),
     policy_name: str = Form(...),
     description: str = Form(None),
-    region: str = Form(None),  # Region/location this policy applies to
+    region: List[str] = Form(..., description="Region codes this policy applies to (required)"),
     uploaded_by: UUID = Form(...),
     tenant_id: str = Form(...),  # Required tenant_id from authenticated user
     db: Session = Depends(get_sync_db)
@@ -119,10 +236,14 @@ async def upload_policy(
     """
     Upload a policy document for AI extraction.
     Supported formats: PDF, DOCX, JPG, PNG
+    Region is mandatory - at least one valid region must be specified.
     """
     # Validate tenant_id
     require_tenant_id(tenant_id)
     tenant_uuid = UUID(tenant_id)
+    
+    # Validate all regions exist
+    validate_regions_exist(db, tenant_uuid, region)
     
     # Validate file type
     allowed_types = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
@@ -145,10 +266,11 @@ async def upload_policy(
     # Generate policy number
     policy_number = generate_policy_number(db)
     
-    # Save file locally
+    # Save file locally with tenant-based folder structure
     file_extension = file.filename.split(".")[-1] if "." in file.filename else file_type.lower()
     storage_filename = f"{policy_number}.{file_extension}"
-    storage_path = os.path.join(POLICY_UPLOAD_DIR, storage_filename)
+    tenant_upload_dir = get_tenant_policy_upload_dir(str(tenant_uuid))
+    storage_path = os.path.join(tenant_upload_dir, storage_filename)
     
     content = await file.read()
     with open(storage_path, "wb") as f:
@@ -273,7 +395,8 @@ def list_policies(
     if is_active is not None:
         query = query.filter(PolicyUpload.is_active == is_active)
     if region:
-        query = query.filter(PolicyUpload.region == region)
+        # Note: PolicyUpload.region is an ARRAY type, so we use .any() to check if value is in array
+        query = query.filter(PolicyUpload.region.any(region))
     
     policies = query.order_by(PolicyUpload.created_at.desc()).offset(skip).limit(limit).all()
     
@@ -326,7 +449,8 @@ def list_extracted_claims(
     )
     
     if region:
-        query = query.filter(PolicyUpload.region == region)
+        # Note: PolicyUpload.region is an ARRAY type, so we use .any() to check if value is in array
+        query = query.filter(PolicyUpload.region.any(region))
     
     categories = query.order_by(PolicyUpload.created_at.desc(), PolicyCategory.display_order).all()
     
@@ -340,6 +464,8 @@ def list_extracted_claims(
             category_code=cat.category_code,
             category_type=cat.category_type,
             description=cat.description,
+            calculation_type=cat.calculation_type or "per_day",
+            rate_per_unit=float(cat.rate_per_unit) if cat.rate_per_unit else None,
             max_amount=float(cat.max_amount) if cat.max_amount else None,
             min_amount=float(cat.min_amount) if cat.min_amount else None,
             currency=cat.currency,
@@ -352,6 +478,7 @@ def list_extracted_claims(
             submission_window_days=cat.submission_window_days,
             is_active=cat.is_active,
             display_order=cat.display_order,
+            custom_fields=cat.custom_fields or [],
             source_text=cat.source_text,
             ai_confidence=cat.ai_confidence,
             created_at=cat.created_at,
@@ -370,7 +497,8 @@ def list_extracted_claims(
     )
     
     if region:
-        custom_query = custom_query.filter(CustomClaim.region == region)
+        # Note: CustomClaim.region is an ARRAY type, so we use .any() to check if value is in array
+        custom_query = custom_query.filter(CustomClaim.region.any(region))
     
     custom_claims = custom_query.order_by(CustomClaim.created_at.desc(), CustomClaim.display_order).all()
     
@@ -384,6 +512,8 @@ def list_extracted_claims(
             category_code=cc.claim_code,
             category_type=cc.category_type,
             description=cc.description,
+            calculation_type=getattr(cc, 'calculation_type', None) or "per_day",
+            rate_per_unit=float(cc.rate_per_unit) if getattr(cc, 'rate_per_unit', None) else None,
             max_amount=float(cc.max_amount) if cc.max_amount else None,
             min_amount=float(cc.min_amount) if cc.min_amount else None,
             currency=cc.currency,
@@ -396,6 +526,7 @@ def list_extracted_claims(
             submission_window_days=cc.submission_window_days,
             is_active=cc.is_active,
             display_order=cc.display_order,
+            custom_fields=cc.custom_fields or [],
             source_text=None,  # Custom claims have no source text
             ai_confidence=None,  # Custom claims are manually defined
             created_at=cc.created_at,
@@ -473,6 +604,8 @@ def get_policy(
             category_code=cat.category_code,
             category_type=cat.category_type,
             description=cat.description,
+            calculation_type=cat.calculation_type or "per_day",
+            rate_per_unit=float(cat.rate_per_unit) if cat.rate_per_unit else None,
             max_amount=float(cat.max_amount) if cat.max_amount else None,
             min_amount=float(cat.min_amount) if cat.min_amount else None,
             currency=cat.currency,
@@ -535,7 +668,7 @@ async def upload_new_version(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     description: str = Form(None),
-    region: str = Form(None),
+    region: List[str] = Form(..., description="Region codes this policy applies to (required)"),
     uploaded_by: UUID = Form(...),
     tenant_id: str = Form(...),  # Required - must be provided
     db: Session = Depends(get_sync_db)
@@ -543,10 +676,14 @@ async def upload_new_version(
     """
     Upload a new version of an existing policy document.
     The old policy will be archived when this new version is approved.
+    Region is mandatory - at least one valid region must be specified.
     """
     # Validate tenant_id
     require_tenant_id(tenant_id)
     tenant_uuid = UUID(tenant_id)
+    
+    # Validate all regions exist
+    validate_regions_exist(db, tenant_uuid, region)
     
     # Get the existing policy
     existing_policy = db.query(PolicyUpload).filter(
@@ -581,10 +718,11 @@ async def upload_new_version(
     new_version = (existing_policy.version or 1) + 1
     policy_number = generate_policy_number(db)
     
-    # Save file locally
+    # Save file locally with tenant-based folder structure
     file_extension = file.filename.split(".")[-1] if "." in file.filename else file_type.lower()
     storage_filename = f"{policy_number}.{file_extension}"
-    storage_path = os.path.join(POLICY_UPLOAD_DIR, storage_filename)
+    tenant_upload_dir = get_tenant_policy_upload_dir(str(tenant_uuid))
+    storage_path = os.path.join(tenant_upload_dir, storage_filename)
     
     content = await file.read()
     with open(storage_path, "wb") as f:
@@ -604,7 +742,7 @@ async def upload_new_version(
         content_type=file.content_type,
         status="PENDING",
         version=new_version,
-        region=region if region else existing_policy.region,  # Use new region or keep existing
+        region=region,  # Use the provided region (now required)
         replaces_policy_id=existing_policy.id,  # Link to old policy
         uploaded_by=uploaded_by
     )
@@ -676,6 +814,8 @@ def get_policy_categories(policy_id: UUID, db: Session = Depends(get_sync_db)):
         category_code=cat.category_code,
         category_type=cat.category_type,
         description=cat.description,
+        calculation_type=cat.calculation_type or "per_day",
+        rate_per_unit=float(cat.rate_per_unit) if cat.rate_per_unit else None,
         max_amount=float(cat.max_amount) if cat.max_amount else None,
         min_amount=float(cat.min_amount) if cat.min_amount else None,
         currency=cat.currency,
@@ -752,6 +892,8 @@ async def update_category(
         category_code=category.category_code,
         category_type=category.category_type,
         description=category.description,
+        calculation_type=category.calculation_type or "per_day",
+        rate_per_unit=float(category.rate_per_unit) if category.rate_per_unit else None,
         max_amount=float(category.max_amount) if category.max_amount else None,
         min_amount=float(category.min_amount) if category.min_amount else None,
         currency=category.currency,
@@ -764,11 +906,225 @@ async def update_category(
         submission_window_days=category.submission_window_days,
         is_active=category.is_active,
         display_order=category.display_order,
+        custom_fields=category.custom_fields or [],
         source_text=category.source_text,
         ai_confidence=category.ai_confidence,
         created_at=category.created_at,
         updated_at=category.updated_at
     )
+
+
+@router.delete("/categories/{category_id}")
+async def delete_category(
+    category_id: UUID,
+    background_tasks: BackgroundTasks,
+    tenant_id: str,  # Required - must be provided
+    deleted_by: UUID = None,
+    db: Session = Depends(get_sync_db)
+):
+    """Delete a policy category"""
+    # Validate tenant_id
+    require_tenant_id(tenant_id)
+    tenant_uuid = UUID(tenant_id)
+    
+    category = db.query(PolicyCategory).filter(
+        and_(
+            PolicyCategory.id == category_id,
+            PolicyCategory.tenant_id == tenant_uuid
+        )
+    ).first()
+    
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    # Store info for audit log
+    category_name = category.category_name
+    policy_upload_id = category.policy_upload_id
+    
+    # Get the policy to find its region for cache invalidation
+    policy = db.query(PolicyUpload).filter(PolicyUpload.id == policy_upload_id).first()
+    region = policy.region if policy else None
+    
+    # Delete the category
+    db.delete(category)
+    db.commit()
+    
+    # Log the deletion
+    if deleted_by:
+        log_policy_action(
+            db, tenant_uuid, "POLICY_CATEGORY", category_id, "DELETE",
+            deleted_by, {"category_name": category_name}, None,
+            f"Category deleted: {category_name}"
+        )
+        db.commit()
+    
+    # Invalidate cache in background
+    background_tasks.add_task(_invalidate_policy_cache, policy_upload_id, region)
+    
+    return {"message": f"Category '{category_name}' deleted successfully"}
+
+
+# ==================== POLICY METADATA UPDATE ENDPOINT ====================
+
+@router.patch("/{policy_id}", response_model=PolicyUploadResponse)
+async def update_policy_metadata(
+    policy_id: UUID,
+    update_data: PolicyMetadataUpdate,
+    background_tasks: BackgroundTasks,
+    tenant_id: str,
+    db: Session = Depends(get_sync_db)
+):
+    """
+    Update policy metadata (name, description, region, effective dates) without uploading a new document.
+    Use this endpoint when you only need to change policy settings, not the document itself.
+    """
+    # Validate tenant_id
+    require_tenant_id(tenant_id)
+    tenant_uuid = UUID(tenant_id)
+    
+    # Get the policy
+    policy = db.query(PolicyUpload).filter(
+        and_(
+            PolicyUpload.id == policy_id,
+            PolicyUpload.tenant_id == tenant_uuid
+        )
+    ).first()
+    
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    
+    old_region = policy.region
+    
+    # Validate regions if provided
+    if update_data.region is not None:
+        validate_regions_exist(db, tenant_uuid, update_data.region)
+    
+    # Update fields if provided
+    if update_data.policy_name is not None:
+        policy.policy_name = update_data.policy_name
+    
+    if update_data.description is not None:
+        policy.description = update_data.description
+    
+    if update_data.region is not None:
+        policy.region = update_data.region
+    
+    if update_data.effective_from is not None:
+        policy.effective_from = update_data.effective_from
+    
+    if update_data.effective_to is not None:
+        policy.effective_to = update_data.effective_to
+    
+    policy.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(policy)
+    
+    # Invalidate cache if region changed
+    if update_data.region is not None:
+        background_tasks.add_task(_invalidate_policy_cache, policy_id, old_region)
+        background_tasks.add_task(_invalidate_policy_cache, policy_id, update_data.region)
+    
+    # Return the policy with its categories
+    categories = db.query(PolicyCategory).filter(
+        PolicyCategory.policy_upload_id == policy_id
+    ).all()
+    
+    return PolicyUploadResponse(
+        id=policy.id,
+        tenant_id=policy.tenant_id,
+        policy_name=policy.policy_name,
+        policy_number=policy.policy_number,
+        description=policy.description,
+        file_name=policy.file_name,
+        file_type=policy.file_type,
+        file_size=policy.file_size,
+        storage_path=policy.storage_path,
+        gcs_uri=policy.gcs_uri,
+        storage_type=policy.storage_type,
+        content_type=policy.content_type,
+        status=policy.status,
+        extracted_text=policy.extracted_text,
+        extraction_error=policy.extraction_error,
+        extracted_at=policy.extracted_at,
+        extracted_data=policy.extracted_data or {},
+        version=policy.version,
+        is_active=policy.is_active,
+        replaces_policy_id=policy.replaces_policy_id,
+        effective_from=policy.effective_from,
+        effective_to=policy.effective_to,
+        region=policy.region,
+        uploaded_by=policy.uploaded_by,
+        approved_by=policy.approved_by,
+        approved_at=policy.approved_at,
+        review_notes=policy.review_notes,
+        created_at=policy.created_at,
+        updated_at=policy.updated_at,
+        categories=[PolicyCategoryResponse.model_validate(cat) for cat in categories]
+    )
+
+
+# ==================== POLICY DELETE ENDPOINT ====================
+
+@router.delete("/{policy_id}")
+async def delete_policy(
+    policy_id: UUID,
+    background_tasks: BackgroundTasks,
+    tenant_id: str,  # Required - must be provided
+    deleted_by: UUID = None,
+    db: Session = Depends(get_sync_db)
+):
+    """Delete a policy and all its associated categories"""
+    # Validate tenant_id
+    require_tenant_id(tenant_id)
+    tenant_uuid = UUID(tenant_id)
+    
+    policy = db.query(PolicyUpload).filter(
+        and_(
+            PolicyUpload.id == policy_id,
+            PolicyUpload.tenant_id == tenant_uuid
+        )
+    ).first()
+    
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    
+    # Store info for audit log
+    policy_name = policy.policy_name
+    policy_number = policy.policy_number
+    region = policy.region
+    storage_path = policy.storage_path
+    
+    # Delete associated categories first
+    categories_deleted = db.query(PolicyCategory).filter(
+        PolicyCategory.policy_upload_id == policy_id
+    ).delete(synchronize_session=False)
+    
+    # Delete the policy
+    db.delete(policy)
+    db.commit()
+    
+    # Try to delete the physical file
+    if storage_path and os.path.exists(storage_path):
+        try:
+            os.remove(storage_path)
+            logger.info(f"Deleted policy file: {storage_path}")
+        except Exception as e:
+            logger.warning(f"Failed to delete policy file {storage_path}: {e}")
+    
+    # Log the deletion
+    if deleted_by:
+        log_policy_action(
+            db, tenant_uuid, "POLICY_UPLOAD", policy_id, "DELETE",
+            deleted_by, {"policy_name": policy_name, "policy_number": policy_number}, None,
+            f"Policy deleted: {policy_name} ({policy_number}), {categories_deleted} categories removed"
+        )
+        db.commit()
+    
+    # Invalidate cache in background
+    background_tasks.add_task(_invalidate_policy_cache, policy_id, region)
+    
+    return {"message": f"Policy '{policy_name}' and {categories_deleted} categories deleted successfully"}
 
 
 # ==================== APPROVAL ENDPOINTS ====================
@@ -1039,6 +1395,7 @@ def get_audit_logs(
 async def refresh_region_embeddings(
     region: str,
     category_type: Optional[str] = None,
+    tenant_id: Optional[UUID] = None,
     db: Session = Depends(get_sync_db)
 ):
     """
@@ -1053,6 +1410,7 @@ async def refresh_region_embeddings(
     Args:
         region: The region to refresh (e.g., 'INDIA', 'US', 'GLOBAL')
         category_type: Optional filter - 'REIMBURSEMENT' or 'ALLOWANCE'
+        tenant_id: Optional tenant UUID for multi-tenant support
         
     Returns:
         Number of embeddings generated
@@ -1061,7 +1419,7 @@ async def refresh_region_embeddings(
         from services.embedding_service import get_embedding_service
         
         embedding_service = get_embedding_service()
-        count = await embedding_service.refresh_region_embeddings(region, category_type)
+        count = await embedding_service.refresh_region_embeddings(region, category_type, tenant_id)
         
         # Also invalidate category cache
         from services.category_cache import get_category_cache
@@ -1160,7 +1518,7 @@ async def invalidate_embedding_cache(
 async def test_embedding_match(
     text: str,
     tenant_id: UUID,
-    region: str = "INDIA",
+    region: str = "IND",
     category_type: str = "REIMBURSEMENT",
     top_k: int = 3
 ):
@@ -1181,18 +1539,22 @@ async def test_embedding_match(
     """
     require_tenant_id(tenant_id)
     
+    # Normalize region to handle array-like strings - returns List[str]
+    normalized_regions = normalize_region(region)
+    
     try:
         from services.embedding_service import get_embedding_service
         
         embedding_service = get_embedding_service()
+        # Pass all regions to match_category - it will search across all
         matches = await embedding_service.match_category(
-            text, region, category_type, top_k, tenant_id
+            text, normalized_regions, category_type, top_k, tenant_id
         )
         
         return {
             "success": True,
             "query": text,
-            "region": region,
+            "regions": normalized_regions,
             "category_type": category_type,
             "matches": [
                 {

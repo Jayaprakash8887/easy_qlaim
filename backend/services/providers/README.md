@@ -1,6 +1,6 @@
 # Multi-Vendor Provider Architecture
 
-This document describes the multi-vendor provider abstraction layer that enables the Reimbursement Validation System to be deployed on various cloud platforms.
+This document describes the multi-vendor provider abstraction layer that enables the Easy Qlaim to be deployed on various cloud platforms.
 
 ## Overview
 

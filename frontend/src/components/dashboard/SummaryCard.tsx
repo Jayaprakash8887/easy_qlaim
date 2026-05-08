@@ -48,10 +48,22 @@ export function SummaryCard({
     }
   };
 
+  // Dynamic font size based on value length to prevent overflow
+  const getValueFontSize = (val: string | number): string => {
+    const strValue = String(val);
+    const length = strValue.length;
+    
+    if (length <= 4) return "text-3xl";
+    if (length <= 6) return "text-2xl";
+    if (length <= 8) return "text-xl";
+    if (length <= 10) return "text-lg";
+    return "text-base";
+  };
+
   return (
     <div
       className={cn(
-        "rounded-xl p-6 shadow-card transition-all duration-300 hover:shadow-lg hover:-translate-y-1 opacity-0 animate-fade-in",
+        "rounded-xl p-6 shadow-card transition-all duration-300 hover:shadow-lg hover:-translate-y-1 opacity-0 animate-fade-in overflow-hidden",
         variantStyles[variant],
         href && "cursor-pointer"
       )}
@@ -62,7 +74,7 @@ export function SummaryCard({
       onKeyDown={href ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); } : undefined}
     >
       <div className="flex items-start justify-between">
-        <div className="space-y-2">
+        <div className="space-y-2 min-w-0 flex-1 mr-2">
           <p
             className={cn(
               "text-sm font-medium",
@@ -73,9 +85,11 @@ export function SummaryCard({
           </p>
           <p
             className={cn(
-              "text-3xl font-bold tracking-tight",
+              "font-bold tracking-tight",
+              getValueFontSize(value),
               variant === "total" ? "text-primary-foreground" : "text-foreground"
             )}
+            title={String(value)}
           >
             {value}
           </p>

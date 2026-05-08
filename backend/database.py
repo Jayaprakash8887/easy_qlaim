@@ -134,7 +134,7 @@ async def seed_platform_admin():
             logger.info("Platform Administration tenant already exists")
         
         # Check if default System Admin user exists
-        sysadmin = db.query(User).filter(User.email == 'system_admin@qclaims.com').first()
+        sysadmin = db.query(User).filter(User.email == 'system_admin@easyqlaim.com').first()
         
         if not sysadmin:
             # Create default System Admin user
@@ -142,8 +142,8 @@ async def seed_platform_admin():
                 id=uuid4(),
                 tenant_id=platform_tenant.id,
                 username='system_admin',
-                email='system_admin@qclaims.com',
-                hashed_password=hashlib.sha256('Admin@123'.encode()).hexdigest(),
+                email='system_admin@easyqlaim.com',
+                hashed_password=hashlib.sha256('EQAdmin@2025'.encode()).hexdigest(),
                 employee_code='SYSADMIN001',
                 first_name='System',
                 last_name='Admin',
@@ -157,7 +157,7 @@ async def seed_platform_admin():
             )
             db.add(sysadmin)
             db.commit()
-            logger.info(f"Created default System Admin user: system_admin@qclaims.com")
+            logger.info(f"Created default System Admin user: system_admin@easyqlaim.com")
         else:
             logger.info("Default System Admin user already exists")
         

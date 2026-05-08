@@ -2,13 +2,29 @@
 Validation Agent - Policy validation with rule-based and AI reasoning
 """
 from typing import Dict, Any, List
-from datetime import datetime
+from datetime import datetime, date
 from agents.base_agent import BaseAgent
 from celery_app import celery_app
 from config import settings
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Month name to number mapping for fiscal year calculation
+MONTH_TO_NUMBER = {
+    "jan": 1, "january": 1,
+    "feb": 2, "february": 2,
+    "mar": 3, "march": 3,
+    "apr": 4, "april": 4,
+    "may": 5,
+    "jun": 6, "june": 6,
+    "jul": 7, "july": 7,
+    "aug": 8, "august": 8,
+    "sep": 9, "september": 9,
+    "oct": 10, "october": 10,
+    "nov": 11, "november": 11,
+    "dec": 12, "december": 12,
+}
 
 
 class ValidationAgent(BaseAgent):
@@ -142,13 +158,21 @@ class ValidationAgent(BaseAgent):
         })
         
         # Rule 4: Date validity
-        from datetime import date, timedelta
         max_age_days = 90  # Claims must be within 90 days
         days_old = (date.today() - claim.claim_date).days
         results.append({
             "rule_id": "DATE_VALIDITY",
             "result": "pass" if days_old <= max_age_days else "fail",
             "evidence": f"Claim is {days_old} days old, max allowed: {max_age_days}"
+        })
+        
+        # Rule 5: Financial Year Check
+        # Verify claim belongs to current financial year based on tenant settings
+        fy_check = self._check_financial_year(claim.claim_date, claim.tenant_id)
+        results.append({
+            "rule_id": "FINANCIAL_YEAR",
+            "result": "pass" if fy_check["is_current_fy"] else "fail",
+            "evidence": fy_check["evidence"]
         })
         
         return results
@@ -266,10 +290,124 @@ Return in JSON format:
         if not date_of_joining:
             return 0
         
-        from datetime import date
         today = date.today()
         months = (today.year - date_of_joining.year) * 12 + (today.month - date_of_joining.month)
         return months
+    
+    def _get_fiscal_year_start(self, tenant_id: Any) -> int:
+        """
+        Get the fiscal year start month for the tenant.
+        Returns month number (1-12). Default is April (4) if not set.
+        """
+        from database import get_sync_db
+        from models import SystemSettings
+        from sqlalchemy import and_
+        
+        db = next(get_sync_db())
+        setting = db.query(SystemSettings).filter(
+            and_(
+                SystemSettings.setting_key == "fiscal_year_start",
+                SystemSettings.tenant_id == tenant_id
+            )
+        ).first()
+        
+        if setting and setting.setting_value:
+            month_str = setting.setting_value.lower().strip()
+            return MONTH_TO_NUMBER.get(month_str, 4)  # Default to April
+        
+        return 4  # Default fiscal year starts in April
+    
+    def _get_current_financial_year_range(self, fiscal_start_month: int) -> tuple:
+        """
+        Get the start and end dates of the current financial year.
+        
+        Args:
+            fiscal_start_month: Month number when fiscal year starts (1-12)
+        
+        Returns:
+            Tuple of (fy_start_date, fy_end_date)
+        """
+        today = date.today()
+        current_year = today.year
+        current_month = today.month
+        
+        # Determine the fiscal year based on current date
+        if current_month >= fiscal_start_month:
+            # We're in the fiscal year that started this calendar year
+            fy_start_year = current_year
+        else:
+            # We're in the fiscal year that started last calendar year
+            fy_start_year = current_year - 1
+        
+        fy_end_year = fy_start_year + 1
+        
+        # Calculate fiscal year start date
+        fy_start = date(fy_start_year, fiscal_start_month, 1)
+        
+        # Calculate fiscal year end date (last day of month before fiscal start)
+        # If fiscal year starts in April, it ends on March 31
+        fy_end_month = fiscal_start_month - 1 if fiscal_start_month > 1 else 12
+        
+        # Get last day of the ending month
+        if fy_end_month == 12:
+            fy_end = date(fy_end_year, 12, 31)
+        else:
+            # Get last day of month by going to first day of next month and subtracting 1 day
+            from calendar import monthrange
+            last_day = monthrange(fy_end_year, fy_end_month)[1]
+            fy_end = date(fy_end_year, fy_end_month, last_day)
+        
+        return fy_start, fy_end
+    
+    def _check_financial_year(self, claim_date: Any, tenant_id: Any) -> Dict[str, Any]:
+        """
+        Check if the claim date falls within the current financial year.
+        
+        Args:
+            claim_date: The date of the claim
+            tenant_id: Tenant ID to get fiscal year settings
+        
+        Returns:
+            Dict with is_current_fy (bool) and evidence (str)
+        """
+        if not claim_date:
+            return {
+                "is_current_fy": False,
+                "evidence": "Claim date is missing"
+            }
+        
+        # Convert claim_date to date if it's datetime
+        if isinstance(claim_date, datetime):
+            claim_date = claim_date.date()
+        
+        # Get fiscal year start month for tenant
+        fiscal_start_month = self._get_fiscal_year_start(tenant_id)
+        
+        # Get current financial year range
+        fy_start, fy_end = self._get_current_financial_year_range(fiscal_start_month)
+        
+        # Check if claim date is within current financial year
+        is_current_fy = fy_start <= claim_date <= fy_end
+        
+        # Format month name for evidence
+        month_names = {1: "January", 2: "February", 3: "March", 4: "April", 
+                       5: "May", 6: "June", 7: "July", 8: "August",
+                       9: "September", 10: "October", 11: "November", 12: "December"}
+        
+        fy_label = f"FY {fy_start.year}-{str(fy_end.year)[-2:]}"  # e.g., "FY 2025-26"
+        
+        if is_current_fy:
+            evidence = f"Claim date {claim_date} is within current {fy_label} ({fy_start} to {fy_end})"
+        else:
+            evidence = f"Claim date {claim_date} is outside current {fy_label} ({fy_start} to {fy_end})"
+        
+        return {
+            "is_current_fy": is_current_fy,
+            "evidence": evidence,
+            "fy_start": fy_start.isoformat(),
+            "fy_end": fy_end.isoformat(),
+            "fiscal_start_month": month_names.get(fiscal_start_month, "Unknown")
+        }
     
     def _get_claim(self, claim_id: str):
         """Get claim from database"""

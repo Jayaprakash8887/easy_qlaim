@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { BrandingProvider } from '@/contexts/BrandingContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { LoadingSpinner } from '@/components/layout/LoadingSpinner';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
@@ -23,10 +24,13 @@ const NewAllowance = lazy(() => import('./pages/NewAllowance'));
 const Employees = lazy(() => import('./pages/Employees'));
 const EmployeeDetails = lazy(() => import('./pages/EmployeeDetails'));
 const Projects = lazy(() => import('./pages/Projects'));
+const Clients = lazy(() => import('./pages/Clients'));
 const IBUManagement = lazy(() => import('./pages/IBUManagement'));
+const Departments = lazy(() => import('./pages/Departments'));
 const Policies = lazy(() => import('./pages/Policies'));
 const ClaimManagement = lazy(() => import('./pages/ClaimManagement'));
 const RegionManagement = lazy(() => import('./pages/RegionManagement'));
+const ApprovalRules = lazy(() => import('./pages/ApprovalRules'));
 const Settlements = lazy(() => import('./pages/Settlements'));
 const SettlementsPending = lazy(() => import('./pages/SettlementsPending'));
 const SettlementsCompleted = lazy(() => import('./pages/SettlementsCompleted'));
@@ -60,20 +64,21 @@ function PageLoader() {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            {/* Public route - Login page */}
-            <Route
-              path="/login"
-              element={
-                <Suspense fallback={<PageLoader />}>
-                  <Login />
-                </Suspense>
-              }
-            />
+      <BrandingProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              {/* Public route - Login page */}
+              <Route
+                path="/login"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <Login />
+                  </Suspense>
+                }
+              />
 
             {/* Protected routes */}
             <Route element={
@@ -194,11 +199,31 @@ const App = () => (
                 }
               />
               <Route
+                path="/clients"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <Clients />
+                    </ProtectedRoute>
+                  </Suspense>
+                }
+              />
+              <Route
                 path="/ibus"
                 element={
                   <Suspense fallback={<PageLoader />}>
                     <ProtectedRoute allowedRoles={['admin']}>
                       <IBUManagement />
+                    </ProtectedRoute>
+                  </Suspense>
+                }
+              />
+              <Route
+                path="/departments"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <Departments />
                     </ProtectedRoute>
                   </Suspense>
                 }
@@ -229,6 +254,16 @@ const App = () => (
                   <Suspense fallback={<PageLoader />}>
                     <ProtectedRoute allowedRoles={['admin']}>
                       <ClaimManagement />
+                    </ProtectedRoute>
+                  </Suspense>
+                }
+              />
+              <Route
+                path="/approval-rules"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <ApprovalRules />
                     </ProtectedRoute>
                   </Suspense>
                 }
@@ -291,6 +326,16 @@ const App = () => (
                   </Suspense>
                 }
               />
+              <Route
+                path="/designations"
+                element={
+                  <Suspense fallback={<PageLoader />}>
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <Designations />
+                    </ProtectedRoute>
+                  </Suspense>
+                }
+              />
               {/* System Admin Routes */}
               <Route
                 path="/admin/tenants"
@@ -333,7 +378,8 @@ const App = () => (
             />
           </Routes>
         </BrowserRouter>
-      </TooltipProvider>
+        </TooltipProvider>
+      </BrandingProvider>
     </AuthProvider>
   </QueryClientProvider>
 );

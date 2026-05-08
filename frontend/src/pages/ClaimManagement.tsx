@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { extractErrorMessage } from '@/lib/utils';
 import {
     Table,
     TableBody,
@@ -34,6 +35,8 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
 import {
     Loader2,
     AlertCircle,
@@ -42,15 +45,31 @@ import {
     CheckCircle,
     XCircle,
     FileCheck,
-    Search
+    Search,
+    Trash2,
+    Plus
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRegions } from '@/hooks/useRegions';
 import { useFormatting } from '@/hooks/useFormatting';
+import { 
+    type CustomFieldDefinition,
+    FIELD_TYPE_OPTIONS,
+    getEmptyCustomField 
+} from '@/components/policies/types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Calculation types for allowances
+const CALCULATION_TYPES = [
+    { value: 'per_day', label: 'Per Day (Working Days × Daily Rate)', description: 'For allowances like food, internet' },
+    { value: 'per_km', label: 'Per KM (Distance × Rate × Trips)', description: 'For conveyance/travel allowances' },
+    { value: 'fixed', label: 'Fixed Amount', description: 'Direct amount entry, no calculation' },
+] as const;
+
+type CalculationType = 'per_day' | 'per_km' | 'fixed';
 
 // Types
 interface ExtractedClaim {
@@ -59,11 +78,14 @@ interface ExtractedClaim {
     category_code: string;
     category_type: 'REIMBURSEMENT' | 'ALLOWANCE';
     description?: string;
+    calculation_type?: CalculationType;
+    rate_per_unit?: number;
     max_amount?: number;
     currency: string;
     requires_receipt: boolean;
     is_active: boolean;
     ai_confidence?: number;
+    custom_fields?: CustomFieldDefinition[];
     created_at: string;
     policy_upload_id: string;
     policy_name: string;
@@ -76,7 +98,10 @@ interface ExtractedClaim {
 // API Functions
 async function fetchExtractedClaims(tenantId?: string): Promise<ExtractedClaim[]> {
     const params = tenantId ? `?tenant_id=${tenantId}` : '';
-    const response = await fetch(`${API_BASE_URL}/policies/extracted-claims${params}`);
+    const token = localStorage.getItem('access_token');
+    const response = await fetch(`${API_BASE_URL}/policies/extracted-claims${params}`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    });
     if (!response.ok) {
         throw new Error('Failed to fetch extracted claims');
     }
@@ -85,14 +110,33 @@ async function fetchExtractedClaims(tenantId?: string): Promise<ExtractedClaim[]
 
 async function updateCategory(id: string, updates: Partial<ExtractedClaim>, tenantId?: string): Promise<ExtractedClaim> {
     const params = tenantId ? `?tenant_id=${tenantId}` : '';
+    const token = localStorage.getItem('access_token');
     const response = await fetch(`${API_BASE_URL}/policies/categories/${id}${params}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(updates),
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to update category');
+        throw new Error(extractErrorMessage(error, 'Failed to update category'));
+    }
+    return response.json();
+}
+
+async function deleteCategory(id: string, tenantId: string, deletedBy?: string): Promise<{ message: string }> {
+    const params = new URLSearchParams({ tenant_id: tenantId });
+    if (deletedBy) params.append('deleted_by', deletedBy);
+    const token = localStorage.getItem('access_token');
+    const response = await fetch(`${API_BASE_URL}/policies/categories/${id}?${params.toString()}`, {
+        method: 'DELETE',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(extractErrorMessage(error, 'Failed to delete category'));
     }
     return response.json();
 }
@@ -124,16 +168,32 @@ export default function ClaimManagement() {
     const { data: regions } = useRegions();
     const { formatCurrency } = useFormatting();
 
+    // Use region code as value (backend stores codes), but show name as label
     const regionOptions = [
         { value: '', label: 'All Regions' },
-        ...(regions || []).map(r => ({ value: r.name, label: r.name }))
+        ...(regions || []).map(r => ({ value: r.code, label: r.name }))
     ];
+
+    // Helper function to convert region codes to display names
+    const getRegionDisplayName = (regionCode: string | string[] | null | undefined): string => {
+        if (!regionCode) return 'Global';
+        const codes = Array.isArray(regionCode) ? regionCode : [regionCode];
+        if (codes.length === 0) return 'Global';
+        
+        return codes.map(code => {
+            if (code === 'GLOBAL') return 'Global';
+            const region = regions?.find(r => r.code === code);
+            return region?.name || code;
+        }).join(', ');
+    };
 
     const [searchTerm, setSearchTerm] = useState('');
     const [regionFilter, setRegionFilter] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<ExtractedClaim | null>(null);
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [editForm, setEditForm] = useState<Partial<ExtractedClaim>>({});
+    const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+    const [categoryToDelete, setCategoryToDelete] = useState<ExtractedClaim | null>(null);
 
     const { data: claims, isLoading, error } = useQuery({
         queryKey: ['extracted-claims', user?.tenantId],
@@ -148,6 +208,24 @@ export default function ClaimManagement() {
             toast({ title: 'Success', description: 'Category updated successfully.' });
             setIsEditOpen(false);
             queryClient.invalidateQueries({ queryKey: ['extracted-claims'] });
+            // Also invalidate individual policy queries so the "Extracted Categories" 
+            // dialog in Policies page shows the updated values
+            queryClient.invalidateQueries({ queryKey: ['policy'] });
+        },
+        onError: (error: Error) => {
+            toast({ title: 'Error', description: error.message, variant: 'destructive' });
+        },
+    });
+
+    const deleteMutation = useMutation({
+        mutationFn: (id: string) => deleteCategory(id, user?.tenantId || '', user?.id),
+        onSuccess: () => {
+            toast({ title: 'Success', description: 'Category deleted successfully.' });
+            setIsDeleteOpen(false);
+            setCategoryToDelete(null);
+            queryClient.invalidateQueries({ queryKey: ['extracted-claims'] });
+            queryClient.invalidateQueries({ queryKey: ['policy'] });
+            queryClient.invalidateQueries({ queryKey: ['policies'] });
         },
         onError: (error: Error) => {
             toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -160,16 +238,59 @@ export default function ClaimManagement() {
             category_name: category.category_name,
             category_code: category.category_code,
             category_type: category.category_type,
+            calculation_type: category.calculation_type || (category.category_type === 'REIMBURSEMENT' ? 'fixed' : 'per_day'),
+            rate_per_unit: category.rate_per_unit,
             max_amount: category.max_amount,
             requires_receipt: category.requires_receipt,
             description: category.description,
+            is_active: category.is_active,
+            custom_fields: category.custom_fields || [],
         });
         setIsEditOpen(true);
     };
 
     const handleSaveEdit = () => {
         if (!selectedCategory) return;
+        
+        // Validate custom fields before saving
+        if (editForm.custom_fields && editForm.custom_fields.length > 0) {
+            for (const field of editForm.custom_fields) {
+                if (!field.name.trim() || !field.label.trim()) {
+                    toast({ title: 'Error', description: 'All custom fields must have a name and label.', variant: 'destructive' });
+                    return;
+                }
+                if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(field.name)) {
+                    toast({ title: 'Error', description: `Field name "${field.name}" is invalid. Use letters, numbers, and underscores only, starting with a letter.`, variant: 'destructive' });
+                    return;
+                }
+            }
+        }
+        
         updateMutation.mutate({ id: selectedCategory.id, updates: editForm });
+    };
+
+    // Custom field handlers
+    const addCustomField = () => {
+        setEditForm(prev => ({
+            ...prev,
+            custom_fields: [...(prev.custom_fields || []), getEmptyCustomField()],
+        }));
+    };
+
+    const removeCustomField = (index: number) => {
+        setEditForm(prev => ({
+            ...prev,
+            custom_fields: (prev.custom_fields || []).filter((_, i) => i !== index),
+        }));
+    };
+
+    const updateCustomField = (index: number, field: Partial<CustomFieldDefinition>) => {
+        setEditForm(prev => ({
+            ...prev,
+            custom_fields: (prev.custom_fields || []).map((f, i) =>
+                i === index ? { ...f, ...field } : f
+            ),
+        }));
     };
 
     const filteredClaims = claims?.filter(claim => {
@@ -249,6 +370,7 @@ export default function ClaimManagement() {
                                 <TableHead>Type</TableHead>
                                 <TableHead>Max Amount</TableHead>
                                 <TableHead>Receipt</TableHead>
+                                <TableHead>Category Status</TableHead>
                                 <TableHead>Policy Status</TableHead>
                                 <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
@@ -266,7 +388,7 @@ export default function ClaimManagement() {
                                     </TableCell>
                                     <TableCell>
                                         <Badge variant="outline">
-                                            {claim.policy_region || 'Global'}
+                                            {getRegionDisplayName(claim.policy_region)}
                                         </Badge>
                                     </TableCell>
                                     <TableCell>
@@ -289,6 +411,11 @@ export default function ClaimManagement() {
                                         </span>
                                     </TableCell>
                                     <TableCell>
+                                        <Badge variant={claim.is_active ? "default" : "secondary"} className={claim.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}>
+                                            {claim.is_active ? 'Active' : 'Inactive'}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell>
                                         {getPolicyStatusBadge(claim.policy_status)}
                                     </TableCell>
                                     <TableCell className="text-right border-l pl-4">
@@ -300,12 +427,24 @@ export default function ClaimManagement() {
                                         >
                                             <Edit className="h-4 w-4" />
                                         </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => {
+                                                setCategoryToDelete(claim);
+                                                setIsDeleteOpen(true);
+                                            }}
+                                            title="Delete Category"
+                                            className="text-red-500 hover:text-red-700"
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
                                     </TableCell>
                                 </TableRow>
                             ))}
                             {filteredClaims?.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                                         No claims found matching your search.
                                     </TableCell>
                                 </TableRow>
@@ -317,7 +456,7 @@ export default function ClaimManagement() {
 
             {/* Edit Dialog */}
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-                <DialogContent>
+                <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Edit Claim Category</DialogTitle>
                         <DialogDescription>
@@ -354,7 +493,12 @@ export default function ClaimManagement() {
                             <div className="col-span-3">
                                 <Select
                                     value={editForm.category_type}
-                                    onValueChange={(value: any) => setEditForm({ ...editForm, category_type: value })}
+                                    onValueChange={(value: any) => setEditForm({ 
+                                        ...editForm, 
+                                        category_type: value,
+                                        // Auto-set calculation_type based on category type
+                                        calculation_type: value === 'REIMBURSEMENT' ? 'fixed' : (editForm.calculation_type || 'per_day')
+                                    })}
                                 >
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select type" />
@@ -364,6 +508,76 @@ export default function ClaimManagement() {
                                         <SelectItem value="ALLOWANCE">Allowance</SelectItem>
                                     </SelectContent>
                                 </Select>
+                            </div>
+                        </div>
+                        
+                        {/* Calculation Type - Only for Allowances */}
+                        {editForm.category_type === 'ALLOWANCE' && (
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="calculation_type" className="text-right">
+                                    Calculation
+                                </Label>
+                                <div className="col-span-3">
+                                    <Select
+                                        value={editForm.calculation_type || 'per_day'}
+                                        onValueChange={(value: CalculationType) => setEditForm({ ...editForm, calculation_type: value })}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select calculation type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {CALCULATION_TYPES.map(type => (
+                                                <SelectItem key={type.value} value={type.value}>
+                                                    <div>
+                                                        <div className="font-medium">{type.label}</div>
+                                                    </div>
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        {CALCULATION_TYPES.find(t => t.value === (editForm.calculation_type || 'per_day'))?.description}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Rate Per Unit - Only for per_day and per_km types */}
+                        {editForm.category_type === 'ALLOWANCE' && editForm.calculation_type !== 'fixed' && (
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="rate_per_unit" className="text-right">
+                                    {editForm.calculation_type === 'per_km' ? 'Rate/KM' : 'Rate/Day'}
+                                </Label>
+                                <div className="col-span-3">
+                                    <Input
+                                        id="rate_per_unit"
+                                        type="number"
+                                        step="0.01"
+                                        value={editForm.rate_per_unit || ''}
+                                        onChange={(e) => setEditForm({ ...editForm, rate_per_unit: parseFloat(e.target.value) || undefined })}
+                                        placeholder={editForm.calculation_type === 'per_km' ? 'e.g., 8.00 per km' : 'e.g., 500.00 per day'}
+                                    />
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        {editForm.calculation_type === 'per_km' 
+                                            ? 'Rate per kilometer for distance-based calculation'
+                                            : 'Daily rate for working days calculation'
+                                        }
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                        
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">
+                                Region
+                            </Label>
+                            <div className="col-span-3">
+                                <Badge variant="outline" className="font-normal">
+                                    {getRegionDisplayName(selectedCategory?.policy_region)}
+                                </Badge>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Region is inherited from the policy and cannot be changed here.
+                                </p>
                             </div>
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
@@ -407,7 +621,143 @@ export default function ClaimManagement() {
                                 className="col-span-3"
                             />
                         </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">
+                                Status
+                            </Label>
+                            <div className="col-span-3 flex items-center space-x-3">
+                                <Switch
+                                    id="is_active"
+                                    checked={editForm.is_active ?? true}
+                                    onCheckedChange={(checked) => setEditForm({ ...editForm, is_active: checked })}
+                                />
+                                <label
+                                    htmlFor="is_active"
+                                    className={`text-sm font-medium leading-none ${editForm.is_active ? 'text-green-600' : 'text-gray-500'}`}
+                                >
+                                    {editForm.is_active ? 'Active' : 'Inactive'}
+                                </label>
+                                {!editForm.is_active && (
+                                    <span className="text-xs text-muted-foreground">
+                                        (Will not appear in claim options)
+                                    </span>
+                                )}
+                            </div>
+                        </div>
                     </div>
+
+                    <Separator />
+
+                    {/* Custom Fields Section */}
+                    <div className="space-y-4 py-4">
+                        <div className="flex items-center justify-between">
+                            <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Custom Fields</h4>
+                            <Button type="button" variant="outline" size="sm" onClick={addCustomField}>
+                                <Plus className="h-4 w-4 mr-1" />
+                                Add Field
+                            </Button>
+                        </div>
+
+                        {(!editForm.custom_fields || editForm.custom_fields.length === 0) ? (
+                            <p className="text-sm text-muted-foreground text-center py-4">
+                                No custom fields defined. Click "Add Field" to create custom fields for this claim.
+                            </p>
+                        ) : (
+                            <div className="space-y-4 max-h-[300px] overflow-y-auto">
+                                {editForm.custom_fields.map((field, index) => (
+                                    <Card key={index} className="p-4">
+                                        <div className="space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-sm font-medium">Field {index + 1}</span>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-red-600"
+                                                    onClick={() => removeCustomField(index)}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-3">
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs">Field Name *</Label>
+                                                    <Input
+                                                        value={field.name}
+                                                        onChange={(e) => updateCustomField(index, { name: e.target.value })}
+                                                        placeholder="field_name"
+                                                        className="text-sm"
+                                                    />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs">Label *</Label>
+                                                    <Input
+                                                        value={field.label}
+                                                        onChange={(e) => updateCustomField(index, { label: e.target.value })}
+                                                        placeholder="Field Label"
+                                                        className="text-sm"
+                                                    />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs">Type</Label>
+                                                    <Select
+                                                        value={field.type}
+                                                        onValueChange={(value: CustomFieldDefinition['type']) =>
+                                                            updateCustomField(index, { type: value })}
+                                                    >
+                                                        <SelectTrigger className="text-sm">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {FIELD_TYPE_OPTIONS.map((opt) => (
+                                                                <SelectItem key={opt.value} value={opt.value}>
+                                                                    {opt.label}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs">Placeholder</Label>
+                                                    <Input
+                                                        value={field.placeholder || ''}
+                                                        onChange={(e) => updateCustomField(index, { placeholder: e.target.value })}
+                                                        placeholder="Enter placeholder text"
+                                                        className="text-sm"
+                                                    />
+                                                </div>
+                                                <div className="flex items-center space-x-2 pt-5">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={field.required}
+                                                        onChange={(e) => updateCustomField(index, { required: e.target.checked })}
+                                                        className="h-4 w-4"
+                                                    />
+                                                    <Label className="text-xs">Required</Label>
+                                                </div>
+                                            </div>
+                                            {field.type === 'select' && (
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs">Options (comma-separated)</Label>
+                                                    <Input
+                                                        value={field.options.join(', ')}
+                                                        onChange={(e) => updateCustomField(index, {
+                                                            options: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
+                                                        })}
+                                                        placeholder="Option 1, Option 2, Option 3"
+                                                        className="text-sm"
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </Card>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsEditOpen(false)}>
                             Cancel
@@ -415,6 +765,43 @@ export default function ClaimManagement() {
                         <Button onClick={handleSaveEdit} disabled={updateMutation.isPending}>
                             {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             Save Changes
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete Claim Category</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to delete this claim category? This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {categoryToDelete && (
+                        <div className="py-4">
+                            <div className="rounded-lg border p-4 space-y-2">
+                                <p><span className="font-medium">Category:</span> {categoryToDelete.category_name}</p>
+                                <p><span className="font-medium">Code:</span> {categoryToDelete.category_code}</p>
+                                <p><span className="font-medium">Policy:</span> {categoryToDelete.policy_name}</p>
+                                {categoryToDelete.max_amount && (
+                                    <p><span className="font-medium">Max Amount:</span> ${categoryToDelete.max_amount.toLocaleString()}</p>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsDeleteOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button 
+                            variant="destructive" 
+                            onClick={() => categoryToDelete && deleteMutation.mutate(categoryToDelete.id)}
+                            disabled={deleteMutation.isPending}
+                        >
+                            {deleteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Delete Category
                         </Button>
                     </DialogFooter>
                 </DialogContent>

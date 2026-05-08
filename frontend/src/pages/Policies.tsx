@@ -5,19 +5,16 @@ import {
   Plus,
   CheckCircle,
   XCircle,
-  Clock,
-  AlertCircle,
   ChevronDown,
   ChevronUp,
   Eye,
   Edit,
   Loader2,
-  RefreshCcw,
-  FileCheck,
   Trash2,
   Settings,
   PlusCircle,
   Sparkles,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,364 +49,46 @@ import {
 } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { format } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
 import { MultiSelect } from '@/components/ui/multi-select';
 import { useRegions } from '@/hooks/useRegions';
 import { useFormatting } from '@/hooks/useFormatting';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
-
-// Types
-interface PolicyCategory {
-  id: string;
-  tenant_id: string;
-  policy_upload_id: string;
-  category_name: string;
-  category_code: string;
-  category_type: 'REIMBURSEMENT' | 'ALLOWANCE';
-  description?: string;
-  max_amount?: number;
-  min_amount?: number;
-  currency: string;
-  frequency_limit?: string;
-  frequency_count?: number;
-  eligibility_criteria: Record<string, unknown>;
-  requires_receipt: boolean;
-  requires_approval_above?: number;
-  allowed_document_types: string[];
-  submission_window_days?: number;
-  is_active: boolean;
-  display_order: number;
-  source_text?: string;
-  ai_confidence?: number;
-  created_at: string;
-  updated_at: string;
-}
-
-interface PolicyUpload {
-  id: string;
-  tenant_id: string;
-  policy_name: string;
-  policy_number: string;
-  description?: string;
-  file_name: string;
-  file_type: string;
-  file_size?: number;
-  storage_path?: string;
-  gcs_uri?: string;
-  storage_type: string;
-  status: string;
-  extracted_text?: string;
-  extraction_error?: string;
-  extracted_at?: string;
-  extracted_data: Record<string, unknown>;
-  version: number;
-  is_active: boolean;
-  effective_from?: string;
-  effective_to?: string;
-  uploaded_by: string;
-  approved_by?: string;
-  approved_at?: string;
-  review_notes?: string;
-  created_at: string;
-  updated_at: string;
-  region?: string[];
-  categories: PolicyCategory[];
-}
-
-interface PolicyUploadListItem {
-  id: string;
-  policy_name: string;
-  policy_number: string;
-  file_name: string;
-  status: string;
-  version: number;
-  is_active: boolean;
-  effective_from?: string;
-  region?: string[];
-  categories_count: number;
-  uploaded_by: string;
-  created_at: string;
-}
-
-// Custom Claim Types
-interface CustomFieldValidation {
-  min_length?: number;
-  max_length?: number;
-  min?: number;
-  max?: number;
-  pattern?: string;
-}
-
-interface CustomFieldDefinition {
-  name: string;
-  label: string;
-  type: 'text' | 'number' | 'date' | 'select' | 'file' | 'boolean' | 'currency';
-  required: boolean;
-  placeholder?: string;
-  options: string[];
-  validation?: CustomFieldValidation;
-  default_value?: unknown;
-}
-
-interface CustomClaim {
-  id: string;
-  tenant_id: string;
-  claim_name: string;
-  claim_code: string;
-  description?: string;
-  category_type: 'REIMBURSEMENT' | 'ALLOWANCE';
-  region?: string[];
-  max_amount?: number;
-  min_amount?: number;
-  default_amount?: number;
-  currency: string;
-  frequency_limit?: string;
-  frequency_count?: number;
-  custom_fields: CustomFieldDefinition[];
-  eligibility_criteria: Record<string, unknown>;
-  requires_receipt: boolean;
-  requires_approval_above?: number;
-  allowed_document_types: string[];
-  submission_window_days?: number;
-  is_active: boolean;
-  display_order: number;
-  created_by: string;
-  updated_by?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface CustomClaimListItem {
-  id: string;
-  claim_name: string;
-  claim_code: string;
-  description?: string;
-  category_type: 'REIMBURSEMENT' | 'ALLOWANCE';
-  region?: string[];
-  max_amount?: number;
-  currency: string;
-  requires_receipt: boolean;
-  is_active: boolean;
-  fields_count: number;
-  created_at: string;
-}
-
-// API Functions
-async function fetchPolicies(tenantId?: string, region?: string): Promise<PolicyUploadListItem[]> {
-  const params = new URLSearchParams();
-  if (tenantId) params.append('tenant_id', tenantId);
-  if (region) params.append('region', region);
-
-  const url = `${API_BASE_URL}/policies/${params.toString() ? '?' + params.toString() : ''}`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error('Failed to fetch policies');
-  }
-  return response.json();
-}
-
-async function fetchPolicy(id: string, tenantId: string): Promise<PolicyUpload> {
-  const response = await fetch(`${API_BASE_URL}/policies/${id}?tenant_id=${tenantId}`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch policy');
-  }
-  return response.json();
-}
-
-async function uploadPolicy(data: FormData): Promise<PolicyUpload> {
-  const response = await fetch(`${API_BASE_URL}/policies/upload`, {
-    method: 'POST',
-    body: data,
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || 'Failed to upload policy');
-  }
-  return response.json();
-}
-
-async function approvePolicy(id: string, data: { review_notes?: string; effective_from?: string }, tenantId: string): Promise<PolicyUpload> {
-  const response = await fetch(`${API_BASE_URL}/policies/${id}/approve?tenant_id=${tenantId}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || 'Failed to approve policy');
-  }
-  return response.json();
-}
-
-async function rejectPolicy(id: string, review_notes: string, tenantId: string): Promise<PolicyUpload> {
-  const response = await fetch(`${API_BASE_URL}/policies/${id}/reject?tenant_id=${tenantId}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ review_notes }),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || 'Failed to reject policy');
-  }
-  return response.json();
-}
-
-async function reExtractPolicy(id: string, tenantId: string): Promise<{ message: string }> {
-  const response = await fetch(`${API_BASE_URL}/policies/${id}/reextract?tenant_id=${tenantId}`, {
-    method: 'POST',
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || 'Failed to re-extract policy');
-  }
-  return response.json();
-}
-
-async function uploadNewVersion(id: string, formData: FormData, tenantId: string): Promise<PolicyUpload> {
-  // Ensure tenant_id is in FormData if it's a form post, or in query
-  if (!formData.has('tenant_id')) {
-    formData.append('tenant_id', tenantId);
-  }
-  const response = await fetch(`${API_BASE_URL}/policies/${id}/new-version`, {
-    method: 'POST',
-    body: formData,
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || 'Failed to upload new version');
-  }
-  return response.json();
-}
-
-// Custom Claims API Functions
-async function fetchCustomClaims(tenantId: string): Promise<CustomClaimListItem[]> {
-  const response = await fetch(`${API_BASE_URL}/custom-claims/?tenant_id=${tenantId}`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch custom claims');
-  }
-  return response.json();
-}
-
-async function fetchCustomClaim(id: string, tenantId: string): Promise<CustomClaim> {
-  const response = await fetch(`${API_BASE_URL}/custom-claims/${id}?tenant_id=${tenantId}`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch custom claim');
-  }
-  return response.json();
-}
-
-async function createCustomClaim(data: Partial<CustomClaim>, createdBy: string, tenantId: string): Promise<CustomClaim> {
-  const response = await fetch(`${API_BASE_URL}/custom-claims/?created_by=${createdBy}&tenant_id=${tenantId}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || 'Failed to create custom claim');
-  }
-  return response.json();
-}
-
-async function updateCustomClaim(id: string, data: Partial<CustomClaim>, updatedBy: string, tenantId: string): Promise<CustomClaim> {
-  const response = await fetch(`${API_BASE_URL}/custom-claims/${id}?updated_by=${updatedBy}&tenant_id=${tenantId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || 'Failed to update custom claim');
-  }
-  return response.json();
-}
-
-async function deleteCustomClaim(id: string, tenantId: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/custom-claims/${id}?tenant_id=${tenantId}`, {
-    method: 'DELETE',
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || 'Failed to delete custom claim');
-  }
-}
-
-async function toggleCustomClaimStatus(id: string, updatedBy: string, tenantId: string): Promise<CustomClaim> {
-  const response = await fetch(`${API_BASE_URL}/custom-claims/${id}/toggle-status?updated_by=${updatedBy}&tenant_id=${tenantId}`, {
-    method: 'POST',
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || 'Failed to toggle custom claim status');
-  }
-  return response.json();
-}
-
-function getStatusBadge(status: string) {
-  switch (status) {
-    case 'PENDING':
-      return <Badge variant="outline" className="text-gray-600"><Clock className="h-3 w-3 mr-1" />Pending</Badge>;
-    case 'AI_PROCESSING':
-      return <Badge variant="outline" className="text-blue-600"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Processing</Badge>;
-    case 'EXTRACTED':
-      return <Badge variant="outline" className="text-orange-600"><AlertCircle className="h-3 w-3 mr-1" />Needs Review</Badge>;
-    case 'APPROVED':
-      return <Badge variant="outline" className="text-green-600"><CheckCircle className="h-3 w-3 mr-1" />Approved</Badge>;
-    case 'ACTIVE':
-      return <Badge className="bg-green-100 text-green-700"><FileCheck className="h-3 w-3 mr-1" />Active</Badge>;
-    case 'REJECTED':
-      return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Rejected</Badge>;
-    default:
-      return <Badge variant="outline">{status}</Badge>;
-  }
-}
-
-function formatFileSize(bytes?: number): string {
-  if (!bytes) return 'Unknown';
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  if (bytes === 0) return '0 Bytes';
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-
-
-// Field type options for custom claims
-const FIELD_TYPE_OPTIONS = [
-  { value: 'text', label: 'Text' },
-  { value: 'number', label: 'Number' },
-  { value: 'currency', label: 'Currency' },
-  { value: 'date', label: 'Date' },
-  { value: 'select', label: 'Dropdown Select' },
-  { value: 'boolean', label: 'Yes/No (Checkbox)' },
-  { value: 'file', label: 'File Upload' },
-];
-
-// Frequency limit options
-const FREQUENCY_OPTIONS = [
-  { value: '', label: 'No Limit' },
-  { value: 'ONCE', label: 'Once Only' },
-  { value: 'DAILY', label: 'Daily' },
-  { value: 'WEEKLY', label: 'Weekly' },
-  { value: 'MONTHLY', label: 'Monthly' },
-  { value: 'QUARTERLY', label: 'Quarterly' },
-  { value: 'YEARLY', label: 'Yearly' },
-  { value: 'UNLIMITED', label: 'Unlimited' },
-];
-
-// Default empty custom field
-const getEmptyCustomField = (): CustomFieldDefinition => ({
-  name: '',
-  label: '',
-  type: 'text',
-  required: false,
-  placeholder: '',
-  options: [],
-  validation: undefined,
-  default_value: undefined,
-});
+// Import from extracted modules
+import {
+  // Types
+  type PolicyUpload,
+  type PolicyUploadListItem,
+  type PolicyCategory,
+  type CustomClaim,
+  type CustomClaimListItem,
+  type CustomFieldDefinition,
+  type CustomClaimFormState,
+  // Constants
+  FIELD_TYPE_OPTIONS,
+  FREQUENCY_OPTIONS,
+  DEFAULT_CUSTOM_CLAIM_FORM,
+  getEmptyCustomField,
+  // API functions
+  fetchPolicies,
+  fetchPolicy,
+  uploadPolicy,
+  approvePolicy,
+  rejectPolicy,
+  reExtractPolicy,
+  uploadNewVersion,
+  deletePolicy,
+  updatePolicyMetadata,
+  fetchCustomClaims,
+  fetchCustomClaim,
+  createCustomClaim,
+  updateCustomClaim,
+  deleteCustomClaim,
+  toggleCustomClaimStatus,
+  // Utils
+  getStatusBadge,
+  formatFileSize,
+} from '@/components/policies';
 
 export default function Policies() {
   const queryClient = useQueryClient();
@@ -422,16 +101,33 @@ export default function Policies() {
   const { data: regionList = [] } = useRegions();
 
   // Map regions to options format for MultiSelect
+  // Use region code as value (backend expects codes), but show name as label
   const regionOptions = [
     { value: 'GLOBAL', label: 'Global (All Regions)' },
-    ...regionList.map(r => ({ value: r.name, label: r.name }))
+    ...regionList.map(r => ({ value: r.code, label: r.name }))
   ];
+
+  // Helper function to convert region codes to display names
+  const getRegionDisplayNames = (regionCodes: string | string[] | null | undefined): string => {
+    if (!regionCodes) return 'Global';
+    const codes = Array.isArray(regionCodes) ? regionCodes : [regionCodes];
+    if (codes.length === 0) return 'Global';
+    
+    return codes.map(code => {
+      if (code === 'GLOBAL') return 'Global';
+      const region = regionList.find(r => r.code === code);
+      return region?.name || code; // Fallback to code if name not found
+    }).join(', ');
+  };
 
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [isApproveOpen, setIsApproveOpen] = useState(false);
   const [isRejectOpen, setIsRejectOpen] = useState(false);
   const [isNewVersionOpen, setIsNewVersionOpen] = useState(false);
+  const [isEditPolicyOpen, setIsEditPolicyOpen] = useState(false);
+  const [isDeletePolicyOpen, setIsDeletePolicyOpen] = useState(false);
+  const [policyToDelete, setPolicyToDelete] = useState<PolicyUploadListItem | null>(null);
   const [selectedPolicyId, setSelectedPolicyId] = useState<string | null>(null);
   const [selectedPolicyName, setSelectedPolicyName] = useState<string>('');
   const [regionFilter, setRegionFilter] = useState<string>('');
@@ -449,6 +145,11 @@ export default function Policies() {
     description: '',
     region: [] as string[],
     file: null as File | null,
+  });
+  const [editPolicyForm, setEditPolicyForm] = useState({
+    policy_name: '',
+    description: '',
+    region: [] as string[],
   });
   const [approveNotes, setApproveNotes] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState('');
@@ -553,7 +254,7 @@ export default function Policies() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { review_notes?: string; effective_from?: string } }) =>
+    mutationFn: ({ id, data }: { id: string; data: { review_notes?: string; effective_from?: string; approved_by?: string } }) =>
       approvePolicy(id, data, user?.tenantId || ''),
     onSuccess: () => {
       toast({ title: 'Success', description: 'Policy approved and activated.' });
@@ -591,12 +292,41 @@ export default function Policies() {
     },
   });
 
+  const deletePolicyMutation = useMutation({
+    mutationFn: (id: string) => deletePolicy(id, user?.tenantId || '', user?.id),
+    onSuccess: () => {
+      toast({ title: 'Success', description: 'Policy deleted successfully.' });
+      setIsDeletePolicyOpen(false);
+      setPolicyToDelete(null);
+      queryClient.invalidateQueries({ queryKey: ['policies'] });
+      queryClient.invalidateQueries({ queryKey: ['extracted-claims'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
   const newVersionMutation = useMutation({
     mutationFn: ({ id, formData }: { id: string; formData: FormData }) => uploadNewVersion(id, formData, user?.tenantId || ''),
     onSuccess: () => {
       toast({ title: 'Success', description: 'New version uploaded successfully. AI extraction in progress.' });
       setIsNewVersionOpen(false);
       setNewVersionForm({ description: '', region: [], file: null });
+      queryClient.invalidateQueries({ queryKey: ['policies'] });
+      queryClient.invalidateQueries({ queryKey: ['extracted-claims'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const editPolicyMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { policy_name?: string; description?: string; region?: string[] } }) => 
+      updatePolicyMetadata(id, data, user?.tenantId || ''),
+    onSuccess: () => {
+      toast({ title: 'Success', description: 'Policy updated successfully.' });
+      setIsEditPolicyOpen(false);
+      setEditPolicyForm({ policy_name: '', description: '', region: [] });
       queryClient.invalidateQueries({ queryKey: ['policies'] });
       queryClient.invalidateQueries({ queryKey: ['extracted-claims'] });
     },
@@ -613,6 +343,7 @@ export default function Policies() {
       setIsCreateCustomClaimOpen(false);
       resetCustomClaimForm();
       queryClient.invalidateQueries({ queryKey: ['custom-claims'] });
+      queryClient.invalidateQueries({ queryKey: ['extracted-claims'] });
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -628,6 +359,7 @@ export default function Policies() {
       resetCustomClaimForm();
       queryClient.invalidateQueries({ queryKey: ['custom-claims'] });
       queryClient.invalidateQueries({ queryKey: ['custom-claim', selectedCustomClaimId] });
+      queryClient.invalidateQueries({ queryKey: ['extracted-claims'] });
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -639,6 +371,7 @@ export default function Policies() {
     onSuccess: () => {
       toast({ title: 'Success', description: 'Custom claim deleted successfully.' });
       queryClient.invalidateQueries({ queryKey: ['custom-claims'] });
+      queryClient.invalidateQueries({ queryKey: ['extracted-claims'] });
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -650,6 +383,7 @@ export default function Policies() {
     onSuccess: () => {
       toast({ title: 'Success', description: 'Custom claim status updated.' });
       queryClient.invalidateQueries({ queryKey: ['custom-claims'] });
+      queryClient.invalidateQueries({ queryKey: ['extracted-claims'] });
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -659,6 +393,12 @@ export default function Policies() {
   const handleUpload = () => {
     if (!uploadForm.file || !uploadForm.policy_name) {
       toast({ title: 'Error', description: 'Please provide a policy name and file.', variant: 'destructive' });
+      return;
+    }
+
+    // Validate region is provided
+    if (!uploadForm.region || uploadForm.region.length === 0) {
+      toast({ title: 'Error', description: 'Please select at least one region.', variant: 'destructive' });
       return;
     }
 
@@ -688,6 +428,7 @@ export default function Policies() {
       data: {
         review_notes: approveNotes || undefined,
         effective_from: effectiveFrom || undefined,
+        approved_by: user?.id,  // Pass current user as approver
       },
     });
   };
@@ -716,6 +457,12 @@ export default function Policies() {
       return;
     }
 
+    // Validate region is provided for new version
+    if (!newVersionForm.region || newVersionForm.region.length === 0) {
+      toast({ title: 'Error', description: 'Please select at least one region.', variant: 'destructive' });
+      return;
+    }
+
     const formData = new FormData();
     formData.append('file', newVersionForm.file);
     if (newVersionForm.description) {
@@ -728,6 +475,31 @@ export default function Policies() {
     formData.append('uploaded_by', user?.id || '');
 
     newVersionMutation.mutate({ id: selectedPolicyId, formData });
+  };
+
+  const handleEditPolicy = () => {
+    if (!selectedPolicyId) return;
+
+    const data: { policy_name?: string; description?: string; region?: string[] } = {};
+    
+    if (editPolicyForm.policy_name) {
+      data.policy_name = editPolicyForm.policy_name;
+    }
+    
+    if (editPolicyForm.description) {
+      data.description = editPolicyForm.description;
+    }
+    
+    if (editPolicyForm.region && editPolicyForm.region.length > 0) {
+      data.region = editPolicyForm.region;
+    }
+
+    if (Object.keys(data).length === 0) {
+      toast({ title: 'No Changes', description: 'Please make at least one change to update.', variant: 'destructive' });
+      return;
+    }
+
+    editPolicyMutation.mutate({ id: selectedPolicyId, data });
   };
 
   // Custom Claims Handlers
@@ -757,6 +529,12 @@ export default function Policies() {
   const handleCreateCustomClaim = () => {
     if (!customClaimForm.claim_name.trim()) {
       toast({ title: 'Error', description: 'Please provide a claim name.', variant: 'destructive' });
+      return;
+    }
+
+    // Validate region is provided
+    if (!customClaimForm.region || customClaimForm.region.length === 0) {
+      toast({ title: 'Error', description: 'Please select at least one region.', variant: 'destructive' });
       return;
     }
 
@@ -874,7 +652,7 @@ export default function Policies() {
               Add Policy
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px]">
+          <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Upload Policy Document</DialogTitle>
               <DialogDescription>
@@ -1090,7 +868,7 @@ export default function Policies() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-xs">
-                          {policy.region || 'Global'}
+                          {getRegionDisplayNames(policy.region)}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -1145,19 +923,50 @@ export default function Policies() {
                             </>
                           )}
                           {policy.status === 'ACTIVE' && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              title="Upload new version"
-                              onClick={() => {
-                                setSelectedPolicyId(policy.id);
-                                setSelectedPolicyName(policy.policy_name);
-                                setIsNewVersionOpen(true);
-                              }}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="Edit policy details"
+                                onClick={() => {
+                                  setSelectedPolicyId(policy.id);
+                                  setSelectedPolicyName(policy.policy_name);
+                                  setEditPolicyForm({
+                                    policy_name: policy.policy_name,
+                                    description: '',  // Will be loaded from detail if needed
+                                    region: policy.region || [],
+                                  });
+                                  setIsEditPolicyOpen(true);
+                                }}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="Upload new version"
+                                onClick={() => {
+                                  setSelectedPolicyId(policy.id);
+                                  setSelectedPolicyName(policy.policy_name);
+                                  setIsNewVersionOpen(true);
+                                }}
+                              >
+                                <Upload className="h-4 w-4" />
+                              </Button>
+                            </>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            title="Delete policy"
+                            onClick={() => {
+                              setPolicyToDelete(policy);
+                              setIsDeletePolicyOpen(true);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -1274,7 +1083,7 @@ export default function Policies() {
                       </TableCell>
                       <TableCell>
                         {claim.max_amount
-                          ? `${claim.currency} ${claim.max_amount.toLocaleString()}`
+                          ? formatCurrency(claim.max_amount, claim.currency)
                           : 'No limit'}
                       </TableCell>
                       <TableCell>
@@ -1377,7 +1186,7 @@ export default function Policies() {
                 <div>
                   <Label className="text-muted-foreground">Region</Label>
                   <div className="mt-1">
-                    <Badge variant="outline">{selectedPolicy.region || 'Global'}</Badge>
+                    <Badge variant="outline">{getRegionDisplayNames(selectedPolicy.region)}</Badge>
                   </div>
                 </div>
                 <div>
@@ -1569,7 +1378,7 @@ export default function Policies() {
 
       {/* Upload New Version Dialog */}
       <Dialog open={isNewVersionOpen} onOpenChange={setIsNewVersionOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Upload New Version</DialogTitle>
             <DialogDescription>
@@ -1644,6 +1453,62 @@ export default function Policies() {
             <Button onClick={handleNewVersionUpload} disabled={newVersionMutation.isPending || !newVersionForm.file}>
               {newVersionMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Upload New Version
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Policy Dialog */}
+      <Dialog open={isEditPolicyOpen} onOpenChange={setIsEditPolicyOpen}>
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Policy</DialogTitle>
+            <DialogDescription>
+              Update policy details for "{selectedPolicyName}". You can change the name, description, or region without uploading a new document.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit_policy_name">Policy Name</Label>
+              <Input
+                id="edit_policy_name"
+                value={editPolicyForm.policy_name}
+                onChange={(e) => setEditPolicyForm({ ...editPolicyForm, policy_name: e.target.value })}
+                placeholder="Enter policy name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_policy_description">Description</Label>
+              <Textarea
+                id="edit_policy_description"
+                value={editPolicyForm.description}
+                onChange={(e) => setEditPolicyForm({ ...editPolicyForm, description: e.target.value })}
+                placeholder="What's this policy about..."
+                rows={3}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_policy_region">Region / Location</Label>
+              <MultiSelect
+                options={regionOptions}
+                selected={editPolicyForm.region || []}
+                onChange={(selected) => setEditPolicyForm({ ...editPolicyForm, region: selected })}
+                placeholder="Select regions..."
+                className="w-full"
+              />
+              <p className="text-xs text-muted-foreground">
+                Select the regions where this policy applies
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setIsEditPolicyOpen(false);
+              setEditPolicyForm({ policy_name: '', description: '', region: [] });
+            }}>Cancel</Button>
+            <Button onClick={handleEditPolicy} disabled={editPolicyMutation.isPending}>
+              {editPolicyMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Save Changes
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2066,7 +1931,7 @@ export default function Policies() {
                 <div>
                   <Label className="text-muted-foreground">Region</Label>
                   <div className="mt-1">
-                    <Badge variant="outline">{selectedCustomClaim.region || 'Global'}</Badge>
+                    <Badge variant="outline">{getRegionDisplayNames(selectedCustomClaim.region)}</Badge>
                   </div>
                 </div>
                 <div>
@@ -2090,15 +1955,15 @@ export default function Policies() {
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div>
                     <Label className="text-muted-foreground text-xs">Min Amount</Label>
-                    <p>{selectedCustomClaim.min_amount ? `${selectedCustomClaim.currency} ${selectedCustomClaim.min_amount.toLocaleString()}` : 'No minimum'}</p>
+                    <p>{selectedCustomClaim.min_amount ? formatCurrency(selectedCustomClaim.min_amount, selectedCustomClaim.currency) : 'No minimum'}</p>
                   </div>
                   <div>
                     <Label className="text-muted-foreground text-xs">Max Amount</Label>
-                    <p>{selectedCustomClaim.max_amount ? `${selectedCustomClaim.currency} ${selectedCustomClaim.max_amount.toLocaleString()}` : 'No limit'}</p>
+                    <p>{selectedCustomClaim.max_amount ? formatCurrency(selectedCustomClaim.max_amount, selectedCustomClaim.currency) : 'No limit'}</p>
                   </div>
                   <div>
                     <Label className="text-muted-foreground text-xs">Default Amount</Label>
-                    <p>{selectedCustomClaim.default_amount ? `${selectedCustomClaim.currency} ${selectedCustomClaim.default_amount.toLocaleString()}` : 'N/A'}</p>
+                    <p>{selectedCustomClaim.default_amount ? formatCurrency(selectedCustomClaim.default_amount, selectedCustomClaim.currency) : 'N/A'}</p>
                   </div>
                 </div>
               </div>
@@ -2119,7 +1984,7 @@ export default function Policies() {
                   </div>
                   <div>
                     <Label className="text-muted-foreground text-xs">Approval Above</Label>
-                    <p>{selectedCustomClaim.requires_approval_above ? `${selectedCustomClaim.currency} ${selectedCustomClaim.requires_approval_above.toLocaleString()}` : 'N/A'}</p>
+                    <p>{selectedCustomClaim.requires_approval_above ? formatCurrency(selectedCustomClaim.requires_approval_above, selectedCustomClaim.currency) : 'N/A'}</p>
                   </div>
                   <div>
                     <Label className="text-muted-foreground text-xs">Submission Window</Label>
@@ -2470,6 +2335,45 @@ export default function Policies() {
             <Button onClick={handleEditCustomClaim} disabled={updateCustomClaimMutation.isPending}>
               {updateCustomClaimMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Update Custom Claim
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Policy Confirmation Dialog */}
+      <Dialog open={isDeletePolicyOpen} onOpenChange={setIsDeletePolicyOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Policy</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this policy? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {policyToDelete && (
+            <div className="py-4">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p className="font-medium text-red-800">{policyToDelete.policy_name}</p>
+                <p className="text-sm text-red-600">{policyToDelete.policy_number}</p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  This will also delete <strong>{policyToDelete.categories_count} categories</strong> associated with this policy.
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setIsDeletePolicyOpen(false);
+              setPolicyToDelete(null);
+            }}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => policyToDelete && deletePolicyMutation.mutate(policyToDelete.id)}
+              disabled={deletePolicyMutation.isPending}
+            >
+              {deletePolicyMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Delete Policy
             </Button>
           </DialogFooter>
         </DialogContent>

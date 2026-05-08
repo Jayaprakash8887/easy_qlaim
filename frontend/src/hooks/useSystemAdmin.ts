@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
+import { extractErrorMessage } from '@/lib/utils';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 // ==================== TYPES ====================
 
@@ -81,9 +82,24 @@ export interface BrandingColors {
 
 // ==================== API FUNCTIONS ====================
 
+function getAuthHeaders(): HeadersInit {
+    const token = localStorage.getItem('access_token');
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+function getAuthHeadersWithJson(): HeadersInit {
+    const token = localStorage.getItem('access_token');
+    return {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    };
+}
+
 // Tenants
 async function fetchTenants(includeInactive = false): Promise<Tenant[]> {
-    const response = await fetch(`${API_BASE_URL}/tenants/?include_inactive=${includeInactive}`);
+    const response = await fetch(`${API_BASE_URL}/tenants/?include_inactive=${includeInactive}`, {
+        headers: getAuthHeaders(),
+    });
     if (!response.ok) throw new Error('Failed to fetch tenants');
     return response.json();
 }
@@ -91,12 +107,12 @@ async function fetchTenants(includeInactive = false): Promise<Tenant[]> {
 async function createTenant(data: TenantCreate): Promise<Tenant> {
     const response = await fetch(`${API_BASE_URL}/tenants/`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeadersWithJson(),
         body: JSON.stringify(data),
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to create tenant');
+        throw new Error(extractErrorMessage(error, 'Failed to create tenant'));
     }
     return response.json();
 }
@@ -104,7 +120,7 @@ async function createTenant(data: TenantCreate): Promise<Tenant> {
 async function updateTenant(id: string, data: Partial<Tenant>): Promise<Tenant> {
     const response = await fetch(`${API_BASE_URL}/tenants/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeadersWithJson(),
         body: JSON.stringify(data),
     });
     if (!response.ok) throw new Error('Failed to update tenant');
@@ -117,13 +133,17 @@ async function fetchDesignations(tenantId?: string, includeInactive = false): Pr
     if (tenantId) params.append('tenant_id', tenantId);
     if (includeInactive) params.append('include_inactive', 'true');
 
-    const response = await fetch(`${API_BASE_URL}/designations/?${params.toString()}`);
+    const response = await fetch(`${API_BASE_URL}/designations/?${params.toString()}`, {
+        headers: getAuthHeaders(),
+    });
     if (!response.ok) throw new Error('Failed to fetch designations');
     return response.json();
 }
 
 async function fetchAvailableRoles(): Promise<string[]> {
-    const response = await fetch(`${API_BASE_URL}/designations/available-roles`);
+    const response = await fetch(`${API_BASE_URL}/designations/available-roles`, {
+        headers: getAuthHeaders(),
+    });
     if (!response.ok) throw new Error('Failed to fetch available roles');
     return response.json();
 }
@@ -132,12 +152,12 @@ async function createDesignation(data: DesignationCreate, tenantId?: string): Pr
     const params = tenantId ? `?tenant_id=${tenantId}` : '';
     const response = await fetch(`${API_BASE_URL}/designations/${params}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeadersWithJson(),
         body: JSON.stringify(data),
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to create designation');
+        throw new Error(extractErrorMessage(error, 'Failed to create designation'));
     }
     return response.json();
 }
@@ -145,7 +165,7 @@ async function createDesignation(data: DesignationCreate, tenantId?: string): Pr
 async function updateDesignation(id: string, data: Partial<Designation>): Promise<Designation> {
     const response = await fetch(`${API_BASE_URL}/designations/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeadersWithJson(),
         body: JSON.stringify(data),
     });
     if (!response.ok) throw new Error('Failed to update designation');
@@ -155,7 +175,7 @@ async function updateDesignation(id: string, data: Partial<Designation>): Promis
 async function setDesignationRoles(designationId: string, roles: string[]): Promise<string[]> {
     const response = await fetch(`${API_BASE_URL}/designations/${designationId}/roles`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeadersWithJson(),
         body: JSON.stringify(roles),
     });
     if (!response.ok) throw new Error('Failed to update roles');
@@ -163,20 +183,22 @@ async function setDesignationRoles(designationId: string, roles: string[]): Prom
 }
 
 async function getTenantAdmins(tenantId: string): Promise<any[]> {
-    const response = await fetch(`${API_BASE_URL}/tenants/${tenantId}/users?admin_only=true`);
+    const response = await fetch(`${API_BASE_URL}/tenants/${tenantId}/users?admin_only=true`, {
+        headers: getAuthHeaders(),
+    });
     if (!response.ok) throw new Error('Failed to fetch tenant admins');
     return response.json();
 }
 
-async function createTenantAdminByEmail(tenantId: string, email: string): Promise<any> {
+async function createTenantAdminByEmail(tenantId: string, email: string, designation?: string): Promise<any> {
     const response = await fetch(`${API_BASE_URL}/tenants/${tenantId}/admins`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        headers: getAuthHeadersWithJson(),
+        body: JSON.stringify({ email, designation }),
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to add tenant admin');
+        throw new Error(extractErrorMessage(error, 'Failed to add tenant admin'));
     }
     return response.json();
 }
@@ -184,10 +206,11 @@ async function createTenantAdminByEmail(tenantId: string, email: string): Promis
 async function removeTenantAdmin(tenantId: string, userId: string): Promise<any> {
     const response = await fetch(`${API_BASE_URL}/tenants/${tenantId}/admins/${userId}`, {
         method: 'DELETE',
+        headers: getAuthHeaders(),
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to remove tenant admin');
+        throw new Error(extractErrorMessage(error, 'Failed to remove tenant admin'));
     }
     return response.json();
 }
@@ -195,13 +218,17 @@ async function removeTenantAdmin(tenantId: string, userId: string): Promise<any>
 // ==================== BRANDING API FUNCTIONS ====================
 
 async function fetchBrandingSpecs(): Promise<{ file_specs: Record<string, BrandingFileSpec>; notes: Record<string, string> }> {
-    const response = await fetch(`${API_BASE_URL}/branding/specs`);
+    const response = await fetch(`${API_BASE_URL}/branding/specs`, {
+        headers: getAuthHeaders(),
+    });
     if (!response.ok) throw new Error('Failed to fetch branding specs');
     return response.json();
 }
 
 async function fetchTenantBranding(tenantId: string): Promise<BrandingResponse> {
-    const response = await fetch(`${API_BASE_URL}/branding/${tenantId}`);
+    const response = await fetch(`${API_BASE_URL}/branding/${tenantId}`, {
+        headers: getAuthHeaders(),
+    });
     if (!response.ok) throw new Error('Failed to fetch tenant branding');
     return response.json();
 }
@@ -212,11 +239,12 @@ async function uploadBrandingFile(tenantId: string, fileType: string, file: File
 
     const response = await fetch(`${API_BASE_URL}/branding/${tenantId}/upload/${fileType}`, {
         method: 'POST',
+        headers: getAuthHeaders(),
         body: formData,
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to upload branding file');
+        throw new Error(extractErrorMessage(error, 'Failed to upload branding file'));
     }
     return response.json();
 }
@@ -224,10 +252,11 @@ async function uploadBrandingFile(tenantId: string, fileType: string, file: File
 async function deleteBrandingFile(tenantId: string, fileType: string): Promise<any> {
     const response = await fetch(`${API_BASE_URL}/branding/${tenantId}/files/${fileType}`, {
         method: 'DELETE',
+        headers: getAuthHeaders(),
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to delete branding file');
+        throw new Error(extractErrorMessage(error, 'Failed to delete branding file'));
     }
     return response.json();
 }
@@ -235,12 +264,12 @@ async function deleteBrandingFile(tenantId: string, fileType: string): Promise<a
 async function updateBrandingColors(tenantId: string, colors: BrandingColors): Promise<any> {
     const response = await fetch(`${API_BASE_URL}/branding/${tenantId}/colors`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeadersWithJson(),
         body: JSON.stringify(colors),
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to update branding colors');
+        throw new Error(extractErrorMessage(error, 'Failed to update branding colors'));
     }
     return response.json();
 }
@@ -248,12 +277,12 @@ async function updateBrandingColors(tenantId: string, colors: BrandingColors): P
 async function updateBrandingSettings(tenantId: string, settings: Partial<BrandingSettings>): Promise<any> {
     const response = await fetch(`${API_BASE_URL}/branding/${tenantId}/settings`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeadersWithJson(),
         body: JSON.stringify(settings),
     });
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to update branding settings');
+        throw new Error(extractErrorMessage(error, 'Failed to update branding settings'));
     }
     return response.json();
 }
@@ -350,8 +379,8 @@ export function useTenantAdmins(tenantId?: string) {
 export function useCreateTenantAdmin() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: ({ tenantId, email }: { tenantId: string; email: string }) =>
-            createTenantAdminByEmail(tenantId, email),
+        mutationFn: ({ tenantId, email, designation }: { tenantId: string; email: string; designation?: string }) =>
+            createTenantAdminByEmail(tenantId, email, designation),
         onSuccess: (_, variables) => {
             queryClient.invalidateQueries({ queryKey: ['tenant-admins', variables.tenantId] });
         },

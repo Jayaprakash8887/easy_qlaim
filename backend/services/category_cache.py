@@ -13,7 +13,7 @@ Cost-saving approaches:
 - Category validation happens locally without LLM calls
 """
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from threading import Lock
@@ -99,51 +99,66 @@ class CategoryCacheService:
     
     def get_categories_for_region(
         self,
-        region: str,
+        region: Union[str, List[str]],
         category_type: Optional[str] = None,
         tenant_id: Optional[UUID] = None
     ) -> List[CachedCategory]:
         """
-        Get cached categories for a region.
+        Get cached categories for a region or list of regions.
         
         Args:
-            region: Employee's region (e.g., 'INDIA', 'US')
+            region: Employee's region(s) (e.g., 'IND', 'US' or ['IND', 'US'])
             category_type: Optional filter - 'REIMBURSEMENT' or 'ALLOWANCE'
             tenant_id: Tenant UUID (required for multi-tenant support)
             
         Returns:
-            List of cached categories
+            List of cached categories (combined from all regions, deduplicated)
         """
-        region_upper = region.upper() if region else "GLOBAL"
-        cache_key = f"{tenant_id or 'default'}_{region_upper}"
+        # Normalize to list
+        regions = region if isinstance(region, list) else [region]
         
-        # Check cache
-        cache_entry = self._get_cache_entry(cache_key)
+        all_categories = []
+        seen_codes = set()
         
-        if not cache_entry:
-            # Load from database
-            cache_entry = self._load_categories_from_db(region_upper, tenant_id)
+        for reg in regions:
+            region_upper = reg.upper() if reg else "GLOBAL"
+            cache_key = f"{tenant_id or 'default'}_{region_upper}"
+            
+            # Check cache
+            cache_entry = self._get_cache_entry(cache_key)
+            
+            if not cache_entry:
+                # Load from database
+                cache_entry = self._load_categories_from_db(region_upper, tenant_id)
+            
+            if not cache_entry:
+                continue
+            
+            # Get categories based on type
+            if category_type == "REIMBURSEMENT":
+                cats = cache_entry.reimbursement_categories
+            elif category_type == "ALLOWANCE":
+                cats = cache_entry.allowance_categories
+            else:
+                cats = cache_entry.categories
+            
+            # Add unique categories
+            for cat in cats:
+                if cat.code not in seen_codes:
+                    seen_codes.add(cat.code)
+                    all_categories.append(cat)
         
-        if not cache_entry:
-            return []
-        
-        # Filter by type if specified
-        if category_type == "REIMBURSEMENT":
-            return cache_entry.reimbursement_categories
-        elif category_type == "ALLOWANCE":
-            return cache_entry.allowance_categories
-        
-        return cache_entry.categories
+        return all_categories
     
     def get_reimbursement_categories_for_region(
         self,
-        region: str,
+        region: Union[str, List[str]],
         tenant_id: Optional[UUID] = None
     ) -> List[CachedCategory]:
-        """Get only reimbursement categories for a region"""
+        """Get only reimbursement categories for a region or list of regions"""
         return self.get_categories_for_region(region, "REIMBURSEMENT", tenant_id)
     
-    def get_llm_prompt_categories(self, region: str, tenant_id: Optional[UUID] = None) -> str:
+    def get_llm_prompt_categories(self, region: Union[str, List[str]], tenant_id: Optional[UUID] = None) -> str:
         """
         Get pre-formatted category list for LLM prompt.
         
@@ -151,21 +166,36 @@ class CategoryCacheService:
         enough context for accurate category matching.
         
         Args:
-            region: Employee's region
+            region: Employee's region(s) - can be string or list
             tenant_id: Tenant UUID (required for multi-tenant support)
             
         Returns:
-            Formatted string for LLM prompt
+            Formatted string for LLM prompt (combined from all regions)
         """
-        region_upper = region.upper() if region else "GLOBAL"
-        cache_key = f"{tenant_id or 'default'}_{region_upper}"
+        # Normalize to list
+        regions = region if isinstance(region, list) else [region]
         
-        cache_entry = self._get_cache_entry(cache_key)
-        if not cache_entry:
-            cache_entry = self._load_categories_from_db(region_upper, tenant_id)
+        all_prompts = []
+        seen_codes = set()
         
-        if cache_entry:
-            return cache_entry.llm_prompt_text
+        for reg in regions:
+            region_upper = reg.upper() if reg else "GLOBAL"
+            cache_key = f"{tenant_id or 'default'}_{region_upper}"
+            
+            cache_entry = self._get_cache_entry(cache_key)
+            if not cache_entry:
+                cache_entry = self._load_categories_from_db(region_upper, tenant_id)
+            
+            if cache_entry and cache_entry.llm_prompt_text:
+                # Parse and deduplicate categories from prompt
+                for cat in cache_entry.categories:
+                    if cat.code not in seen_codes:
+                        seen_codes.add(cat.code)
+        
+        # If we have categories, rebuild prompt from all unique categories
+        if seen_codes:
+            all_categories = self.get_categories_for_region(regions, None, tenant_id)
+            return self._build_llm_prompt(all_categories)
         
         # Fallback if no categories found
         return self._get_default_categories_prompt()
@@ -173,16 +203,18 @@ class CategoryCacheService:
     def validate_category(
         self,
         category: str,
-        region: str,
-        category_type: str = "REIMBURSEMENT"
+        region: Union[str, List[str]],
+        category_type: str = "REIMBURSEMENT",
+        tenant_id: Optional[UUID] = None
     ) -> tuple[str, bool]:
         """
         Validate and normalize a category code.
         
         Args:
             category: Category code/name from LLM
-            region: Employee's region
+            region: Employee's region(s) - can be string or list
             category_type: 'REIMBURSEMENT' or 'ALLOWANCE'
+            tenant_id: Tenant UUID for multi-tenant category loading
             
         Returns:
             Tuple of (validated_category, is_valid)
@@ -191,7 +223,8 @@ class CategoryCacheService:
         if not category:
             return ('other', False)
         
-        categories = self.get_categories_for_region(region, category_type)
+        # Get categories from all regions
+        categories = self.get_categories_for_region(region, category_type, tenant_id)
         
         if not categories:
             # No categories found - accept any
@@ -211,10 +244,11 @@ class CategoryCacheService:
                     return (cat.code.lower(), True)
         
         # No match found
-        logger.info(f"Category '{category}' not found in region '{region}' - defaulting to 'other'")
+        regions_str = region if isinstance(region, str) else ', '.join(region)
+        logger.info(f"Category '{category}' not found in region(s) '{regions_str}' - defaulting to 'other'")
         return ('other', False)
     
-    def get_category_name_by_code(self, category_code: str, region: Optional[str] = None) -> str:
+    def get_category_name_by_code(self, category_code: str, region: Optional[str] = None, tenant_id: Optional[UUID] = None) -> str:
         """
         Get human-readable category name from category code.
         Searches through all cached regions if region not specified.
@@ -222,6 +256,7 @@ class CategoryCacheService:
         Args:
             category_code: The category code (e.g., 'TRAVEL_WB', 'cc-2025-0001')
             region: Optional region to search in
+            tenant_id: Optional tenant ID for tenant-specific category lookup
             
         Returns:
             Human-readable category name or formatted fallback
@@ -241,8 +276,8 @@ class CategoryCacheService:
         for reg in regions_to_search:
             cache_entry = self._get_cache_entry(reg)
             if not cache_entry:
-                # Try to load from DB
-                cache_entry = self._load_categories_from_db(reg)
+                # Try to load from DB with tenant_id
+                cache_entry = self._load_categories_from_db(reg, tenant_id)
             
             if cache_entry:
                 for cat in cache_entry.categories:
@@ -258,16 +293,24 @@ class CategoryCacheService:
             db: Session = next(get_sync_db())
             
             # Try CustomClaim first (for codes like CC-2025-0001)
-            custom_claim = db.query(CustomClaim).filter(
+            custom_claim_query = db.query(CustomClaim).filter(
                 CustomClaim.claim_code.ilike(category_code)
-            ).first()
+            )
+            # Filter by tenant_id if provided
+            if tenant_id:
+                custom_claim_query = custom_claim_query.filter(CustomClaim.tenant_id == tenant_id)
+            custom_claim = custom_claim_query.first()
             if custom_claim:
                 return custom_claim.claim_name
             
             # Try PolicyCategory
-            policy_cat = db.query(PolicyCategory).filter(
+            policy_cat_query = db.query(PolicyCategory).filter(
                 PolicyCategory.category_code.ilike(category_code)
-            ).first()
+            )
+            # Filter by tenant_id if provided
+            if tenant_id:
+                policy_cat_query = policy_cat_query.filter(PolicyCategory.tenant_id == tenant_id)
+            policy_cat = policy_cat_query.first()
             if policy_cat:
                 return policy_cat.category_name
                 
@@ -341,6 +384,7 @@ class CategoryCacheService:
             db: Session = next(get_sync_db())
             
             # Query categories for region or global (from PolicyCategory)
+            # NOTE: region column is ARRAY type, so we use .any() to check if value is in array
             query = db.query(PolicyCategory, PolicyUpload).join(
                 PolicyUpload, PolicyCategory.policy_upload_id == PolicyUpload.id
             ).filter(
@@ -349,9 +393,10 @@ class CategoryCacheService:
                     PolicyCategory.is_active == True,
                     PolicyUpload.status == "ACTIVE",
                     or_(
-                        PolicyUpload.region == region,
-                        PolicyUpload.region == "GLOBAL",
-                        PolicyUpload.region.is_(None)
+                        PolicyUpload.region.any(region),  # Check if region is in the array
+                        PolicyUpload.region.any("GLOBAL"),  # Check if GLOBAL is in the array
+                        PolicyUpload.region.is_(None),  # NULL means all regions
+                        PolicyUpload.region == []  # Empty array means all regions
                     )
                 )
             ).order_by(PolicyCategory.display_order)
@@ -385,14 +430,16 @@ class CategoryCacheService:
             
             # ============ INCLUDE CUSTOM CLAIMS ============
             # Custom claims are standalone categories not linked to policy documents
+            # NOTE: region column is ARRAY type, so we use .any() to check if value is in array
             custom_claims_query = db.query(CustomClaim).filter(
                 and_(
                     CustomClaim.tenant_id == tenant_id,
                     CustomClaim.is_active == True,
                     or_(
-                        CustomClaim.region == region,
-                        CustomClaim.region == "GLOBAL",
-                        CustomClaim.region.is_(None)
+                        CustomClaim.region.any(region),  # Check if region is in the array
+                        CustomClaim.region.any("GLOBAL"),  # Check if GLOBAL is in the array
+                        CustomClaim.region.is_(None),  # NULL means all regions
+                        CustomClaim.region == []  # Empty array means all regions
                     )
                 )
             ).order_by(CustomClaim.display_order)
@@ -514,6 +561,7 @@ class CategoryCacheService:
         Build optimized category list for LLM prompt.
         
         Format is concise to minimize tokens while being clear.
+        Includes descriptions and keywords to help LLM match expenses to categories.
         """
         if not categories:
             return self._get_default_categories_prompt()
@@ -524,12 +572,57 @@ class CategoryCacheService:
             line = f"- {cat.code}: {cat.name}"
             if cat.max_amount:
                 line += f" (max: ₹{cat.max_amount:,.0f})"
+            
+            # Add description if available - this helps LLM understand the category better
+            if cat.description:
+                # Truncate long descriptions to keep prompt concise
+                desc = cat.description.strip()
+                if len(desc) > 150:
+                    desc = desc[:147] + "..."
+                line += f"\n    Description: {desc}"
+            
+            # Add keyword hints for better matching
+            name_lower = cat.name.lower()
+            desc_lower = (cat.description or "").lower()
+            keywords = []
+            
+            # Check both name and description for keyword category matching
+            combined_text = f"{name_lower} {desc_lower}"
+            
+            if 'certification' in combined_text or 'cert' in cat.code.lower() or 'professional development' in combined_text:
+                keywords.extend(['coursera', 'udemy', 'linkedin learning', 'google certificate', 'aws certification', 'azure certification', 'pmp', 'scrum', 'exam fee', 'certification fee', 'professional course'])
+            if 'training' in combined_text or 'train' in cat.code.lower() or 'learning' in combined_text or 'skill' in combined_text:
+                keywords.extend(['workshop', 'course', 'bootcamp', 'training program', 'learning platform', 'online course', 'specialization', 'upskilling'])
+            if 'conference' in combined_text or 'seminar' in combined_text or 'event' in combined_text:
+                keywords.extend(['tech conference', 'summit', 'meetup', 'webinar', 'symposium'])
+            if 'membership' in combined_text or 'subscription' in combined_text:
+                keywords.extend(['professional body', 'ieee', 'acm', 'association', 'annual membership'])
+            if 'travel' in combined_text or 'conveyance' in combined_text or 'transport' in combined_text:
+                keywords.extend(['ola', 'uber', 'rapido', 'cab', 'taxi', 'ride', 'commute'])
+            if 'toll' in combined_text or 'parking' in combined_text:
+                keywords.extend(['fastag', 'toll plaza', 'parking fee', 'parking ticket'])
+            if 'fuel' in combined_text or 'diesel' in combined_text or 'petrol' in combined_text:
+                keywords.extend(['petrol', 'diesel', 'fuel station', 'hp', 'indian oil', 'bharat petroleum'])
+            if 'airport' in combined_text or 'airfare' in combined_text or 'flight' in combined_text:
+                keywords.extend(['flight', 'airline', 'indigo', 'air india', 'vistara', 'spicejet'])
+            if 'visa' in combined_text or 'passport' in combined_text:
+                keywords.extend(['vfs', 'embassy', 'consulate', 'immigration'])
+            if 'book' in combined_text or 'publication' in combined_text or 'journal' in combined_text:
+                keywords.extend(['technical book', 'o\'reilly', 'safari books', 'academic journal', 'research paper'])
+            if 'equipment' in combined_text or 'hardware' in combined_text:
+                keywords.extend(['laptop', 'monitor', 'keyboard', 'mouse', 'headphone', 'webcam'])
+            if 'software' in combined_text or 'license' in combined_text:
+                keywords.extend(['jetbrains', 'github', 'adobe', 'microsoft 365', 'slack', 'figma'])
+            
+            if keywords:
+                line += f"\n    Keywords: {', '.join(keywords[:8])}"
+            
             lines.append(line)
         
         # Always add 'other' as fallback
         lines.append("- other: Other expenses (use when no category matches)")
         
-        lines.append("\nIMPORTANT: Use ONLY the category codes listed above. If the expense doesn't match any category, use 'other'.")
+        lines.append("\nIMPORTANT: Use ONLY the category codes listed above. Match the expense to the most appropriate category based on the vendor, description, and keywords. If the expense doesn't clearly match any category, use 'other'.")
         
         return "\n".join(lines)
     

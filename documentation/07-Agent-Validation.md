@@ -218,6 +218,23 @@ def _validate_rules(self, claim: Any, policies: List[Any]) -> List[Dict[str, Any
         "evidence": f"Claim is {days_old} days old, max allowed: {max_age_days}"
     })
     
+    # Rule 5: Cumulative limit check (NEW)
+    # Validates against period-based limits (DAILY, MONTHLY, YEARLY, etc.)
+    cumulative_check = check_cumulative_limit(
+        db=db,
+        tenant_id=employee.tenant_id,
+        employee_id=employee.id,
+        category_code=claim.category,
+        claim_amount=claim.amount,
+        claim_date=claim.claim_date
+    )
+    results.append({
+        "rule_id": "CUMULATIVE_LIMIT",
+        "result": cumulative_check["status"],
+        "evidence": cumulative_check["message"],
+        "details": cumulative_check.get("details", {})
+    })
+    
     return results
 ```
 

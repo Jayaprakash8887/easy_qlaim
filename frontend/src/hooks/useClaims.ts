@@ -1,22 +1,56 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Claim, ClaimStatus } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { extractErrorMessage } from '@/lib/utils';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Auth helpers
+function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+function getAuthHeadersWithJson(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+  };
+}
 
 // API functions
-async function fetchClaims(tenantId?: string, userId?: string, role?: string): Promise<Claim[]> {
+async function fetchClaims(tenantId?: string, userId?: string, role?: string, options?: { status?: string; limit?: number; forApproval?: boolean; myClaims?: boolean }): Promise<Claim[]> {
   const params = new URLSearchParams();
   if (tenantId) {
     params.append('tenant_id', tenantId);
   }
-  // For manager role, pass user_id and role for filtering to direct reports only
-  if (userId && role) {
+  // For "My Claims" page - only show user's own claims
+  if (options?.myClaims && userId) {
+    params.append('user_id', userId);
+    params.append('my_claims', 'true');
+  }
+  // For manager role approval queue, pass user_id and role for filtering to direct reports only
+  else if (userId && role) {
     params.append('user_id', userId);
     params.append('role', role);
   }
+  // Add for_approval flag - backend will auto-apply role-appropriate status filter
+  if (options?.forApproval) {
+    params.append('for_approval', 'true');
+  }
+  // Add explicit status filter if provided (overrides for_approval auto-filter)
+  if (options?.status) {
+    params.append('status', options.status);
+  }
+  // Add limit if provided (default is 20 in backend)
+  if (options?.limit) {
+    params.append('limit', options.limit.toString());
+  }
   const url = `${API_BASE_URL}/claims/${params.toString() ? '?' + params.toString() : ''}`;
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch claims');
   }
@@ -85,7 +119,9 @@ function mapBackendStatus(backendStatus: string): ClaimStatus {
 }
 
 async function fetchClaimById(id: string, tenantId: string): Promise<Claim | undefined> {
-  const response = await fetch(`${API_BASE_URL}/claims/${id}?tenant_id=${tenantId}`);
+  const response = await fetch(`${API_BASE_URL}/claims/${id}?tenant_id=${tenantId}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     if (response.status === 404) return undefined;
     throw new Error('Failed to fetch claim');
@@ -143,15 +179,35 @@ async function fetchClaimById(id: string, tenantId: string): Promise<Claim | und
         : undefined,
     paymentReference: claim.payment_reference || payload.settlement?.payment_reference || undefined,
     paymentMethod: claim.payment_method || payload.settlement?.payment_method || undefined,
+    // Approval history from claim_payload - only actual stored history
+    approvalHistory: buildApprovalHistory(claim, payload),
+    // Allowance calculation details
+    calculationDetails: payload.custom_fields?.calculation_details || undefined,
   };
+}
+
+// Helper function to build approval history from claim data
+function buildApprovalHistory(claim: any, payload: any): any[] {
+  // Only return actual stored approval_history, no derived data
+  if (payload.approval_history && payload.approval_history.length > 0) {
+    return payload.approval_history.map((item: any) => ({
+      id: item.id || `${item.timestamp}-${item.action}`,
+      action: item.action,
+      approverName: item.approver_name || item.approverName,
+      approverRole: item.approver_role || item.approverRole,
+      timestamp: item.timestamp,
+      comment: item.comment || item.comments,
+    }));
+  }
+  
+  // No stored history - return empty array
+  return [];
 }
 
 async function updateClaimStatus(id: string, status: ClaimStatus, tenantId: string): Promise<Claim> {
   const response = await fetch(`${API_BASE_URL}/claims/${id}?tenant_id=${tenantId}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeadersWithJson(),
     body: JSON.stringify({ status: status.toUpperCase() }),
   });
 
@@ -186,11 +242,11 @@ async function updateClaimStatus(id: string, status: ClaimStatus, tenantId: stri
 }
 
 // Custom hooks
-export function useClaims() {
+export function useClaims(options?: { status?: string; limit?: number; forApproval?: boolean; myClaims?: boolean }) {
   const { user } = useAuth();
   return useQuery({
-    queryKey: ['claims', user?.tenantId, user?.id, user?.role],
-    queryFn: () => fetchClaims(user?.tenantId, user?.id, user?.role),
+    queryKey: ['claims', user?.tenantId, user?.id, user?.role, options?.status, options?.limit, options?.forApproval, options?.myClaims],
+    queryFn: () => fetchClaims(user?.tenantId, user?.id, user?.role, options),
     enabled: !!user?.tenantId,
     staleTime: 30 * 1000, // 30 seconds - reduced for fresher approval data
     refetchOnWindowFocus: true, // Refetch when user returns to the tab
@@ -244,6 +300,7 @@ export interface BatchClaimItem {
   vendor?: string;
   description?: string;
   transaction_ref?: string;
+  custom_fields?: Record<string, unknown>;  // Custom field values
   // Field source tracking: 'ocr' for auto-extracted, 'manual' for user-entered
   category_source?: 'ocr' | 'manual';
   title_source?: 'ocr' | 'manual';
@@ -278,19 +335,13 @@ export interface BatchClaimResponse {
 async function createBatchClaims(batch: BatchClaimCreate): Promise<BatchClaimResponse> {
   const response = await fetch(`${API_BASE_URL}/claims/batch`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeadersWithJson(),
     body: JSON.stringify(batch),
   });
 
   if (!response.ok) {
     const error = await response.json();
-    // Handle both string and object error details (e.g., duplicate claim errors)
-    const errorMessage = typeof error.detail === 'object'
-      ? error.detail.message || JSON.stringify(error.detail)
-      : error.detail || 'Failed to create claims';
-    throw new Error(errorMessage);
+    throw new Error(extractErrorMessage(error, 'Failed to create claims'));
   }
 
   return response.json();
@@ -306,16 +357,13 @@ async function createBatchClaimsWithDocument(data: BatchClaimWithDocumentCreate)
 
   const response = await fetch(`${API_BASE_URL}/claims/batch-with-document`, {
     method: 'POST',
+    headers: getAuthHeaders(),
     body: formData,  // No Content-Type header - browser sets it with boundary
   });
 
   if (!response.ok) {
     const error = await response.json();
-    // Handle both string and object error details (e.g., duplicate claim errors)
-    const errorMessage = typeof error.detail === 'object'
-      ? error.detail.message || JSON.stringify(error.detail)
-      : error.detail || 'Failed to create claims';
-    throw new Error(errorMessage);
+    throw new Error(extractErrorMessage(error, 'Failed to create claims'));
   }
 
   return response.json();
@@ -347,11 +395,12 @@ export function useCreateBatchClaimsWithDocument() {
 async function deleteClaim(claimId: string, tenantId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/claims/${claimId}?tenant_id=${tenantId}`, {
     method: 'DELETE',
+    headers: getAuthHeaders(),
   });
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.detail || 'Failed to delete claim');
+    throw new Error(extractErrorMessage(error, 'Failed to delete claim'));
   }
 }
 
@@ -372,6 +421,10 @@ export interface ClaimUpdateData {
   amount?: number;
   claim_date?: string;  // YYYY-MM-DD format
   description?: string;
+  category?: string;  // Category code
+  title?: string;  // Expense title
+  project_code?: string;  // Project code
+  transaction_ref?: string;  // Transaction reference ID
   status?: string;  // e.g., 'PENDING_MANAGER' to resubmit
   edited_sources?: string[];  // Fields that were edited (e.g., ['amount', 'date', 'description'])
 }
@@ -379,19 +432,13 @@ export interface ClaimUpdateData {
 async function updateClaim(claimId: string, data: ClaimUpdateData, tenantId: string): Promise<Claim> {
   const response = await fetch(`${API_BASE_URL}/claims/${claimId}?tenant_id=${tenantId}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeadersWithJson(),
     body: JSON.stringify(data),
   });
 
   if (!response.ok) {
     const error = await response.json();
-    // Handle both string and object error details (e.g., duplicate claim errors)
-    const errorMessage = typeof error.detail === 'object'
-      ? error.detail.message || JSON.stringify(error.detail)
-      : error.detail || 'Failed to update claim';
-    throw new Error(errorMessage);
+    throw new Error(extractErrorMessage(error, 'Failed to update claim'));
   }
 
   const claim = await response.json();

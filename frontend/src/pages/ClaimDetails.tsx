@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -29,8 +29,10 @@ import {
   Minimize2,
   Save,
   UserCog,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, extractErrorMessage } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
@@ -47,10 +49,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ClaimStatusBadge } from '@/components/claims/ClaimStatusBadge';
-import { useClaim } from '@/hooks/useClaims';
+import { useClaim, useClaims } from '@/hooks/useClaims';
 import { useDocuments, getDocumentViewUrl, getDocumentDownloadUrl, useDocumentSignedUrl } from '@/hooks/useDocuments';
 import { useComments, useCreateComment } from '@/hooks/useComments';
+import { useProjects } from '@/hooks/useProjects';
+import { useReimbursementsByRegion } from '@/hooks/usePolicies';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFormatting } from '@/hooks/useFormatting';
 import { toast } from '@/hooks/use-toast';
@@ -83,6 +94,60 @@ export default function ClaimDetails() {
   const { data: documents = [], isLoading: documentsLoading } = useDocuments(id || '');
   const { data: comments = [], isLoading: commentsLoading } = useComments(id || '');
   const createCommentMutation = useCreateComment();
+  
+  // Fetch projects and categories for HR editing
+  const { data: projects = [] } = useProjects();
+  const { data: reimbursementCategories = [] } = useReimbursementsByRegion(user?.region);
+  
+  // Create category options with 'Other' at the end
+  const categoryOptions = useMemo(() => {
+    const apiCategories = reimbursementCategories.map(cat => ({
+      value: cat.category_code.toLowerCase(),
+      label: cat.category_name,
+      categoryCode: cat.category_code,
+    }));
+    // Add 'Other' category at the end
+    return [...apiCategories, { value: 'other', label: 'Other', categoryCode: 'OTHER' }];
+  }, [reimbursementCategories]);
+
+  // Fetch all claims for navigation (only for approvers)
+  const { data: allClaims = [] } = useClaims();
+
+  // Calculate pending claims queue for approvers
+  const pendingClaimsQueue = useMemo(() => {
+    // Get pending status based on role
+    const roleStatusMap: Record<string, string[]> = {
+      'manager': ['pending_manager'],
+      'hr': ['pending_hr'],
+      'finance': ['pending_finance'],
+      'admin': ['pending_manager', 'pending_hr', 'pending_finance'],
+    };
+    const pendingStatuses = roleStatusMap[user?.role || ''] || [];
+    if (pendingStatuses.length === 0) return [];
+
+    return allClaims
+      .filter(c => pendingStatuses.includes(c.status))
+      .sort((a, b) => {
+        const aDate = a.submissionDate || new Date();
+        const bDate = b.submissionDate || new Date();
+        return bDate.getTime() - aDate.getTime(); // Most recent first
+      });
+  }, [allClaims, user?.role]);
+
+  // Find current claim position in queue
+  const currentQueueIndex = useMemo(() => {
+    return pendingClaimsQueue.findIndex(c => c.id === id);
+  }, [pendingClaimsQueue, id]);
+
+  const navigateToClaim = (direction: 'prev' | 'next') => {
+    const newIndex = direction === 'prev' ? currentQueueIndex - 1 : currentQueueIndex + 1;
+    if (newIndex >= 0 && newIndex < pendingClaimsQueue.length) {
+      navigate(`/claims/${pendingClaimsQueue[newIndex].id}`);
+    }
+  };
+
+  // Show navigation if there are pending claims in the queue (even if current claim is not in queue)
+  const showNavigation = pendingClaimsQueue.length > 0 && ['manager', 'hr', 'finance', 'admin'].includes(user?.role || '');
 
   // Refetch claim data on window focus to ensure fresh status
   useEffect(() => {
@@ -157,7 +222,7 @@ export default function ClaimDetails() {
   const confirmAction = async () => {
     if (!id || !actionDialog.action) return;
 
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
     const action = actionDialog.action;
 
     try {
@@ -181,21 +246,36 @@ export default function ClaimDetails() {
         if (actionComment) body.comment = actionComment;
       } else if (action === 'return') {
         endpoint = `${API_BASE_URL}/claims/${id}/return?tenant_id=${user?.tenantId || ''}`;
-        body = { 
+        body = {
           ...approverInfo,
-          return_reason: actionComment || 'Please review and correct the claim details' 
+          return_reason: actionComment || 'Please review and correct the claim details'
         };
       }
 
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(localStorage.getItem('access_token') ? { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } : {}),
+        },
         body: JSON.stringify(body),
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Action failed');
+        // Handle Pydantic validation errors (array of detail objects) or simple string errors
+        let errorMessage = 'Action failed';
+        if (error.detail) {
+          if (Array.isArray(error.detail)) {
+            // Pydantic validation error format: [{loc: [...], msg: "...", type: "..."}]
+            errorMessage = error.detail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join(', ');
+          } else if (typeof error.detail === 'string') {
+            errorMessage = error.detail;
+          } else {
+            errorMessage = JSON.stringify(error.detail);
+          }
+        }
+        throw new Error(errorMessage);
       }
 
       const messages = {
@@ -228,11 +308,51 @@ export default function ClaimDetails() {
     if (!claim) return;
     setIsHrEditing(true);
     // Initialize edited fields with current claim values
+    // Find matching category from options using strict matching first, then progressively looser
+    const claimCategory = claim.category?.toLowerCase() || '';
+    const claimCategoryNormalized = claimCategory.replace(/[_\-\s]+/g, ''); // Remove separators for fuzzy matching
+    
+    // First pass: exact match on category label (claim may store the label instead of code)
+    let matchedCategory = categoryOptions.find(opt => {
+      const optLabel = opt.label.toLowerCase();
+      return optLabel === claimCategory;
+    });
+    
+    // Second pass: exact match on category code
+    if (!matchedCategory) {
+      matchedCategory = categoryOptions.find(opt => {
+        const optCode = opt.categoryCode.toLowerCase();
+        return optCode === claimCategory;
+      });
+    }
+    
+    // Third pass: exact match on value
+    if (!matchedCategory) {
+      matchedCategory = categoryOptions.find(opt => {
+        const optValue = opt.value.toLowerCase();
+        return optValue === claimCategory;
+      });
+    }
+    
+    // Fourth pass: normalized exact match (ignore underscores, hyphens, spaces)
+    if (!matchedCategory) {
+      matchedCategory = categoryOptions.find(opt => {
+        const optValueNormalized = opt.value.toLowerCase().replace(/[_\-\s]+/g, '');
+        const optCodeNormalized = opt.categoryCode.toLowerCase().replace(/[_\-\s]+/g, '');
+        const optLabelNormalized = opt.label.toLowerCase().replace(/[_\-\s]+/g, '');
+        return optValueNormalized === claimCategoryNormalized || 
+               optCodeNormalized === claimCategoryNormalized ||
+               optLabelNormalized === claimCategoryNormalized;
+      });
+    }
+    
     setEditedFields({
       amount: claim.amount,
       vendor: claim.vendor || '',
       description: claim.description || '',
       transactionRef: claim.transactionRef || '',
+      category: matchedCategory?.value || 'other',
+      projectCode: claim.projectCode || '',
     });
     setHrEditedFields(new Set());
   };
@@ -252,7 +372,7 @@ export default function ClaimDetails() {
     if (!id || !claim) return;
     setIsSaving(true);
 
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
     try {
       // Build the update payload
@@ -285,6 +405,16 @@ export default function ClaimDetails() {
       if (hrEditedFields.has('description')) {
         payloadUpdate.description_source = 'hr';
       }
+      if (hrEditedFields.has('category')) {
+        // Find the category code from the selected value
+        const selectedCategory = categoryOptions.find(c => c.value === editedFields.category);
+        updatePayload.category = selectedCategory?.categoryCode || editedFields.category?.toUpperCase();
+        payloadUpdate.category_source = 'hr';
+      }
+      if (hrEditedFields.has('projectCode')) {
+        updatePayload.project_code = editedFields.projectCode || null;
+        payloadUpdate.project_code_source = 'hr';
+      }
 
       if (Object.keys(payloadUpdate).length > 0) {
         updatePayload.claim_payload = {
@@ -297,14 +427,17 @@ export default function ClaimDetails() {
         `${API_BASE_URL}/claims/${id}/hr-edit?tenant_id=${user?.tenantId || ''}`,
         {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(localStorage.getItem('access_token') ? { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } : {}),
+          },
           body: JSON.stringify(updatePayload),
         }
       );
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to save HR edits');
+        throw new Error(extractErrorMessage(error, 'Failed to save HR edits'));
       }
 
       toast({ title: 'Claim updated successfully' });
@@ -380,6 +513,43 @@ export default function ClaimDetails() {
             <p className="text-muted-foreground">{claim.title}</p>
           </div>
         </div>
+
+        {/* Queue Navigation (for approvers) */}
+        {showNavigation && (
+          <div className="flex items-center gap-2 border rounded-lg px-2 py-1 bg-muted/30">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => navigateToClaim('prev')}
+              disabled={currentQueueIndex <= 0}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground px-2 min-w-[50px] text-center">
+              {currentQueueIndex >= 0 
+                ? `${currentQueueIndex + 1} / ${pendingClaimsQueue.length}`
+                : `${pendingClaimsQueue.length} pending`
+              }
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => {
+                // If current claim is not in queue, go to first pending claim
+                if (currentQueueIndex < 0 && pendingClaimsQueue.length > 0) {
+                  navigate(`/claims/${pendingClaimsQueue[0].id}`);
+                } else {
+                  navigateToClaim('next');
+                }
+              }}
+              disabled={currentQueueIndex >= 0 && currentQueueIndex === pendingClaimsQueue.length - 1}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
 
         {/* Actions */}
         {canApprove && (
@@ -517,18 +687,63 @@ export default function ClaimDetails() {
                         )}
                       </div>
                     </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground flex items-center gap-2">
-                        <Calendar className="h-4 w-4" />
-                        Expense Date
-                      </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <p className="font-medium">
-                          {formatDate(claim.claimDate || claim.submissionDate)}
+                    {claim.calculationDetails?.period_start ? (
+                      // For allowance claims with period data, show From Date and To Date
+                      <>
+                        <div>
+                          <p className="text-sm text-muted-foreground flex items-center gap-2">
+                            <Calendar className="h-4 w-4" />
+                            From Date
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="font-medium">
+                              {formatDate(claim.calculationDetails.period_start)}
+                            </p>
+                            {getDataSourceBadge(claim.dataSource?.date || 'manual')}
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground flex items-center gap-2">
+                            <Calendar className="h-4 w-4" />
+                            To Date
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="font-medium">
+                              {formatDate(claim.calculationDetails.period_end)}
+                            </p>
+                            {getDataSourceBadge(claim.dataSource?.date || 'manual')}
+                          </div>
+                        </div>
+                        {claim.calculationDetails.leave_days !== undefined && claim.calculationDetails.leave_days > 0 && (
+                          <div>
+                            <p className="text-sm text-muted-foreground flex items-center gap-2">
+                              <Calendar className="h-4 w-4" />
+                              Leaves/Holidays
+                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <p className="font-medium text-destructive">
+                                {claim.calculationDetails.leave_days} days
+                              </p>
+                              {getDataSourceBadge('manual')}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      // For regular reimbursement claims, show Expense Date
+                      <div>
+                        <p className="text-sm text-muted-foreground flex items-center gap-2">
+                          <Calendar className="h-4 w-4" />
+                          Expense Date
                         </p>
-                        {getDataSourceBadge(claim.dataSource?.date || 'manual')}
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="font-medium">
+                            {formatDate(claim.claimDate || claim.submissionDate)}
+                          </p>
+                          {getDataSourceBadge(claim.dataSource?.date || 'manual')}
+                        </div>
                       </div>
-                    </div>
+                    )}
                     <div>
                       <p className="text-sm text-muted-foreground flex items-center gap-2">
                         <Building className="h-4 w-4" />
@@ -561,17 +776,70 @@ export default function ClaimDetails() {
                     <div>
                       <p className="text-sm text-muted-foreground">Category</p>
                       <div className="flex items-center gap-2 mt-1">
-                        <Badge variant="outline">
-                          {formatCategory(typeof claim.category === 'string' ? claim.category : claim.category?.name || 'Other')}
-                        </Badge>
-                        {getDataSourceBadge(claim.dataSource?.category || 'manual')}
+                        {isHrEditing ? (
+                          <div className={cn(
+                            "flex items-center gap-2 w-full",
+                            hrEditedFields.has('category') && "bg-purple-50 dark:bg-purple-900/20 rounded-md p-1 -m-1"
+                          )}>
+                            <Select
+                              value={editedFields.category || 'other'}
+                              onValueChange={(value) => handleHrFieldChange('category', value)}
+                            >
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Select category" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {categoryOptions.map((cat) => (
+                                  <SelectItem key={cat.value} value={cat.value}>
+                                    {cat.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {hrEditedFields.has('category') && getDataSourceBadge('hr')}
+                          </div>
+                        ) : (
+                          <>
+                            <Badge variant="outline">
+                              {formatCategory(typeof claim.category === 'string' ? claim.category : claim.category?.name || 'Other')}
+                            </Badge>
+                            {getDataSourceBadge(claim.dataSource?.category || 'manual')}
+                          </>
+                        )}
                       </div>
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground">Project</p>
                       <div className="flex items-center gap-2 mt-1">
-                        <p className="font-medium">{claim.projectName || claim.projectCode || 'N/A'}</p>
-                        {getDataSourceBadge('manual')}
+                        {isHrEditing ? (
+                          <div className={cn(
+                            "flex items-center gap-2 w-full",
+                            hrEditedFields.has('projectCode') && "bg-purple-50 dark:bg-purple-900/20 rounded-md p-1 -m-1"
+                          )}>
+                            <Select
+                              value={editedFields.projectCode || '_none_'}
+                              onValueChange={(value) => handleHrFieldChange('projectCode', value === '_none_' ? '' : value)}
+                            >
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Select project" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="_none_">No Project</SelectItem>
+                                {projects.map((proj) => (
+                                  <SelectItem key={proj.code} value={proj.code}>
+                                    {proj.name} ({proj.code})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {hrEditedFields.has('projectCode') && getDataSourceBadge('hr')}
+                          </div>
+                        ) : (
+                          <>
+                            <p className="font-medium">{claim.projectName || claim.projectCode || 'N/A'}</p>
+                            {getDataSourceBadge('manual')}
+                          </>
+                        )}
                       </div>
                     </div>
                     <div>
@@ -600,6 +868,99 @@ export default function ClaimDetails() {
                     </div>
 
                   </div>
+                  
+                  {/* Allowance Calculation Details */}
+                  {claim.calculationDetails && (
+                    <div className="sm:col-span-2 mt-4 pt-4 border-t">
+                      <p className="text-sm font-medium text-muted-foreground mb-3">Allowance Calculation Details</p>
+                      <div className="bg-muted/50 rounded-lg p-4">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {/* Period - common for all types */}
+                          {claim.calculationDetails.period_start && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">Period</p>
+                              <p className="text-sm font-medium">
+                                {formatDate(claim.calculationDetails.period_start)} - {formatDate(claim.calculationDetails.period_end)}
+                              </p>
+                            </div>
+                          )}
+                          
+                          {/* Working days info */}
+                          {claim.calculationDetails.working_days !== undefined && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">Working Days</p>
+                              <p className="text-sm font-medium">{claim.calculationDetails.working_days} days</p>
+                            </div>
+                          )}
+                          
+                          {claim.calculationDetails.leave_days !== undefined && claim.calculationDetails.leave_days > 0 && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">Leaves/Holidays</p>
+                              <p className="text-sm font-medium text-destructive">-{claim.calculationDetails.leave_days} days</p>
+                            </div>
+                          )}
+                          
+                          {claim.calculationDetails.net_working_days !== undefined && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">Net Working Days</p>
+                              <p className="text-sm font-medium">{claim.calculationDetails.net_working_days} days</p>
+                            </div>
+                          )}
+                          
+                          {/* Per day specific */}
+                          {claim.calculationDetails.calculation_type === 'per_day' && claim.calculationDetails.per_day_rate && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">Per Day Rate</p>
+                              <p className="text-sm font-medium">{formatCurrency(claim.calculationDetails.per_day_rate)}</p>
+                            </div>
+                          )}
+                          
+                          {/* Per km specific */}
+                          {claim.calculationDetails.calculation_type === 'per_km' && (
+                            <>
+                              {claim.calculationDetails.from_location && (
+                                <div className="sm:col-span-2">
+                                  <p className="text-xs text-muted-foreground">From Location</p>
+                                  <p className="text-sm font-medium">{claim.calculationDetails.from_location.address}</p>
+                                </div>
+                              )}
+                              {claim.calculationDetails.to_location && (
+                                <div className="sm:col-span-2">
+                                  <p className="text-xs text-muted-foreground">To Location</p>
+                                  <p className="text-sm font-medium">{claim.calculationDetails.to_location.address}</p>
+                                </div>
+                              )}
+                              {claim.calculationDetails.distance_one_way_km && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">One-way Distance</p>
+                                  <p className="text-sm font-medium">{claim.calculationDetails.distance_one_way_km.toFixed(1)} km</p>
+                                </div>
+                              )}
+                              {claim.calculationDetails.num_trips && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Number of Trips</p>
+                                  <p className="text-sm font-medium">{claim.calculationDetails.num_trips} round trip(s)</p>
+                                </div>
+                              )}
+                              {claim.calculationDetails.total_distance_km && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Total Distance</p>
+                                  <p className="text-sm font-medium">{claim.calculationDetails.total_distance_km.toFixed(1)} km</p>
+                                </div>
+                              )}
+                              {claim.calculationDetails.rate_per_km && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Rate per KM</p>
+                                  <p className="text-sm font-medium">{formatCurrency(claim.calculationDetails.rate_per_km)}</p>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
                   {(claim.description || isHrEditing) && (
                     <div className="sm:col-span-2">
                       <p className="text-sm text-muted-foreground">Description</p>
@@ -851,7 +1212,7 @@ export default function ClaimDetails() {
                             </p>
                           </div>
                           <p className="text-sm text-muted-foreground">
-                            by {item.actor.name} ({item.actor.role})
+                            by {item.approverName || item.approverRole || 'Unknown'}
                           </p>
                           {item.comment && (
                             <p className="mt-2 text-sm rounded-lg bg-muted/50 p-3">
@@ -999,50 +1360,92 @@ export default function ClaimDetails() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {claim.policyChecks.map((check) => (
-                      <div
-                        key={check.id}
-                        className={cn(
-                          "flex items-start gap-3 rounded-lg p-3 transition-all",
-                          check.status === 'pass' ? "bg-success/10" :
-                            check.status === 'warning' ? "bg-warning/10" :
-                              check.status === 'fail' ? "bg-destructive/10" :
-                                "bg-secondary"
-                        )}
-                      >
-                        <div className={cn(
-                          "shrink-0 mt-0.5",
-                          check.status === 'pass' ? "text-success" :
-                            check.status === 'warning' ? "text-warning" :
-                              check.status === 'fail' ? "text-destructive" :
-                                "text-muted-foreground"
-                        )}>
-                          {check.status === 'pass' ? (
-                            <CheckCircle className="h-4 w-4" />
-                          ) : check.status === 'warning' ? (
-                            <AlertTriangle className="h-4 w-4" />
-                          ) : (
-                            <XCircle className="h-4 w-4" />
+                    {claim.policyChecks.map((check) => {
+                      // Handle both backend (cumulative_limit) and frontend (cumulative-limit) IDs
+                      const isCumulativeLimit = check.id === 'cumulative_limit' || check.id === 'cumulative-limit';
+                      const hasUtilization = isCumulativeLimit && check.details?.max_amount && check.details?.utilization_percent != null;
+                      
+                      return (
+                        <div
+                          key={check.id}
+                          className={cn(
+                            "rounded-lg p-3 transition-all",
+                            check.status === 'pass' ? "bg-success/10" :
+                              check.status === 'warning' ? "bg-warning/10" :
+                                check.status === 'fail' ? "bg-destructive/10" :
+                                  "bg-secondary"
+                          )}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={cn(
+                              "shrink-0 mt-0.5",
+                              check.status === 'pass' ? "text-success" :
+                                check.status === 'warning' ? "text-warning" :
+                                  check.status === 'fail' ? "text-destructive" :
+                                    "text-muted-foreground"
+                            )}>
+                              {check.status === 'pass' ? (
+                                <CheckCircle className="h-4 w-4" />
+                              ) : check.status === 'warning' ? (
+                                <AlertTriangle className="h-4 w-4" />
+                              ) : (
+                                <XCircle className="h-4 w-4" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className={cn(
+                                "text-sm font-medium",
+                                check.status === 'pass' ? "text-foreground" :
+                                  check.status === 'warning' ? "text-warning" :
+                                    check.status === 'fail' ? "text-destructive" :
+                                      "text-muted-foreground"
+                              )}>
+                                {check.label}
+                              </p>
+                              {check.message && (
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {check.message}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {/* Show utilization bar for cumulative limit check */}
+                          {hasUtilization && (
+                            <div className="mt-3 pt-2 border-t border-border/50">
+                              <div className="flex items-center justify-between text-xs mb-1.5">
+                                <span className="text-muted-foreground">
+                                  {check.details?.frequency_display || 'Period'} utilization
+                                </span>
+                                <span className={cn(
+                                  "font-medium",
+                                  check.details!.utilization_percent! > 100 ? "text-destructive" :
+                                  check.details!.utilization_percent! > 80 ? "text-warning" :
+                                  "text-success"
+                                )}>
+                                  {check.details!.utilization_percent!.toFixed(1)}%
+                                </span>
+                              </div>
+                              <div className="w-full bg-secondary rounded-full h-2">
+                                <div 
+                                  className={cn(
+                                    "h-2 rounded-full transition-all",
+                                    check.details!.utilization_percent! > 100 ? "bg-destructive" :
+                                    check.details!.utilization_percent! > 80 ? "bg-warning" :
+                                    "bg-success"
+                                  )}
+                                  style={{ width: `${Math.min(check.details!.utilization_percent!, 100)}%` }}
+                                />
+                              </div>
+                              <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                                <span>Used: ₹{(check.details?.cumulative_used || 0).toLocaleString('en-IN')}</span>
+                                <span>Limit: ₹{(check.details?.max_amount || 0).toLocaleString('en-IN')}</span>
+                              </div>
+                            </div>
                           )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className={cn(
-                            "text-sm font-medium",
-                            check.status === 'pass' ? "text-foreground" :
-                              check.status === 'warning' ? "text-warning" :
-                                check.status === 'fail' ? "text-destructive" :
-                                  "text-muted-foreground"
-                          )}>
-                            {check.label}
-                          </p>
-                          {check.message && (
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {check.message}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </CardContent>
                 </Card>
               )}
@@ -1158,7 +1561,7 @@ export default function ClaimDetails() {
           </DialogHeader>
           <div className="py-4">
             <Textarea
-              placeholder={actionDialog.action === 'return' ? 'Instructions for correction...' : 'Add a comment (optional)...'}
+              placeholder={actionDialog.action === 'return' ? 'Instructions for correction...' : actionDialog.action === 'reject' ? 'Reason for rejection (required)...' : 'Add a comment (optional)...'}
               value={actionComment}
               onChange={(e) => setActionComment(e.target.value)}
               rows={3}
@@ -1171,7 +1574,7 @@ export default function ClaimDetails() {
             <Button
               variant={actionDialog.action === 'reject' ? 'destructive' : actionDialog.action === 'return' ? 'outline' : 'default'}
               onClick={confirmAction}
-              disabled={actionDialog.action === 'return' && actionComment.length < 10}
+              disabled={(actionDialog.action === 'return' || actionDialog.action === 'reject') && actionComment.trim().length < 10}
             >
               {actionDialog.action === 'approve' && 'Confirm Approve'}
               {actionDialog.action === 'reject' && 'Confirm Reject'}

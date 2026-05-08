@@ -1,5 +1,5 @@
 """
-Configuration module for the Reimbursement Validation System
+Configuration module for the Easy Qlaim
 """
 from pydantic_settings import BaseSettings
 from typing import List, Optional
@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
     
     # Application
-    APP_NAME: str = "Reimbursement Validation System"
+    APP_NAME: str = "Easy Qlaim"
     APP_ENV: str = "development"
     DEBUG: bool = True
     SECRET_KEY: str
@@ -50,9 +50,9 @@ class Settings(BaseSettings):
     GEMINI_MAX_TOKENS: int = 5000
     
     # Google Cloud Storage
-    GCP_PROJECT_ID: str = "spanish-translation-419206"
-    GCP_BUCKET_NAME: str = "agents007-hackathon-jp-2024"
-    GCP_CREDENTIALS_PATH: Optional[str] = "../spanish-translation-419206-0b4ae2c983f6.json"
+    GCP_PROJECT_ID: Optional[str] = None
+    GCP_BUCKET_NAME: Optional[str] = None
+    GCP_CREDENTIALS_PATH: Optional[str] = None
     
     # ===========================================
     # AZURE CONFIGURATION
@@ -161,6 +161,9 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = "dev-password"
     SMTP_FROM: str = "dev@localhost"
     
+    # Frontend URL (for email links)
+    FRONTEND_URL: str = "http://localhost:8080"
+    
     # External Integrations
     HRMS_ENABLED: bool = False
     HRMS_API_URL: Optional[str] = None
@@ -236,12 +239,16 @@ class Settings(BaseSettings):
     LOG_FILE: str = "/var/log/reimbursement/app.log"
     
     # CORS - Allow all common development ports
-    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://localhost:8080,http://127.0.0.1:8080,http://localhost:4173,http://localhost:8081,http://127.0.0.1:8081"
+    CORS_ORIGINS: str = "*"
     CORS_ALLOW_CREDENTIALS: bool = True
     
     # Tenant
     MULTI_TENANT_ENABLED: bool = False
     # Note: tenant_id must always come from authenticated user - no default allowed
+    
+    # Platform tenant ID - used for system-wide settings (not tenant-specific)
+    # This is a special "virtual" tenant that holds platform-level configurations
+    PLATFORM_TENANT_ID: str = "00000000-0000-0000-0000-000000000000"
     
     # File Upload
     MAX_UPLOAD_SIZE_MB: int = 10

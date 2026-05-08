@@ -1,12 +1,15 @@
 """
 Dashboard and analytics endpoints with caching for performance
 """
+import logging
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, case
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any, Optional
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from database import get_sync_db
 from models import Claim, User, Approval, AgentExecution
@@ -18,12 +21,12 @@ Employee = User
 router = APIRouter()
 
 # Dashboard cache TTL (5 minutes - balances freshness vs performance)
-DASHBOARD_CACHE_TTL = 300
+DASHBOARD_CACHE_TTL = 30
 
 
 @router.get("/summary")
 async def get_dashboard_summary(
-    employee_id: str = None,
+    employee_id: Optional[UUID] = None,
     tenant_id: Optional[UUID] = None,
     db: Session = Depends(get_sync_db)
 ):
@@ -97,8 +100,9 @@ async def get_dashboard_summary(
 
 @router.get("/claims-by-status")
 async def get_claims_by_status(
-    employee_id: str = None,
+    employee_id: Optional[UUID] = None,
     tenant_id: Optional[UUID] = None,
+    refresh: bool = False,
     db: Session = Depends(get_sync_db)
 ):
     """Get claim counts and amounts grouped by status with caching"""
@@ -111,10 +115,11 @@ async def get_claims_by_status(
         cache_key_parts.append(str(employee_id))
     cache_key = ":".join(cache_key_parts)
     
-    # Try cache first
-    cached = await redis_cache.get_async(cache_key)
-    if cached:
-        return cached
+    # Try cache first (unless refresh requested)
+    if not refresh:
+        cached = await redis_cache.get_async(cache_key)
+        if cached:
+            return cached
     
     query = db.query(
         Claim.status,
@@ -132,6 +137,9 @@ async def get_claims_by_status(
     
     result = [{"status": status, "count": count, "amount": float(amount)} for status, count, amount in results]
     
+    # Log for debugging
+    logger.info(f"claims-by-status: tenant={tenant_id}, employee={employee_id}, results={result}")
+    
     # Cache result
     await redis_cache.set_async(cache_key, result, DASHBOARD_CACHE_TTL)
     
@@ -140,7 +148,7 @@ async def get_claims_by_status(
 
 @router.get("/claims-by-category")
 async def get_claims_by_category(
-    employee_id: str = None,
+    employee_id: Optional[UUID] = None,
     tenant_id: Optional[UUID] = None,
     db: Session = Depends(get_sync_db)
 ):
@@ -191,7 +199,7 @@ async def get_claims_by_category(
 @router.get("/recent-activity")
 async def get_recent_activity(
     limit: int = 10,
-    employee_id: str = None,
+    employee_id: Optional[UUID] = None,
     status: str = None,
     tenant_id: Optional[UUID] = None,
     db: Session = Depends(get_sync_db)
@@ -408,7 +416,7 @@ async def get_hr_metrics(
 
 @router.get("/allowance-summary")
 async def get_allowance_summary(
-    employee_id: str = None,
+    employee_id: Optional[UUID] = None,
     tenant_id: Optional[UUID] = None,
     db: Session = Depends(get_sync_db)
 ):
@@ -619,10 +627,11 @@ async def get_finance_metrics(
 async def get_claims_by_project(
     tenant_id: Optional[UUID] = None,
     period: str = "month",
+    client_id: Optional[UUID] = None,
     db: Session = Depends(get_sync_db)
 ):
     """Get claims summary by project for budget vs actual analysis"""
-    from models import Project
+    from models import Project, Client
     from datetime import date
     
     # Determine period start date
@@ -636,9 +645,11 @@ async def get_claims_by_project(
         period_start = today.replace(month=1, day=1)
     
     # Get projects with claims summary
-    project_query = db.query(Project)
+    project_query = db.query(Project).outerjoin(Client, Project.client_id == Client.id)
     if tenant_id:
         project_query = project_query.filter(Project.tenant_id == tenant_id)
+    if client_id:
+        project_query = project_query.filter(Project.client_id == client_id)
     
     projects = project_query.all()
     
@@ -665,6 +676,13 @@ async def get_claims_by_project(
         budget_total = float(project.budget or 0)
         budget_percentage = (budget_utilized / budget_total * 100) if budget_total > 0 else 0
         
+        # Get client info
+        client_name = None
+        client_code = None
+        if project.client_id and project.client:
+            client_name = project.client.client_name
+            client_code = project.client.client_code
+        
         result.append({
             "project_code": project.code,
             "project_name": project.name,
@@ -673,7 +691,10 @@ async def get_claims_by_project(
             "budget_percentage": round(budget_percentage, 1),
             "claims_count": claims_data.claim_count or 0,
             "claims_amount": float(claims_data.total_amount or 0),
-            "settled_amount": float(claims_data.settled_amount or 0)
+            "settled_amount": float(claims_data.settled_amount or 0),
+            "client_id": str(project.client_id) if project.client_id else None,
+            "client_name": client_name,
+            "client_code": client_code
         })
     
     return sorted(result, key=lambda x: x['claims_amount'], reverse=True)
@@ -686,7 +707,7 @@ async def get_settlement_analytics(
     db: Session = Depends(get_sync_db)
 ):
     """Get settlement analytics by payment method and time period"""
-    from datetime import date, timedelta
+    from datetime import date, timedelta, datetime as dt
     
     # Determine period start date
     today = date.today()
@@ -694,7 +715,10 @@ async def get_settlement_analytics(
     days_back = period_days.get(period, 180)
     period_start = today - timedelta(days=days_back)
     
-    base_conditions = [Claim.status == 'SETTLED', Claim.settled_date >= period_start]
+    # Convert to datetime for proper comparison
+    period_start_dt = dt.combine(period_start, dt.min.time())
+    
+    base_conditions = [Claim.status == 'SETTLED', Claim.settled_date >= period_start_dt]
     if tenant_id:
         base_conditions.append(Claim.tenant_id == tenant_id)
     
@@ -719,20 +743,22 @@ async def get_settlement_analytics(
     # 2. Monthly trend (last 6 months)
     monthly_trend = []
     for i in range(6):
-        month_end = today.replace(day=1) - timedelta(days=1) if i == 0 else (today.replace(day=1) - timedelta(days=i*30)).replace(day=1) - timedelta(days=1)
-        month_start = month_end.replace(day=1)
-        
-        if i > 0:
-            month_start = (today.replace(day=1) - timedelta(days=i*30)).replace(day=1)
-            next_month = month_start.replace(day=28) + timedelta(days=4)
-            month_end = next_month - timedelta(days=next_month.day)
+        if i == 0:
+            month_start_date = today.replace(day=1)
+            month_end_date = today
         else:
-            month_start = today.replace(day=1)
-            month_end = today
+            # Go back i months
+            month_start_date = (today.replace(day=1) - timedelta(days=i*30)).replace(day=1)
+            next_month = month_start_date.replace(day=28) + timedelta(days=4)
+            month_end_date = next_month - timedelta(days=next_month.day)
+        
+        # Convert to datetime for proper comparison
+        month_start_dt = dt.combine(month_start_date, dt.min.time())
+        month_end_dt = dt.combine(month_end_date, dt.max.time())
         
         month_conditions = base_conditions + [
-            Claim.settled_date >= month_start,
-            Claim.settled_date <= month_end
+            Claim.settled_date >= month_start_dt,
+            Claim.settled_date <= month_end_dt
         ]
         
         month_data = db.query(
@@ -741,7 +767,7 @@ async def get_settlement_analytics(
         ).filter(and_(*month_conditions)).first()
         
         monthly_trend.append({
-            "month": month_start.strftime("%b %Y"),
+            "month": month_start_date.strftime("%b %Y"),
             "count": month_data[0] or 0,
             "amount": float(month_data[1] or 0)
         })
@@ -838,7 +864,7 @@ async def get_claims_trend(
     db: Session = Depends(get_sync_db)
 ):
     """Get claims trend data for charts (submitted, approved, settled over time)"""
-    from datetime import date, timedelta
+    from datetime import date, timedelta, datetime as dt
     
     # Determine period
     today = date.today()
@@ -849,13 +875,18 @@ async def get_claims_trend(
     monthly_data = []
     for i in range(6):
         if i == 0:
-            month_start = today.replace(day=1)
-            month_end = today
+            month_start_date = today.replace(day=1)
+            month_end_date = today
         else:
             # Go back i months
-            month_start = (today.replace(day=1) - timedelta(days=i*30)).replace(day=1)
-            next_month = month_start.replace(day=28) + timedelta(days=4)
-            month_end = next_month - timedelta(days=next_month.day)
+            month_start_date = (today.replace(day=1) - timedelta(days=i*30)).replace(day=1)
+            next_month = month_start_date.replace(day=28) + timedelta(days=4)
+            month_end_date = next_month - timedelta(days=next_month.day)
+        
+        # Convert to datetime for proper comparison with datetime fields
+        # Use start of day for month_start and end of day for month_end
+        month_start = dt.combine(month_start_date, dt.min.time())
+        month_end = dt.combine(month_end_date, dt.max.time())
         
         base_conditions = []
         if tenant_id:

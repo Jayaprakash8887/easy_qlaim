@@ -4,6 +4,7 @@ Main FastAPI application
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from contextlib import asynccontextmanager
 import logging
 from config import settings
@@ -99,7 +100,7 @@ async def run_startup_cleanup():
 async def lifespan(app: FastAPI):
     """Lifespan events for FastAPI app"""
     # Startup
-    logger.info("Starting Reimbursement Validation System API")
+    logger.info("Starting Easy Qlaim API")
     try:
         await init_db_async()
         logger.info("Database initialized successfully")
@@ -148,6 +149,9 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
     lifespan=lifespan
 )
+
+# Proxy headers middleware - trust X-Forwarded-Proto from nginx
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
 # CORS middleware
 app.add_middleware(
@@ -308,14 +312,17 @@ async def system_info():
 
 
 # API v1 routes
-from api.v1 import claims, employees, projects, approvals, documents, dashboard, comments, settings as settings_api, policies, custom_claims, cache, tenants, designations, auth, notifications, branding, regions, ibus, integrations
+from api.v1 import claims, employees, projects, approvals, documents, dashboard, comments, settings as settings_api, policies, custom_claims, cache, tenants, designations, auth, notifications, branding, regions, ibus, integrations, departments, approval_skip_rules, clients
 
 app.include_router(auth.router, prefix="/api/v1", tags=["Authentication"])
 app.include_router(claims.router, prefix="/api/v1/claims", tags=["Claims"])
 app.include_router(employees.router, prefix="/api/v1/employees", tags=["Employees"])
 app.include_router(projects.router, prefix="/api/v1/projects", tags=["Projects"])
+app.include_router(clients.router, prefix="/api/v1/clients", tags=["Clients"])
 app.include_router(ibus.router, prefix="/api/v1/ibus", tags=["IBUs (Business Units)"])
+app.include_router(departments.router, prefix="/api/v1/departments", tags=["Departments"])
 app.include_router(approvals.router, prefix="/api/v1/approvals", tags=["Approvals"])
+app.include_router(approval_skip_rules.router, prefix="/api/v1/approval-skip-rules", tags=["Approval Skip Rules"])
 app.include_router(documents.router, prefix="/api/v1/documents", tags=["Documents"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
 app.include_router(comments.router, prefix="/api/v1/comments", tags=["Comments"])
@@ -338,7 +345,7 @@ app.include_router(integrations.router, prefix="/api/v1/integrations", tags=["In
 async def root():
     """Root endpoint"""
     return {
-        "message": "Reimbursement Validation System API",
+        "message": "Easy Qlaim API",
         "version": "1.0.0",
         "docs": "/api/docs"
     }

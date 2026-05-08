@@ -42,8 +42,16 @@ interface Project {
   status: string;
 }
 
+interface Designation {
+  id: string;
+  name: string;
+  code: string;
+  is_active: boolean;
+}
+
 interface EmployeeFormProps {
   departments: string[];
+  designations: Designation[];
   managers?: { id: string; name: string }[];
   projects?: Project[];
   onSubmit: (data: EmployeeFormData) => void;
@@ -55,6 +63,7 @@ interface EmployeeFormProps {
 
 export function EmployeeForm({
   departments,
+  designations,
   managers = [],
   projects = [],
   onSubmit,
@@ -85,7 +94,7 @@ export function EmployeeForm({
       region: [],
       dateOfJoining: '',
       managerId: '',
-      projectIds: '',
+      projectIds: [],
       ...defaultValues,
     },
   });
@@ -201,10 +210,21 @@ export function EmployeeForm({
             name="designation"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Designation (Optional)</FormLabel>
-                <FormControl>
-                  <Input placeholder="Senior Developer" {...field} />
-                </FormControl>
+                <FormLabel>Designation *</FormLabel>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select designation" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {designations.filter(d => d.is_active).map((designation) => (
+                      <SelectItem key={designation.id} value={designation.name}>
+                        {designation.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <FormMessage />
               </FormItem>
             )}
@@ -227,7 +247,7 @@ export function EmployeeForm({
             name="department"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Department</FormLabel>
+                <FormLabel>Department (Optional)</FormLabel>
                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                   <FormControl>
                     <SelectTrigger>
@@ -255,9 +275,9 @@ export function EmployeeForm({
             name="region"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Region / Location (Optional)</FormLabel>
+                <FormLabel>Region / Location *</FormLabel>
                 <MultiSelect
-                  options={regions?.filter(r => r.isActive).map(r => ({ label: r.name, value: r.name })) || []}
+                  options={regions?.filter(r => r.isActive).map(r => ({ label: r.name, value: r.code })) || []}
                   selected={field.value as string[] || []}
                   onChange={field.onChange}
                   placeholder="Select regions..."
@@ -273,20 +293,15 @@ export function EmployeeForm({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Project Allocation (Optional)</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select project" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {projects.length > 0 ? projects.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        {project.name} ({project.code})
-                      </SelectItem>
-                    )) : <SelectItem value=" " disabled>No projects available</SelectItem>}
-                  </SelectContent>
-                </Select>
+                <MultiSelect
+                  options={projects.filter(p => p.id).map(p => ({ 
+                    label: `${p.name} (${p.code})`, 
+                    value: p.id 
+                  }))}
+                  selected={field.value as string[] || []}
+                  onChange={field.onChange}
+                  placeholder={projects.length === 0 ? "No projects available" : "Select projects..."}
+                />
                 <FormMessage />
               </FormItem>
             )}
@@ -298,18 +313,24 @@ export function EmployeeForm({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Reporting Manager (Optional)</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select 
+                  onValueChange={field.onChange} 
+                  defaultValue={field.value}
+                  disabled={availableManagers.length === 0}
+                >
                   <FormControl>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select manager" />
+                      <SelectValue placeholder={
+                        availableManagers.length === 0 ? "No managers available" : "Select manager"
+                      } />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    {availableManagers.length > 0 ? availableManagers.map((manager) => (
+                    {availableManagers.filter(m => m.id).map((manager) => (
                       <SelectItem key={manager.id} value={manager.id}>
                         {manager.name}
                       </SelectItem>
-                    )) : <SelectItem value=" " disabled>No managers available</SelectItem>}
+                    ))}
                   </SelectContent>
                 </Select>
                 <FormMessage />
@@ -324,7 +345,7 @@ export function EmployeeForm({
           </Button>
           <Button type="submit" disabled={isLoading}>
             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {defaultValues?.employeeId ? 'Update Employee' : 'Add Employee'}
+            {defaultValues?.employeeId ? 'Save' : 'Add Employee'}
           </Button>
         </div>
       </form>

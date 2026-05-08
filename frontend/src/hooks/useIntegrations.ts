@@ -1,12 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Auth helper
+function getAuthHeaders(): Record<string, string> {
+  const token = localStorage.getItem('access_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
 
 // Helper function for API calls
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
       'Content-Type': 'application/json',
+      ...getAuthHeaders(),
       ...options?.headers,
     },
     ...options,
@@ -234,6 +241,7 @@ export interface CommunicationConfig {
   slack_workspace_id: string | null;
   slack_channel_id: string | null;
   teams_tenant_id: string | null;
+  teams_webhook_url: string | null;
   teams_channel_id: string | null;
   notify_on_claim_submitted: boolean;
   notify_on_claim_approved: boolean;

@@ -50,6 +50,7 @@ import {
     Designation,
     DesignationCreate,
 } from '@/hooks/useSystemAdmin';
+import { useAuth } from '@/contexts/AuthContext';
 
 const roleColors: Record<string, string> = {
     EMPLOYEE: 'bg-gray-100 text-gray-800',
@@ -99,7 +100,7 @@ function DesignationFormDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>{designation ? 'Edit Designation' : 'Create New Designation'}</DialogTitle>
                     <DialogDescription>
@@ -203,7 +204,7 @@ function RoleMappingDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[400px]">
+            <DialogContent className="sm:max-w-[400px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>Manage Roles for "{designation.name}"</DialogTitle>
                     <DialogDescription>
@@ -250,21 +251,29 @@ function RoleMappingDialog({
 }
 
 export default function Designations() {
+    const { user } = useAuth();
+    const isSystemAdmin = user?.role === 'system_admin';
+    
     const [selectedTenantId, setSelectedTenantId] = useState<string>('');
     const [showInactive, setShowInactive] = useState(false);
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
     const [editDesignation, setEditDesignation] = useState<Designation | undefined>();
     const [roleDesignation, setRoleDesignation] = useState<Designation | undefined>();
 
+    // Only fetch tenants list for system admin
     const { data: tenants } = useTenants();
+    
+    // For tenant admin, use their own tenant ID; for system admin, use selected tenant
+    const effectiveTenantId = isSystemAdmin ? selectedTenantId : user?.tenantId;
+    
     const { data: designations, isLoading, error } = useDesignations(
-        selectedTenantId || undefined,
+        effectiveTenantId || undefined,
         showInactive
     );
     const updateDesignation = useUpdateDesignation();
 
-    // Auto-select first tenant
-    if (tenants && tenants.length > 0 && !selectedTenantId) {
+    // Auto-select first tenant for system admin only
+    if (isSystemAdmin && tenants && tenants.length > 0 && !selectedTenantId) {
         setSelectedTenantId(tenants[0].id);
     }
 
@@ -305,7 +314,7 @@ export default function Designations() {
                         Manage job designations and their role mappings
                     </p>
                 </div>
-                <Button onClick={() => setCreateDialogOpen(true)} disabled={!selectedTenantId}>
+                <Button onClick={() => setCreateDialogOpen(true)} disabled={!effectiveTenantId}>
                     <Plus className="h-4 w-4 mr-2" />
                     Add Designation
                 </Button>
@@ -315,22 +324,25 @@ export default function Designations() {
             <Card>
                 <CardContent className="pt-6">
                     <div className="flex items-center gap-4">
-                        <div className="flex-1 max-w-xs">
-                            <Label htmlFor="tenant">Tenant</Label>
-                            <Select value={selectedTenantId} onValueChange={setSelectedTenantId}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select tenant" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {tenants?.map((tenant) => (
-                                        <SelectItem key={tenant.id} value={tenant.id}>
-                                            {tenant.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="flex items-center gap-2 pt-6">
+                        {/* Tenant selector - only for System Admin */}
+                        {isSystemAdmin && (
+                            <div className="flex-1 max-w-xs">
+                                <Label htmlFor="tenant">Tenant</Label>
+                                <Select value={selectedTenantId} onValueChange={setSelectedTenantId}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select tenant" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {tenants?.map((tenant) => (
+                                            <SelectItem key={tenant.id} value={tenant.id}>
+                                                {tenant.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
+                        <div className={`flex items-center gap-2 ${isSystemAdmin ? 'pt-6' : ''}`}>
                             <Checkbox
                                 id="showInactive"
                                 checked={showInactive}
@@ -519,7 +531,7 @@ export default function Designations() {
             <DesignationFormDialog
                 open={createDialogOpen}
                 onOpenChange={setCreateDialogOpen}
-                tenantId={selectedTenantId}
+                tenantId={effectiveTenantId}
             />
 
             {/* Edit Dialog */}
@@ -528,7 +540,7 @@ export default function Designations() {
                     open={!!editDesignation}
                     onOpenChange={(open) => !open && setEditDesignation(undefined)}
                     designation={editDesignation}
-                    tenantId={selectedTenantId}
+                    tenantId={effectiveTenantId}
                 />
             )}
 

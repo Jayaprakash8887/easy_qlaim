@@ -29,13 +29,12 @@ export const employeeSchema = z.object({
     .trim()
     .max(500, 'Address must be less than 500 characters')
     .optional(),
-  department: z.string()
-    .min(1, 'Department is required'),
-  designation: z.string().optional(),
-  region: z.array(z.string()).optional(),
+  department: z.string().nullable().optional(),
+  designation: z.string().min(1, 'Designation is required'),
+  region: z.array(z.string()).min(1, 'At least one region is required'),
   dateOfJoining: z.string().optional(),
   managerId: z.string().optional(),
-  projectIds: z.string().optional(),
+  projectIds: z.array(z.string()).optional(),
 });
 
 export type EmployeeFormData = z.infer<typeof employeeSchema>;
@@ -62,6 +61,7 @@ export const projectSchema = z.object({
     .min(1, 'Project manager is required'),
   memberIds: z.array(z.string()).optional(),
   ibuId: z.string().optional(),
+  clientId: z.string().optional(),
   startDate: z.date({
     required_error: 'Start date is required',
   }),

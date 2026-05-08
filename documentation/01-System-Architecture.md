@@ -311,6 +311,16 @@ Supporting Services:
 │                 │     │  - Settlement processing                │
 │                 │     │  - Payment reference numbers            │
 │                 │     │                                         │
+│  Frontend       │────▶│  Google Maps (Primary)                  │
+│  (Location)     │     │  - Maps JavaScript API                  │
+│                 │     │  - Places Autocomplete                  │
+│                 │     │  - Geocoding API                        │
+│                 │     │                                         │
+│                 │────▶│  OpenStreetMap / Nominatim (Fallback)   │
+│                 │     │  - Map tiles (Leaflet.js)               │
+│                 │     │  - Address search (Nominatim)           │
+│                 │     │  - Distance calculation (Haversine)     │
+│                 │     │                                         │
 └─────────────────┘     └─────────────────────────────────────────┘
 ```
 

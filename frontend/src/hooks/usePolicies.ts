@@ -1,7 +1,31 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Auth helper
+function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+// Custom field definition (matching backend schema)
+export interface CustomFieldDefinition {
+  name: string;
+  label: string;
+  type: 'text' | 'number' | 'date' | 'select' | 'file' | 'boolean' | 'currency' | 'location';
+  required: boolean;
+  placeholder?: string;
+  options: string[];
+  validation?: {
+    min_length?: number;
+    max_length?: number;
+    min?: number;
+    max?: number;
+    pattern?: string;
+  };
+  default_value?: unknown;
+}
 
 // Extracted claim category from API (includes both PolicyCategory and CustomClaim)
 export interface ExtractedClaimCategory {
@@ -13,6 +37,8 @@ export interface ExtractedClaimCategory {
   category_code: string;
   category_name: string;
   category_type: 'ALLOWANCE' | 'REIMBURSEMENT';
+  calculation_type?: 'per_day' | 'per_km' | 'fixed';  // How claim amount is calculated
+  rate_per_unit?: number | null;  // Per-day rate OR per-km rate based on calculation_type
   max_amount: number | null;
   description: string | null;
   eligibility_criteria: {
@@ -23,6 +49,7 @@ export interface ExtractedClaimCategory {
     [key: string]: any;
   } | null;
   document_requirements: string[] | null;
+  custom_fields?: CustomFieldDefinition[];  // Custom fields for this claim category
   created_at: string;
   updated_at: string;
   is_custom_claim?: boolean;  // True if this is a custom claim (not from policy)
@@ -35,7 +62,7 @@ async function fetchExtractedClaims(tenantId?: string): Promise<ExtractedClaimCa
   if (tenantId) params.append('tenant_id', tenantId);
 
   const url = `${API_BASE_URL}/policies/extracted-claims${params.toString() ? '?' + params.toString() : ''}`;
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
     throw new Error('Failed to fetch extracted claims');
   }

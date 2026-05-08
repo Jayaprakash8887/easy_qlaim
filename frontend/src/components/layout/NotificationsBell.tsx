@@ -36,7 +36,13 @@ import {
   Notification as DBNotification,
 } from '@/hooks/useNotifications';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Auth helper
+function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
 
 interface LocalNotification {
   id: string;
@@ -116,7 +122,8 @@ export function NotificationsBell() {
       // Fetch pending approvals based on role (exclude admin - they don't need approval notifications)
       if (['manager', 'hr', 'finance'].includes(role)) {
         const pendingResponse = await fetch(
-          `${API_BASE_URL}/dashboard/pending-approvals?${tenantParam}${userIdParam}${roleParam}`
+          `${API_BASE_URL}/dashboard/pending-approvals?${tenantParam}${userIdParam}${roleParam}`,
+          { headers: getAuthHeaders() }
         );
         if (pendingResponse.ok) {
           const pendingData = await pendingResponse.json();
@@ -165,7 +172,8 @@ export function NotificationsBell() {
       // For employees - fetch their recent claim status updates
       if (role === 'employee') {
         const claimsResponse = await fetch(
-          `${API_BASE_URL}/claims/?${tenantParam}`
+          `${API_BASE_URL}/claims/?${tenantParam}`,
+          { headers: getAuthHeaders() }
         );
         if (claimsResponse.ok) {
           const claimsData = await claimsResponse.json();
@@ -244,7 +252,9 @@ export function NotificationsBell() {
 
       // For System Admin - tenant and system notifications
       if (role === 'system_admin') {
-        const tenantsResponse = await fetch(`${API_BASE_URL}/tenants/?tenant_id=${user.tenantId || ''}`);
+        const tenantsResponse = await fetch(`${API_BASE_URL}/tenants/?tenant_id=${user.tenantId || ''}`, {
+          headers: getAuthHeaders(),
+        });
         if (tenantsResponse.ok) {
           const tenants = await tenantsResponse.json();
           const activeTenants = tenants.filter((t: any) => t.is_active).length;
@@ -262,7 +272,9 @@ export function NotificationsBell() {
         }
 
         // Check for any pending items across all tenants
-        const pendingResponse = await fetch(`${API_BASE_URL}/dashboard/pending-approvals?tenant_id=${user.tenantId || ''}`);
+        const pendingResponse = await fetch(`${API_BASE_URL}/dashboard/pending-approvals?tenant_id=${user.tenantId || ''}`, {
+          headers: getAuthHeaders(),
+        });
         if (pendingResponse.ok) {
           const pendingData = await pendingResponse.json();
           if (pendingData.total_pending > 0) {

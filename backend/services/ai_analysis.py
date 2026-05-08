@@ -205,7 +205,11 @@ def generate_policy_checks(
     has_document: bool = False,
     policy_limit: Optional[float] = None,
     submission_window_days: Optional[int] = None,
-    is_potential_duplicate: bool = False
+    is_potential_duplicate: bool = False,
+    policy_effective_from: Optional[date] = None,
+    fiscal_year_start: str = "apr",  # Month code like 'jan', 'apr', etc.
+    cumulative_limit_check: Optional[Dict[str, Any]] = None,  # Result from check_cumulative_limit()
+    category_name: Optional[str] = None  # Display name for the category
 ) -> Dict[str, Any]:
     """
     Generate policy compliance checks for a claim.
@@ -213,6 +217,11 @@ def generate_policy_checks(
     Returns a dictionary with:
     - compliance_score: Overall compliance percentage (0-100)
     - checks: List of individual check results
+    
+    Args:
+        cumulative_limit_check: Optional result from cumulative_limit_service.check_cumulative_limit()
+                               containing status, message, and details about usage vs limits
+        category_name: Optional display name for the category (defaults to category code if not provided)
     """
     checks = []
     passed_count = 0
@@ -220,12 +229,14 @@ def generate_policy_checks(
     
     # 1. Category Check
     category = claim_data.get("category", "")
+    # Use category_name if provided, otherwise fall back to category code
+    display_category = category_name or category
     category_status = "pass" if category and category.upper() != "OTHER" else ("warning" if category else "fail")
     checks.append({
         "id": "category",
         "label": "Category selected",
         "status": category_status,
-        "message": f"Category: {category}" if category else "No category selected"
+        "message": f"Category: {display_category}" if category else "No category selected"
     })
     total_count += 1
     if category_status == "pass":
@@ -264,31 +275,56 @@ def generate_policy_checks(
     elif amount_status == "warning":
         passed_count += 0.5
     
-    # 3. Submission Window Check
+    # Parse claim_date for subsequent checks
     claim_date = claim_data.get("claim_date")
-    window_days = submission_window_days or 15  # Default 15 days
+    parsed_claim_date = None
     if claim_date:
         if isinstance(claim_date, str):
             from datetime import datetime
             try:
-                claim_date = datetime.strptime(claim_date.split('T')[0], "%Y-%m-%d").date()
+                parsed_claim_date = datetime.strptime(claim_date.split('T')[0], "%Y-%m-%d").date()
             except:
-                claim_date = None
-        
-        if claim_date:
-            days_old = (date.today() - claim_date).days
-            if days_old <= window_days:
-                date_status = "pass"
-                date_message = f"Receipt date is {days_old} days old, within {window_days}-day window"
+                parsed_claim_date = None
+        elif isinstance(claim_date, date):
+            parsed_claim_date = claim_date
+    
+    # 3. Policy Effective Date Check (NEW)
+    if policy_effective_from:
+        if parsed_claim_date:
+            if parsed_claim_date >= policy_effective_from:
+                effective_status = "pass"
+                effective_message = f"Claim date {parsed_claim_date} is on/after policy effective date {policy_effective_from}"
             else:
-                date_status = "fail"
-                date_message = f"Receipt date is {days_old} days old, exceeds {window_days}-day submission window"
+                effective_status = "fail"
+                effective_message = f"Claim date {parsed_claim_date} is BEFORE policy effective date {policy_effective_from}. This policy was not active at the time of the expense."
         else:
-            date_status = "warning"
-            date_message = "Could not validate expense date"
+            effective_status = "warning"
+            effective_message = "Could not validate claim date against policy effective date"
+        checks.append({
+            "id": "policy_effective",
+            "label": "Policy was effective",
+            "status": effective_status,
+            "message": effective_message
+        })
+        total_count += 1
+        if effective_status == "pass":
+            passed_count += 1
+        elif effective_status == "warning":
+            passed_count += 0.5
+    
+    # 4. Submission Window Check
+    window_days = submission_window_days or 15  # Default 15 days
+    if parsed_claim_date:
+        days_old = (date.today() - parsed_claim_date).days
+        if days_old <= window_days:
+            date_status = "pass"
+            date_message = f"Receipt date is {days_old} days old, within {window_days}-day window"
+        else:
+            date_status = "fail"
+            date_message = f"Receipt date is {days_old} days old, exceeds {window_days}-day submission window"
     else:
         date_status = "warning"
-        date_message = "No expense date provided"
+        date_message = "No expense date provided" if not claim_date else "Could not validate expense date"
     checks.append({
         "id": "date",
         "label": "Within submission window",
@@ -301,7 +337,7 @@ def generate_policy_checks(
     elif date_status == "warning":
         passed_count += 0.5
     
-    # 4. Document Check
+    # 5. Document Check
     doc_status = "pass" if has_document else "warning"
     doc_message = "Supporting document attached" if has_document else "No supporting document"
     checks.append({
@@ -316,7 +352,7 @@ def generate_policy_checks(
     elif doc_status == "warning":
         passed_count += 0.5
     
-    # 5. Duplicate Check
+    # 6. Duplicate Check
     if is_potential_duplicate:
         dup_status = "warning"
         dup_message = "Potential duplicate detected - similar claim exists with same amount and date"
@@ -339,6 +375,88 @@ def generate_policy_checks(
     if dup_status == "pass":
         passed_count += 1
     elif dup_status == "warning":
+        passed_count += 0.5
+    
+    # 7. Cumulative Limit Check (NEW - checks usage vs policy limits per period)
+    if cumulative_limit_check:
+        cum_status = cumulative_limit_check.get("status", "warning")
+        cum_message = cumulative_limit_check.get("message", "Could not verify cumulative limit")
+        cum_details = cumulative_limit_check.get("details", {})
+        
+        checks.append({
+            "id": "cumulative_limit",
+            "label": "Within period limit",
+            "status": cum_status,
+            "message": cum_message,
+            "details": cum_details  # Include usage details for frontend display
+        })
+        total_count += 1
+        if cum_status == "pass":
+            passed_count += 1
+        elif cum_status == "warning":
+            passed_count += 0.5
+    
+    # 8. Financial Year Check
+    # Check if claim date falls within current financial year based on tenant settings
+    fy_status = "warning"
+    fy_message = "Could not validate financial year"
+    
+    if parsed_claim_date:
+        # Month name to number mapping
+        month_to_number = {
+            "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
+            "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7, "july": 7,
+            "aug": 8, "august": 8, "sep": 9, "september": 9, "oct": 10, "october": 10,
+            "nov": 11, "november": 11, "dec": 12, "december": 12,
+        }
+        fiscal_start_month = month_to_number.get(fiscal_year_start.lower(), 4)  # Default to April
+        
+        today = date.today()
+        current_year = today.year
+        current_month = today.month
+        
+        # Determine which fiscal year we're currently in
+        if current_month >= fiscal_start_month:
+            fy_start_year = current_year
+        else:
+            fy_start_year = current_year - 1
+        
+        fy_end_year = fy_start_year + 1
+        
+        # Calculate FY start and end dates
+        fy_start = date(fy_start_year, fiscal_start_month, 1)
+        
+        # Calculate FY end (last day of month before fiscal start)
+        fy_end_month = fiscal_start_month - 1 if fiscal_start_month > 1 else 12
+        fy_end_year_actual = fy_start_year if fiscal_start_month == 1 else fy_end_year
+        
+        # Get last day of month
+        if fy_end_month == 12:
+            fy_end = date(fy_end_year_actual, 12, 31)
+        else:
+            import calendar
+            last_day = calendar.monthrange(fy_end_year_actual, fy_end_month)[1]
+            fy_end = date(fy_end_year_actual, fy_end_month, last_day)
+        
+        fy_label = f"FY {fy_start_year}-{str(fy_end_year)[-2:]}"
+        
+        if fy_start <= parsed_claim_date <= fy_end:
+            fy_status = "pass"
+            fy_message = f"Claim is within current {fy_label}"
+        else:
+            fy_status = "fail"
+            fy_message = f"Claim date {parsed_claim_date} is outside current {fy_label} ({fy_start} to {fy_end})"
+    
+    checks.append({
+        "id": "financial_year",
+        "label": "Current financial year",
+        "status": fy_status,
+        "message": fy_message
+    })
+    total_count += 1
+    if fy_status == "pass":
+        passed_count += 1
+    elif fy_status == "warning":
         passed_count += 0.5
     
     # Calculate compliance score (0-100)

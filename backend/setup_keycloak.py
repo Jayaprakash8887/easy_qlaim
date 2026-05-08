@@ -106,9 +106,10 @@ async def main():
     # Wait for Keycloak to be ready
     logger.info("\nWaiting for Keycloak to be ready...")
     import httpx
+    from config import settings
     
     # Use master realm endpoint instead of health check
-    keycloak_url = "http://localhost:8180/realms/master"
+    keycloak_url = f"{settings.KEYCLOAK_SERVER_URL}/realms/master"
     max_retries = 30
     retry_count = 0
     

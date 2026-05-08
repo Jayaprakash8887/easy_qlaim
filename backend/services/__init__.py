@@ -8,6 +8,9 @@ from .storage import (
     download_from_gcs,
     delete_from_gcs,
     get_blob_metadata,
+    is_cloud_storage_configured,
+    get_cloud_storage_status,
+    upload_avatar_to_cloud,
 )
 
 # Redis caching services
@@ -22,6 +25,9 @@ __all__ = [
     "download_from_gcs",
     "delete_from_gcs",
     "get_blob_metadata",
+    "is_cloud_storage_configured",
+    "get_cloud_storage_status",
+    "upload_avatar_to_cloud",
     # Caching
     "redis_cache",
     "cached_data",

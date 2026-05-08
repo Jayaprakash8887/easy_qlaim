@@ -1,8 +1,9 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { UseFormReturn } from "react-hook-form";
 import { Calendar, CheckCircle2, Circle, FileText, Sparkles, Trash2, Loader2, Zap, Pencil } from "lucide-react";
 import { parse } from "date-fns";
 import { cn } from "@/lib/utils";
+import { formatRegion } from "@/lib/regionUtils";
 import { SmartFormField } from "./SmartFormField";
 import { ComplianceScore } from "./ComplianceScore";
 import { DocumentUpload, UploadedFile } from "./DocumentUpload";
@@ -28,6 +29,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useFormatting } from "@/hooks/useFormatting";
 import { useEmployeeProjectHistory } from "@/hooks/useEmployees";
 import { useReimbursementsByRegion, ExtractedClaimCategory } from "@/hooks/usePolicies";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 interface ClaimFormData {
   title?: string;
@@ -72,6 +75,28 @@ export interface ExtractedClaim {
   fieldSources: FieldSources;
 }
 
+// Policy check interface - exported for use in parent components
+export interface PolicyCheckItem {
+  id: string;
+  label: string;
+  status: 'pass' | 'fail' | 'warning' | 'checking';
+  message: string;
+  details?: {
+    frequency?: string;
+    frequency_display?: string;
+    period_start?: string;
+    period_end?: string;
+    cumulative_used?: number;
+    claim_count?: number;
+    new_total?: number;
+    max_amount?: number;
+    remaining_before?: number;
+    remaining_after?: number;
+    utilization_percent?: number;
+    frequency_count?: number;
+  };
+}
+
 interface SmartClaimFormProps {
   category?: Category;
   form: UseFormReturn<ClaimFormData>;
@@ -80,6 +105,7 @@ interface SmartClaimFormProps {
   onMultipleClaimsExtracted?: (claims: ExtractedClaim[]) => void;
   onClaimsUpdated?: (claims: ExtractedClaim[]) => void; // Called when user edits any claim field
   onSingleFormFieldSourcesChange?: (sources: FieldSources) => void; // Called when single form field sources change
+  onPolicyChecksChange?: (checks: PolicyCheckItem[]) => void; // Called when policy checks change
   // For preserving OCR processing state across step navigation
   lastProcessedFileId?: string | null;
   onLastProcessedFileIdChange?: (id: string | null) => void;
@@ -92,6 +118,7 @@ export function SmartClaimForm({
   onMultipleClaimsExtracted,
   onClaimsUpdated,
   onSingleFormFieldSourcesChange,
+  onPolicyChecksChange,
   lastProcessedFileId: parentLastProcessedFileId,
   onLastProcessedFileIdChange,
 }: SmartClaimFormProps) {
@@ -100,9 +127,9 @@ export function SmartClaimForm({
 
   // Get current user and their employee data for project filtering
   const { user } = useAuth();
-  
+
   // Get formatting functions based on tenant settings
-  const { formatCurrency, formatDate, getCurrencySymbol, getDateFnsFormat } = useFormatting();
+  const { formatCurrency, formatDate, getCurrencySymbol, getDateFnsFormat, checkFinancialYear } = useFormatting();
 
   // Fetch reimbursement categories filtered by user's region
   const { data: reimbursementCategories = [], isLoading: isLoadingCategories } = useReimbursementsByRegion(user?.region);
@@ -309,8 +336,11 @@ export function SmartClaimForm({
       }
 
       const response = await fetch(
-        `http://localhost:8000/api/v1/claims/check-duplicate?${params}`,
-        { method: 'POST' }
+        `${API_BASE_URL}/claims/check-duplicate?${params}`,
+        { 
+          method: 'POST',
+          headers: localStorage.getItem('access_token') ? { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } : {},
+        }
       );
 
       if (response.ok) {
@@ -395,8 +425,11 @@ export function SmartClaimForm({
         }
 
         const response = await fetch(
-          `http://localhost:8000/api/v1/claims/check-duplicate?${params}`,
-          { method: 'POST' }
+          `${API_BASE_URL}/claims/check-duplicate?${params}`,
+          { 
+            method: 'POST',
+            headers: localStorage.getItem('access_token') ? { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } : {},
+          }
         );
 
         if (response.ok) {
@@ -695,14 +728,19 @@ export function SmartClaimForm({
       const formData = new FormData();
       formData.append('file', file);
 
-      // Get employee's region for category filtering
-      const employeeRegion = user?.region || 'INDIA';
+      // Get employee's region(s) for category filtering
+      // region can be string[] from user profile, convert to comma-separated string
+      const userRegion = user?.region;
+      const employeeRegion = Array.isArray(userRegion) 
+        ? userRegion.join(',') 
+        : (userRegion || 'IND');
 
       // Use absolute URL to backend API with region and tenant_id parameters
-      const API_BASE_URL = 'http://localhost:8000/api/v1';
       const tenantId = user?.tenantId || '';
+      const token = localStorage.getItem('access_token');
       const response = await fetch(`${API_BASE_URL}/documents/ocr?employee_region=${encodeURIComponent(employeeRegion)}&tenant_id=${encodeURIComponent(tenantId)}`, {
         method: 'POST',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
         body: formData,
       });
 
@@ -754,9 +792,9 @@ export function SmartClaimForm({
         opt.categoryCode.toLowerCase() === backendCategory
       );
 
-      // Use the backend category directly - don't override with 'other' if not found in frontend
-      // The backend has already validated against the database
-      const validatedCategory = categoryOption?.value || backendCategory;
+      // If category not found in policy options, fallback to 'other'
+      // This ensures the dropdown shows a valid selection
+      const validatedCategory = categoryOption?.value || 'other';
       const isOtherCategory = validatedCategory === 'other';
 
       // Get display title based on validated category
@@ -911,16 +949,28 @@ export function SmartClaimForm({
 
   // Handle claim selection toggle
   const handleClaimToggle = (claimId: string) => {
-    setExtractedClaims(prev =>
-      prev.map(claim =>
+    setExtractedClaims(prev => {
+      const updatedClaims = prev.map(claim =>
         claim.id === claimId ? { ...claim, selected: !claim.selected } : claim
-      )
-    );
+      );
+      // Notify parent about selection change
+      if (onClaimsUpdated) {
+        onClaimsUpdated(updatedClaims);
+      }
+      return updatedClaims;
+    });
   };
 
   // Handle select all claims
   const handleSelectAll = (selected: boolean) => {
-    setExtractedClaims(prev => prev.map(claim => ({ ...claim, selected })));
+    setExtractedClaims(prev => {
+      const updatedClaims = prev.map(claim => ({ ...claim, selected }));
+      // Notify parent about selection change
+      if (onClaimsUpdated) {
+        onClaimsUpdated(updatedClaims);
+      }
+      return updatedClaims;
+    });
   };
 
   // Update a specific claim field and mark it as 'manual' since user edited it
@@ -1002,6 +1052,7 @@ export function SmartClaimForm({
       setExtractedClaims([]);
       setShowMultipleClaims(false);
       setLastProcessedFileId(null);
+      lastProcessedFileIdRef.current = null;
 
       // Notify parent that multiple claims are cleared
       if (onMultipleClaimsExtracted) {
@@ -1010,26 +1061,33 @@ export function SmartClaimForm({
     }
   }, [uploadedFiles, lastProcessedFileId, setValue, onMultipleClaimsExtracted]);
 
+  // Ref to track extraction state without causing stale closures
+  const isExtractingRef = useRef(false);
+  const lastProcessedFileIdRef = useRef<string | null>(null);
+
   // OCR extraction when files are uploaded
   useEffect(() => {
     const processOCR = async () => {
-      console.log('processOCR called, uploadedFiles:', uploadedFiles.length, 'isExtractingOCR:', isExtractingOCR);
+      console.log('processOCR called, uploadedFiles:', uploadedFiles.length, 'isExtractingRef:', isExtractingRef.current);
 
       // Check if we have a file to process
-      if (uploadedFiles.length === 0 || isExtractingOCR) {
+      if (uploadedFiles.length === 0 || isExtractingRef.current) {
         console.log('Skipping: no files or already extracting');
         return;
       }
 
       const uploadedFile = uploadedFiles[0];
-      console.log('Processing file:', uploadedFile.name, 'id:', uploadedFile.id, 'lastProcessedId:', lastProcessedFileId);
+      console.log('Processing file:', uploadedFile.name, 'id:', uploadedFile.id, 'lastProcessedId:', lastProcessedFileIdRef.current);
 
       // Skip if we've already processed this file
-      if (uploadedFile.id === lastProcessedFileId) {
+      if (uploadedFile.id === lastProcessedFileIdRef.current) {
         console.log('Skipping: already processed this file');
         return;
       }
 
+      // Set both ref and state - ref for immediate check, state for UI
+      isExtractingRef.current = true;
+      lastProcessedFileIdRef.current = uploadedFile.id;
       setIsExtractingOCR(true);
       setLastProcessedFileId(uploadedFile.id);
 
@@ -1038,6 +1096,7 @@ export function SmartClaimForm({
 
         if (!file) {
           console.error('No file object found in uploadedFile');
+          isExtractingRef.current = false;
           setIsExtractingOCR(false);
           return;
         }
@@ -1048,6 +1107,7 @@ export function SmartClaimForm({
 
         if (!ocrResponse) {
           console.error('No response from OCR API');
+          isExtractingRef.current = false;
           setIsExtractingOCR(false);
           return;
         }
@@ -1210,6 +1270,7 @@ export function SmartClaimForm({
         // Set a default category on error
         setValue('category', 'other');
       } finally {
+        isExtractingRef.current = false;
         setIsExtractingOCR(false);
       }
     };
@@ -1217,16 +1278,12 @@ export function SmartClaimForm({
     processOCR();
   }, [uploadedFiles, setValue]);
 
-  // Simulate AI compliance score calculation
-  // For 'Other' category, AI confidence and policy compliance is 0
+  // Calculate form completeness score based on filled fields
+  // This should work for ALL categories including 'Other'
+  // Note: AI confidence and policy compliance are handled separately in field sources
   useEffect(() => {
-    // If category is 'other', set compliance score to 0
-    if (watchedFields.category === 'other') {
-      setComplianceScore(0);
-      return;
-    }
-
     let score = 0;
+    // Form completeness is based on filled fields - works for all categories
     if (watchedFields.category) score += 15;
     if (watchedFields.title) score += 15;
     if (watchedFields.amount && parseFloat(watchedFields.amount) > 0) score += 15;
@@ -1240,6 +1297,14 @@ export function SmartClaimForm({
 
   // Perform actual policy validations against the selected category's policy
   const amountValidation = useMemo(() => {
+    // Show checking state while OCR is extracting
+    if (isExtractingOCR) {
+      return {
+        status: 'checking' as const,
+        message: "Analyzing document for amount..."
+      };
+    }
+
     if (watchedFields.category === 'other' || !selectedCategoryPolicy) {
       return {
         status: 'warning' as const,
@@ -1270,9 +1335,17 @@ export function SmartClaimForm({
         ? `Amount ${formatCurrency(claimAmount)} within policy limit of ${formatCurrency(maxAmount)}`
         : "Amount verified - no policy limit defined"
     };
-  }, [watchedFields.amount, watchedFields.category, selectedCategoryPolicy, formatCurrency]);
+  }, [watchedFields.amount, watchedFields.category, selectedCategoryPolicy, formatCurrency, isExtractingOCR]);
 
   const dateValidation = useMemo(() => {
+    // Show checking state while OCR is extracting
+    if (isExtractingOCR) {
+      return {
+        status: 'checking' as const,
+        message: "Analyzing document for date..."
+      };
+    }
+
     if (watchedFields.category === 'other' || !selectedCategoryPolicy) {
       return {
         status: 'warning' as const,
@@ -1311,7 +1384,38 @@ export function SmartClaimForm({
       status: 'pass' as const,
       message: "Date verified - no submission window restriction"
     };
-  }, [watchedFields.date, watchedFields.category, selectedCategoryPolicy]);
+  }, [watchedFields.date, watchedFields.category, selectedCategoryPolicy, isExtractingOCR]);
+
+  // Financial year validation
+  const financialYearValidation = useMemo(() => {
+    // Show checking state while OCR is extracting
+    if (isExtractingOCR) {
+      return {
+        status: 'checking' as const,
+        message: "Analyzing document for date..."
+      };
+    }
+
+    if (!watchedFields.date) {
+      return {
+        status: 'checking' as const,
+        message: "Enter date to check financial year"
+      };
+    }
+
+    const fyCheck = checkFinancialYear(watchedFields.date);
+    if (fyCheck.isCurrentFY) {
+      return {
+        status: 'pass' as const,
+        message: `Within current ${fyCheck.fyLabel}`
+      };
+    }
+
+    return {
+      status: 'fail' as const,
+      message: `Outside current ${fyCheck.fyLabel} - expense from previous financial year`
+    };
+  }, [watchedFields.date, checkFinancialYear, isExtractingOCR]);
 
   const policyChecks = [
     {
@@ -1341,6 +1445,12 @@ export function SmartClaimForm({
       message: dateValidation.message,
     },
     {
+      id: "financial_year",
+      label: "Current financial year",
+      status: financialYearValidation.status,
+      message: financialYearValidation.message,
+    },
+    {
       id: "docs",
       label: "Required documents",
       status: uploadedFiles.length > 0 ? "pass" as const : "warning" as const,
@@ -1363,6 +1473,13 @@ export function SmartClaimForm({
             : "Enter amount and date to check"),
     },
   ];
+
+  // Notify parent of policy checks changes
+  useEffect(() => {
+    if (onPolicyChecksChange) {
+      onPolicyChecksChange(policyChecks);
+    }
+  }, [policyChecks, onPolicyChecksChange]);
 
   // Function to compute policy checks for a single receipt (multi-receipt mode)
   const getReceiptPolicyChecks = useCallback((claim: ExtractedClaim): PolicyCheck[] => {
@@ -1415,6 +1532,21 @@ export function SmartClaimForm({
       }
     }
 
+    // Financial Year validation for this receipt
+    let fyStatus: 'pass' | 'fail' | 'warning' | 'checking' = 'checking';
+    let fyMessage = 'Enter date to check financial year';
+
+    if (claim.date) {
+      const fyCheck = checkFinancialYear(claim.date);
+      if (fyCheck.isCurrentFY) {
+        fyStatus = 'pass';
+        fyMessage = `Within current ${fyCheck.fyLabel}`;
+      } else {
+        fyStatus = 'fail';
+        fyMessage = `Outside current ${fyCheck.fyLabel} - claim date is from a previous financial year`;
+      }
+    }
+
     return [
       {
         id: 'category',
@@ -1439,6 +1571,18 @@ export function SmartClaimForm({
         message: dateMessage,
       },
       {
+        id: 'required_docs',
+        label: 'Required documents',
+        status: claim.file ? 'pass' : 'warning',
+        message: claim.file ? '1 document(s) uploaded' : 'Upload receipt document',
+      },
+      {
+        id: 'financial_year',
+        label: 'Current financial year',
+        status: fyStatus,
+        message: fyMessage,
+      },
+      {
         id: 'duplicate',
         label: 'No duplicate claims',
         status: duplicateCheck.isChecking
@@ -1455,7 +1599,7 @@ export function SmartClaimForm({
               : 'Enter amount and date to check'),
       },
     ];
-  }, [reimbursementCategories, receiptDuplicateChecks]);
+  }, [reimbursementCategories, receiptDuplicateChecks, checkFinancialYear, formatCurrency]);
 
   // Compute all receipt policy checks for the summary
   const allReceiptPolicyChecks = useMemo(() => {
@@ -1843,6 +1987,21 @@ export function SmartClaimForm({
               </div>
             )}
 
+            {/* Overlay when no file uploaded - fields are disabled */}
+            {uploadedFiles.length === 0 && !isExtractingOCR && (
+              <div className="absolute inset-0 bg-background/60 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center rounded-xl">
+                <div className="text-center p-4">
+                  <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-muted flex items-center justify-center">
+                    <FileText className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm font-medium text-foreground">Upload a document first</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Please upload a receipt or invoice above to enable form fields
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-foreground">
                 Reimbursement Claim
@@ -1879,13 +2038,13 @@ export function SmartClaimForm({
                     setValue('category', value);
                     markFieldAsManual('category');
                   }}
-                  disabled={isExtractingOCR}
+                  disabled={isExtractingOCR || uploadedFiles.length === 0}
                 >
                   <SelectTrigger className={cn(
                     singleFormFieldSources.category === 'auto' && "bg-accent/5 border-accent/30",
-                    isExtractingOCR && "opacity-70"
+                    (isExtractingOCR || uploadedFiles.length === 0) && "opacity-70"
                   )}>
-                    <SelectValue placeholder={isExtractingOCR ? "Extracting from document..." : "Select category or upload document to auto-detect"} />
+                    <SelectValue placeholder={isExtractingOCR ? "Extracting from document..." : uploadedFiles.length === 0 ? "Upload document first" : "Select category or upload document to auto-detect"} />
                   </SelectTrigger>
                   <SelectContent>
                     {isLoadingCategories ? (
@@ -1908,7 +2067,7 @@ export function SmartClaimForm({
                     : uploadedFiles.length > 0
                       ? "✅ Category auto-detected from document content"
                       : user?.region
-                        ? `Showing categories for ${user.region} region`
+                        ? `Showing categories for ${formatRegion(user.region)} region`
                         : "Upload document for AI-powered auto-detection"}
                 </p>
               </div>
@@ -1919,6 +2078,7 @@ export function SmartClaimForm({
                 validationStatus={getValidationStatus("title")}
                 error={errors.title?.message}
                 onFieldEdit={() => markFieldAsManual('title')}
+                disabled={uploadedFiles.length === 0 || isExtractingOCR}
                 {...register("title")}
               />
 
@@ -1931,6 +2091,7 @@ export function SmartClaimForm({
                 validationStatus={getValidationStatus("amount")}
                 error={errors.amount?.message}
                 onFieldEdit={() => markFieldAsManual('amount')}
+                disabled={uploadedFiles.length === 0 || isExtractingOCR}
                 {...register("amount")}
               />
 
@@ -1952,10 +2113,12 @@ export function SmartClaimForm({
                   <PopoverTrigger asChild>
                     <Button
                       variant="outline"
+                      disabled={uploadedFiles.length === 0 || isExtractingOCR}
                       className={cn(
                         "w-full justify-start text-left font-normal",
                         !watchedFields.date && "text-muted-foreground",
-                        singleFormFieldSources.date === 'auto' && "bg-accent/5 border-accent/30"
+                        singleFormFieldSources.date === 'auto' && "bg-accent/5 border-accent/30",
+                        (uploadedFiles.length === 0 || isExtractingOCR) && "opacity-70"
                       )}
                     >
                       <Calendar className="mr-2 h-4 w-4" />
@@ -1985,6 +2148,7 @@ export function SmartClaimForm({
                 validationStatus={getValidationStatus("vendor")}
                 error={errors.vendor?.message}
                 onFieldEdit={() => markFieldAsManual('vendor')}
+                disabled={uploadedFiles.length === 0 || isExtractingOCR}
                 {...register("vendor")}
               />
 
@@ -1995,6 +2159,7 @@ export function SmartClaimForm({
                 validationStatus={getValidationStatus("transactionRef")}
                 error={errors.transactionRef?.message}
                 onFieldEdit={() => markFieldAsManual('transactionRef')}
+                disabled={uploadedFiles.length === 0 || isExtractingOCR}
                 {...register("transactionRef")}
               />
 
@@ -2008,8 +2173,12 @@ export function SmartClaimForm({
                 <Select
                   value={watchedFields.projectCode}
                   onValueChange={(value) => setValue("projectCode", value)}
+                  disabled={uploadedFiles.length === 0 || isExtractingOCR}
                 >
-                  <SelectTrigger className="bg-accent/5 border-accent/30">
+                  <SelectTrigger className={cn(
+                    "bg-accent/5 border-accent/30",
+                    (uploadedFiles.length === 0 || isExtractingOCR) && "opacity-70"
+                  )}>
                     <SelectValue placeholder={isLoadingProjects ? "Loading projects..." : (employeeProjects.length === 0 ? "No projects assigned" : "Select project")} />
                   </SelectTrigger>
                   <SelectContent>
@@ -2042,6 +2211,7 @@ export function SmartClaimForm({
                   validationStatus={getValidationStatus("description")}
                   error={errors.description?.message}
                   onFieldEdit={() => markFieldAsManual('description')}
+                  disabled={uploadedFiles.length === 0 || isExtractingOCR}
                   {...register("description")}
                 />
               </div>

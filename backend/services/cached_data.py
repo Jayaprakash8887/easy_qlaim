@@ -458,8 +458,9 @@ class CachedDataService:
         
         if region:
             # Get policies for specific region or global (NULL region)
+            # Note: PolicyUpload.region is an ARRAY type, so we use .any() to check if value is in array
             query = query.where(
-                (PolicyUpload.region == region.upper()) | (PolicyUpload.region.is_(None))
+                (PolicyUpload.region.any(region.upper())) | (PolicyUpload.region.is_(None))
             )
         
         result = await db.execute(query.order_by(PolicyUpload.policy_name))
@@ -554,8 +555,9 @@ class CachedDataService:
         )
         
         if region:
+            # Note: PolicyUpload.region is an ARRAY type, so we use .any() to check if value is in array
             query = query.where(
-                (PolicyUpload.region == region.upper()) | (PolicyUpload.region.is_(None))
+                (PolicyUpload.region.any(region.upper())) | (PolicyUpload.region.is_(None))
             )
         
         if category_type:
@@ -608,8 +610,9 @@ class CachedDataService:
         )
         
         if region:
+            # Note: PolicyUpload.region is an ARRAY type, so we use .any() to check if value is in array
             query = query.where(
-                (PolicyUpload.region == region.upper()) | (PolicyUpload.region.is_(None))
+                (PolicyUpload.region.any(region.upper())) | (PolicyUpload.region.is_(None))
             )
         
         result = await db.execute(query)
@@ -647,8 +650,9 @@ class CachedDataService:
         )
         
         if region:
+            # Note: PolicyUpload.region is an ARRAY type, so we use .any() to check if value is in array
             query = query.where(
-                (PolicyUpload.region == region.upper()) | (PolicyUpload.region.is_(None))
+                (PolicyUpload.region.any(region.upper())) | (PolicyUpload.region.is_(None))
             )
         
         result = await db.execute(query)

@@ -19,6 +19,7 @@ import {
   Building2,
   Briefcase,
   Globe,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -54,6 +55,7 @@ const iconMap: Record<string, LucideIcon> = {
   Building2,
   Briefcase,
   Globe,
+  ShieldCheck,
 };
 
 interface SidebarProps {
@@ -92,9 +94,16 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     const isActive = location.pathname === item.href;
     const badgeCount = getDynamicBadge(item.href) ?? item.badge;
 
+    // Determine data-tour attribute based on the href
+    const getTourAttr = (href: string) => {
+      if (href === '/claims/new') return 'new-claim';
+      return undefined;
+    };
+
     const linkContent = (
       <NavLink
         to={item.href}
+        data-tour={getTourAttr(item.href)}
         className={cn(
           'group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all',
           isActive
@@ -143,6 +152,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   return (
     <TooltipProvider delayDuration={0}>
       <aside
+        data-tour="sidebar"
         className={cn(
           'fixed left-0 top-20 z-40 h-[calc(100vh-5rem)] border-r border-border bg-card transition-all duration-300',
           collapsed ? 'w-16' : 'w-64'

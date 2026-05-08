@@ -232,6 +232,112 @@ nvm use 18
 npm run type-check
 ```
 
+#### 5.3 Google Maps Blank/Not Loading
+
+**Symptom:** Maps component shows blank area, no map tiles visible, or falls back to OpenStreetMap
+
+**Cause:** Google Maps API key or Map ID not properly configured
+
+**Solutions:**
+
+1. **Check environment variables in docker-compose.yml**
+   ```bash
+   # Ensure both variables are set under frontend service:
+   environment:
+     - VITE_GOOGLE_MAPS_API_KEY=${VITE_GOOGLE_MAPS_API_KEY}
+     - VITE_GOOGLE_MAPS_ID=${VITE_GOOGLE_MAPS_ID}
+   ```
+
+2. **Verify .env file (project root)**
+   ```bash
+   VITE_GOOGLE_MAPS_API_KEY=your-actual-api-key
+   VITE_GOOGLE_MAPS_ID=your-map-id
+   ```
+
+3. **Recreate frontend container** (restart is not enough for new env vars)
+   ```bash
+   docker compose up -d --force-recreate frontend
+   ```
+
+4. **Verify environment in container**
+   ```bash
+   docker exec reimbursement_frontend printenv | grep GOOGLE
+   ```
+
+5. **Check Google Cloud Console settings**
+   - Enable required APIs: Maps JavaScript API, Places API, Geocoding API
+   - Create a Map ID: Google Maps Platform → Map Management → Create Map ID
+   - Select **JavaScript** and **Vector** when creating Map ID
+   - Check API key restrictions allow your domain/localhost
+
+6. **Verify in browser DevTools**
+   - Open Console tab for error messages
+   - Check Network tab for `maps.googleapis.com` requests
+
+#### 5.4 Form Validation Error Shows [object Object]
+
+**Symptom:** Error message displays `[object Object]` instead of actual error text
+
+**Cause:** Pydantic validation errors return array format that needs proper parsing
+
+**Solution:**
+
+Frontend error handlers need to properly extract messages from Pydantic error arrays:
+
+```typescript
+// Proper error extraction
+const extractErrorMessage = (error: any): string => {
+  if (error?.response?.data?.detail) {
+    const detail = error.response.data.detail;
+    if (Array.isArray(detail)) {
+      // Pydantic validation errors
+      return detail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join(', ');
+    }
+    return typeof detail === 'string' ? detail : JSON.stringify(detail);
+  }
+  return error.message || 'An error occurred';
+};
+```
+
+#### 5.5 Dialog Forms Not Scrollable / Buttons Hidden
+
+**Symptom:** Modal dialogs with long forms have buttons hidden below viewport, cannot scroll
+
+**Cause:** Missing scroll styles on DialogContent component
+
+**Solution:**
+
+Add `max-h-[90vh] overflow-y-auto` to DialogContent className:
+
+```tsx
+<DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+  {/* Form content */}
+</DialogContent>
+```
+
+#### 5.6 Empty Email Field Causes Validation Error
+
+**Symptom:** "Value is not a valid email address" when email field is left empty
+
+**Cause:** Empty string "" is sent instead of null for optional email fields
+
+**Solution:**
+
+Add Pydantic validators to convert empty strings to None:
+
+```python
+from pydantic import validator
+
+class ClientBase(BaseModel):
+    contact_email: Optional[EmailStr] = None
+    
+    @validator('contact_email', pre=True, always=True)
+    def empty_str_to_none_email(cls, v):
+        if v == '':
+            return None
+        return v
+```
+
 ---
 
 ### 6. Authentication Issues
@@ -502,4 +608,4 @@ If issues persist:
 
 ---
 
-*Document Version: 1.0 | Last Updated: December 2025*
+*Document Version: 1.1 | Last Updated: January 2026*

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Search, FolderKanban, Users, Calendar, TrendingUp, Download, Edit, Building } from 'lucide-react';
+import { Plus, Search, FolderKanban, Users, Calendar, TrendingUp, Download, Edit, Building, Briefcase } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,6 +22,7 @@ import {
 import { useProjects, useProjectStats, useCreateProject, useUpdateProject, useAllProjectMembers } from '@/hooks/useProjects';
 import { useEmployees, useAllocateEmployeeToProject } from '@/hooks/useEmployees';
 import { useIBUs } from '@/hooks/useIBUs';
+import { useClients } from '@/hooks/useClients';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFormatting } from '@/hooks/useFormatting';
 import { ProjectForm } from '@/components/forms/ProjectForm';
@@ -137,6 +138,15 @@ function ProjectCard({
             <span className="text-sm font-medium">{ibu.code} - {ibu.name}</span>
           </div>
         )}
+
+        {/* Client */}
+        {project.clientName && (
+          <div className="flex items-center gap-2 pt-2 border-t">
+            <Briefcase className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Client:</span>
+            <span className="text-sm font-medium">{project.clientCode} - {project.clientName}</span>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -157,6 +167,7 @@ export default function Projects() {
   const { data: stats } = useProjectStats(tenantId);
   const { data: employees } = useEmployees(tenantId);
   const { data: ibusData } = useIBUs();
+  const { data: clientsData } = useClients();
   const ibus = ibusData?.items || [];
   const { data: projectMembersMap } = useAllProjectMembers();
   const createProject = useCreateProject();
@@ -165,9 +176,8 @@ export default function Projects() {
 
   const managers = useMemo(() => {
     if (!employees) return [];
-    return employees
-      .filter((e) => e.role === 'manager')
-      .map((e) => ({ id: e.id, name: e.name }));
+    // Show all employees in the Project Manager dropdown
+    return employees.map((e) => ({ id: e.id, name: e.name }));
   }, [employees]);
 
   const employeeMap = useMemo(() => {
@@ -182,6 +192,15 @@ export default function Projects() {
       code: ibu.code 
     }));
   }, [ibus]);
+
+  const clientMap = useMemo(() => {
+    if (!clientsData) return [];
+    return clientsData.filter((client) => client.is_active).map((client) => ({
+      id: client.id,
+      name: client.client_name,
+      code: client.client_code,
+    }));
+  }, [clientsData]);
 
   const ibuLookup = useMemo(() => {
     return ibus.reduce((acc, ibu) => {
@@ -224,6 +243,7 @@ export default function Projects() {
         managerId: data.managerId,
         memberIds: data.memberIds || [],
         ibuId: data.ibuId || undefined,
+        clientId: data.clientId || undefined,
         status: 'active',
         startDate: data.startDate,
         endDate: data.endDate,
@@ -239,7 +259,9 @@ export default function Projects() {
               role: 'MEMBER',
             });
           } catch (e) {
+            const errorMessage = e instanceof Error ? e.message : 'Failed to allocate employee';
             console.error(`Failed to allocate employee ${memberId}:`, e);
+            toast.error(errorMessage);
           }
         }
       }
@@ -264,6 +286,7 @@ export default function Projects() {
           budget: data.budget,
           managerId: data.managerId,
           ibuId: data.ibuId || undefined,
+          clientId: data.clientId || undefined,
           status: data.status || selectedProject.status,
           startDate: data.startDate,
           endDate: data.endDate,
@@ -284,7 +307,9 @@ export default function Projects() {
             role: 'MEMBER',
           });
         } catch (e) {
+          const errorMessage = e instanceof Error ? e.message : 'Failed to allocate employee';
           console.error(`Failed to allocate employee ${memberId}:`, e);
+          toast.error(errorMessage);
         }
       }
       
@@ -317,6 +342,7 @@ export default function Projects() {
           spent: formatCurrency(p.spent),
           startDate: formatDate(p.startDate),
           ibu: ibu ? `${ibu.code} - ${ibu.name}` : '',
+          client: p.clientCode && p.clientName ? `${p.clientCode} - ${p.clientName}` : '',
           members: p.memberIds.length,
         };
       }),
@@ -329,6 +355,7 @@ export default function Projects() {
         { key: 'spent', label: 'Spent' },
         { key: 'startDate', label: 'Start Date' },
         { key: 'ibu', label: 'Business Unit' },
+        { key: 'client', label: 'Client' },
         { key: 'members', label: 'Members' },
       ]
     );
@@ -366,7 +393,7 @@ export default function Projects() {
                 New Project
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Create New Project</DialogTitle>
               </DialogHeader>
@@ -374,6 +401,7 @@ export default function Projects() {
                 managers={managers}
                 employees={employeeMap}
                 ibus={ibuMap}
+                clients={clientMap}
                 onSubmit={handleAddProject}
                 onCancel={() => setIsAddDialogOpen(false)}
                 isLoading={createProject.isPending}
@@ -381,7 +409,7 @@ export default function Projects() {
             </DialogContent>
           </Dialog>
           <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Edit Project</DialogTitle>
               </DialogHeader>
@@ -389,6 +417,7 @@ export default function Projects() {
                 managers={managers}
                 employees={employeeMap}
                 ibus={ibuMap}
+                clients={clientMap}
                 onSubmit={handleEditProject}
                 onCancel={() => {
                   setIsEditDialogOpen(false);
@@ -403,6 +432,7 @@ export default function Projects() {
                   managerId: selectedProject.managerId,
                   memberIds: selectedProject.memberIds,
                   ibuId: selectedProject.ibuId,
+                  clientId: selectedProject.clientId,
                   startDate: selectedProject.startDate,
                   endDate: selectedProject.endDate,
                 } : undefined}

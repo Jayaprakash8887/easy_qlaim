@@ -13,6 +13,7 @@ import {
   Upload,
   Trash2,
   Info,
+  MessageSquare,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,7 +21,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { Slider } from '@/components/ui/slider';
 import {
   Select,
   SelectContent,
@@ -29,30 +29,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
 import { toast as sonnerToast } from 'sonner';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -65,18 +47,12 @@ import {
   useUpdateBrandingSettings,
   BrandingFileSpec,
 } from '@/hooks/useSystemAdmin';
+import { TenantIntegrations } from '@/components/settings/TenantIntegrations';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 // Types
 interface GeneralSettings {
-  ai_processing: boolean;
-  auto_approval: boolean;
-  enable_auto_approval: boolean;
-  auto_skip_after_manager: boolean;
-  auto_approval_threshold: number;
-  max_auto_approval_amount: number;
-  policy_compliance_threshold: number;
   default_currency: string;
   fiscal_year_start: string;
   email_notifications: boolean;
@@ -265,7 +241,10 @@ function BrandingFileUpload({ fileType, spec, currentUrl, tenantId, onUploadSucc
 // API functions
 async function fetchGeneralSettings(tenantId?: string): Promise<GeneralSettings> {
   const params = tenantId ? `?tenant_id=${tenantId}` : '';
-  const response = await fetch(`${API_BASE_URL}/settings/general${params}`);
+  const token = localStorage.getItem('access_token');
+  const response = await fetch(`${API_BASE_URL}/settings/general${params}`, {
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch settings');
   }
@@ -273,7 +252,10 @@ async function fetchGeneralSettings(tenantId?: string): Promise<GeneralSettings>
 }
 
 async function fetchAllSettingsOptions(): Promise<AllSettingsOptions> {
-  const response = await fetch(`${API_BASE_URL}/settings/options/all`);
+  const token = localStorage.getItem('access_token');
+  const response = await fetch(`${API_BASE_URL}/settings/options/all`, {
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch settings options');
   }
@@ -282,10 +264,12 @@ async function fetchAllSettingsOptions(): Promise<AllSettingsOptions> {
 
 async function updateGeneralSettings(settings: Partial<GeneralSettings>, tenantId?: string): Promise<GeneralSettings> {
   const params = tenantId ? `?tenant_id=${tenantId}` : '';
+  const token = localStorage.getItem('access_token');
   const response = await fetch(`${API_BASE_URL}/settings/general${params}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(settings),
   });
@@ -329,15 +313,13 @@ export default function Settings() {
 
   // Update branding state when data loads
   useEffect(() => {
-    if (brandingData?.colors) {
+    if (brandingData?.branding) {
       setBrandingColors({
-        primary_color: brandingData.colors.primary_color || '#3B82F6',
-        secondary_color: brandingData.colors.secondary_color || '#10B981',
-        accent_color: brandingData.colors.accent_color || '#F59E0B',
+        primary_color: brandingData.branding.primary_color || '#3B82F6',
+        secondary_color: brandingData.branding.secondary_color || '#10B981',
+        accent_color: brandingData.branding.accent_color || '#F59E0B',
       });
-    }
-    if (brandingData?.settings) {
-      setBrandingTagline(brandingData.settings.tagline || '');
+      setBrandingTagline(brandingData.branding.company_tagline || '');
     }
   }, [brandingData]);
 
@@ -345,23 +327,16 @@ export default function Settings() {
   useEffect(() => {
     if (brandingData) {
       const colorsChanged = 
-        brandingColors.primary_color !== (brandingData.colors?.primary_color || '#3B82F6') ||
-        brandingColors.secondary_color !== (brandingData.colors?.secondary_color || '#10B981') ||
-        brandingColors.accent_color !== (brandingData.colors?.accent_color || '#F59E0B');
-      const taglineChanged = brandingTagline !== (brandingData.settings?.tagline || '');
+        brandingColors.primary_color !== (brandingData.branding?.primary_color || '#3B82F6') ||
+        brandingColors.secondary_color !== (brandingData.branding?.secondary_color || '#10B981') ||
+        brandingColors.accent_color !== (brandingData.branding?.accent_color || '#F59E0B');
+      const taglineChanged = brandingTagline !== (brandingData.branding?.company_tagline || '');
       setHasBrandingChanges(colorsChanged || taglineChanged);
     }
   }, [brandingColors, brandingTagline, brandingData]);
 
   // Local state for form
   const [formData, setFormData] = useState<GeneralSettings>({
-    ai_processing: true,
-    auto_approval: true,
-    enable_auto_approval: true,
-    auto_skip_after_manager: true,
-    auto_approval_threshold: 95,
-    max_auto_approval_amount: 5000,
-    policy_compliance_threshold: 80,
     default_currency: 'inr',
     fiscal_year_start: 'apr',
     email_notifications: true,
@@ -475,15 +450,13 @@ export default function Settings() {
 
   // Handle cancel branding changes
   const handleCancelBranding = () => {
-    if (brandingData?.colors) {
+    if (brandingData?.branding) {
       setBrandingColors({
-        primary_color: brandingData.colors.primary_color || '#3B82F6',
-        secondary_color: brandingData.colors.secondary_color || '#10B981',
-        accent_color: brandingData.colors.accent_color || '#F59E0B',
+        primary_color: brandingData.branding.primary_color || '#3B82F6',
+        secondary_color: brandingData.branding.secondary_color || '#10B981',
+        accent_color: brandingData.branding.accent_color || '#F59E0B',
       });
-    }
-    if (brandingData?.settings) {
-      setBrandingTagline(brandingData.settings.tagline || '');
+      setBrandingTagline(brandingData.branding.company_tagline || '');
     }
     setHasBrandingChanges(false);
   };
@@ -524,10 +497,14 @@ export default function Settings() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList className="grid w-full max-w-lg grid-cols-3">
           <TabsTrigger value="general" className="flex items-center gap-2">
             <SettingsIcon className="h-4 w-4" />
-            General Settings
+            General
+          </TabsTrigger>
+          <TabsTrigger value="integrations" className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4" />
+            Integrations
           </TabsTrigger>
           <TabsTrigger value="branding" className="flex items-center gap-2">
             <Palette className="h-4 w-4" />
@@ -575,129 +552,6 @@ export default function Settings() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>AI-Powered Processing</Label>
-                <p className="text-sm text-muted-foreground">
-                  Enable AI for OCR and validation
-                </p>
-              </div>
-              <Switch
-                checked={formData.ai_processing}
-                onCheckedChange={(checked) => handleChange('ai_processing', checked)}
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Auto-Approval</Label>
-                <p className="text-sm text-muted-foreground">
-                  Automatically approve claims that meet threshold criteria
-                </p>
-              </div>
-              <Switch
-                checked={formData.auto_approval}
-                onCheckedChange={(checked) => handleChange('auto_approval', checked)}
-              />
-            </div>
-            {formData.auto_approval && (
-              <>
-                <div className="space-y-3 pl-4 border-l-2 border-muted">
-                  {/* Admin Toggle for Enable/Disable Auto-Approval Feature */}
-                  <div className="flex items-center justify-between bg-amber-50 dark:bg-amber-900/20 p-3 rounded-md">
-                    <div className="space-y-0.5">
-                      <Label className="flex items-center gap-2">
-                        <Shield className="h-4 w-4 text-amber-600" />
-                        Enable Auto-Approval Feature (Admin)
-                      </Label>
-                      <p className="text-sm text-muted-foreground">
-                        Master switch to enable/disable all auto-approval functionality
-                      </p>
-                    </div>
-                    <Switch
-                      checked={formData.enable_auto_approval}
-                      onCheckedChange={(checked) => handleChange('enable_auto_approval', checked)}
-                    />
-                  </div>
-                  {formData.enable_auto_approval && (
-                    <>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <Label>AI Confidence Threshold</Label>
-                          <span className="text-sm font-medium">{formData.auto_approval_threshold}%</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          Minimum AI confidence score required for auto-approval
-                        </p>
-                        <Slider
-                          value={[formData.auto_approval_threshold]}
-                          onValueChange={(value) => handleChange('auto_approval_threshold', value[0])}
-                          min={50}
-                          max={100}
-                          step={5}
-                          className="w-full"
-                        />
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>50%</span>
-                          <span>75%</span>
-                          <span>100%</span>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Maximum Auto-Approval Amount</Label>
-                        <p className="text-sm text-muted-foreground">
-                          Claims above this amount require manual approval
-                        </p>
-                        <Input
-                          type="number"
-                          value={formData.max_auto_approval_amount}
-                          onChange={(e) => handleChange('max_auto_approval_amount', parseFloat(e.target.value) || 0)}
-                          className="w-[200px]"
-                        />
-                      </div>
-                      <Separator />
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Label>Policy Compliance Threshold</Label>
-                          <span className="text-sm font-medium">{formData.policy_compliance_threshold}%</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          Minimum AI confidence score for policy compliance. Claims must meet both this AND the AI Confidence Threshold for auto-approval.
-                        </p>
-                        <Slider
-                          value={[formData.policy_compliance_threshold]}
-                          onValueChange={(value) => handleChange('policy_compliance_threshold', value[0])}
-                          min={50}
-                          max={100}
-                          step={5}
-                          className="w-full"
-                        />
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>50%</span>
-                          <span>75%</span>
-                          <span>100%</span>
-                        </div>
-                      </div>
-                      <Separator />
-                      {/* Auto-Skip HR/Finance Toggle */}
-                      <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
-                        <div className="space-y-0.5">
-                          <Label>Auto-Skip HR/Finance After Manager Approval</Label>
-                          <p className="text-sm text-muted-foreground">
-                            When enabled, claims that pass manager approval will skip HR and Finance review if confidence and amount thresholds are met
-                          </p>
-                        </div>
-                        <Switch
-                          checked={formData.auto_skip_after_manager}
-                          onCheckedChange={(checked) => handleChange('auto_skip_after_manager', checked)}
-                        />
-                      </div>
-                    </>
-                  )}
-                </div>
-              </>
-            )}
-            <Separator />
             <div className="space-y-2">
               <Label>Default Currency</Label>
               <Select
@@ -1028,6 +882,11 @@ export default function Settings() {
           </div>
         </TabsContent>
 
+        {/* Integrations Tab */}
+        <TabsContent value="integrations" className="space-y-4 mt-6">
+          <TenantIntegrations tenantId={user?.tenantId || ''} />
+        </TabsContent>
+
         {/* Branding Settings Tab */}
         <TabsContent value="branding" className="space-y-4 mt-6">
           {/* Save/Cancel buttons for branding */}
@@ -1078,16 +937,21 @@ export default function Settings() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid gap-6 md:grid-cols-2">
-                    {Object.entries(BRANDING_FILE_SPECS).map(([fileType, spec]) => (
-                      <BrandingFileUpload
-                        key={fileType}
-                        fileType={fileType}
-                        spec={spec}
-                        currentUrl={brandingData?.files?.[fileType as keyof typeof brandingData.files] || null}
-                        tenantId={user?.tenantId || ''}
-                        onUploadSuccess={() => refetchBranding()}
-                      />
-                    ))}
+                    {Object.entries(BRANDING_FILE_SPECS).map(([fileType, spec]) => {
+                      // Map fileType to branding field name
+                      const urlKey = `${fileType}_url` as keyof typeof brandingData.branding;
+                      const currentUrl = brandingData?.branding?.[urlKey] as string | null;
+                      return (
+                        <BrandingFileUpload
+                          key={fileType}
+                          fileType={fileType}
+                          spec={spec}
+                          currentUrl={currentUrl || null}
+                          tenantId={user?.tenantId || ''}
+                          onUploadSuccess={() => refetchBranding()}
+                        />
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>

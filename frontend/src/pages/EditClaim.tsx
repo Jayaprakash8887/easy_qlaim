@@ -12,6 +12,9 @@ import {
   Zap,
   User,
   CheckCircle2,
+  Tag,
+  Folder,
+  Hash,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DataSource } from '@/types';
@@ -32,7 +35,15 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFormatting } from '@/hooks/useFormatting';
 import { toast } from '@/hooks/use-toast';
 import { useReimbursementsByRegion } from '@/hooks/usePolicies';
+import { useEmployeeProjectHistory } from '@/hooks/useEmployees';
 import { PolicyChecks } from '@/components/claims/PolicyChecks';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export default function EditClaim() {
   const { id } = useParams<{ id: string }>();
@@ -44,15 +55,43 @@ export default function EditClaim() {
   const updateClaim = useUpdateClaim();
   const createCommentMutation = useCreateComment();
   const { user } = useAuth();
-  const { formatCurrency, formatDateTime } = useFormatting();
+  const { formatCurrency, formatDateTime, checkFinancialYear } = useFormatting();
   
   // Fetch reimbursement categories for policy validation
   const { data: reimbursementCategories = [] } = useReimbursementsByRegion(user?.region);
+  
+  // Fetch employee's project history
+  const { data: projectHistory, isLoading: isLoadingProjects } = useEmployeeProjectHistory(user?.id);
+  
+  // Map project history to dropdown format
+  const employeeProjects = useMemo(() => {
+    return projectHistory?.map(allocation => ({
+      id: allocation.project_id,
+      projectCode: allocation.project_code,
+      projectName: allocation.project_name,
+      status: allocation.status,
+    })) || [];
+  }, [projectHistory]);
+  
+  // Create category options with 'Other' at the end
+  const categoryOptions = useMemo(() => {
+    const apiCategories = reimbursementCategories.map(cat => ({
+      value: cat.category_code.toLowerCase(),
+      label: cat.category_name,
+      categoryCode: cat.category_code,
+    }));
+    // Add 'Other' category at the end
+    return [...apiCategories, { value: 'other', label: 'Other', categoryCode: 'OTHER' }];
+  }, [reimbursementCategories]);
   
   const [formData, setFormData] = useState({
     amount: '',
     claim_date: '',
     description: '',
+    category: '',
+    title: '',
+    project_code: '',
+    transaction_ref: '',
   });
   const [editedFields, setEditedFields] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
@@ -72,17 +111,22 @@ export default function EditClaim() {
         amount: claim.amount?.toString() || '',
         claim_date: formatDateForInput(claim.claimDate),
         description: claim.description || '',
+        category: claim.category?.toLowerCase() || '',
+        title: claim.title || '',
+        project_code: claim.projectCode || '',
+        transaction_ref: claim.transactionRef || '',
       });
     }
   }, [claim]);
   
-  // Get the selected category's policy details
+  // Get the selected category's policy details - use formData.category for real-time updates
   const selectedCategoryPolicy = useMemo(() => {
-    if (!claim?.category) return null;
+    const currentCategory = formData.category || claim?.category;
+    if (!currentCategory) return null;
     return reimbursementCategories.find(cat => 
-      cat.category_code.toLowerCase() === claim.category.toLowerCase()
+      cat.category_code.toLowerCase() === currentCategory.toLowerCase()
     ) || null;
-  }, [claim?.category, reimbursementCategories]);
+  }, [formData.category, claim?.category, reimbursementCategories]);
   
   // Amount validation against policy
   const amountValidation = useMemo(() => {
@@ -164,13 +208,28 @@ export default function EditClaim() {
   const policyChecks = useMemo(() => {
     const allDocuments = documents.length > 0 ? documents : (claim?.documents || []);
     
+    // Financial year validation
+    let fyStatus: 'pass' | 'fail' | 'warning' | 'checking' = 'checking';
+    let fyMessage = 'Enter date to check financial year';
+    
+    if (formData.claim_date) {
+      const fyCheck = checkFinancialYear(formData.claim_date);
+      if (fyCheck.isCurrentFY) {
+        fyStatus = 'pass';
+        fyMessage = `Within current ${fyCheck.fyLabel}`;
+      } else {
+        fyStatus = 'fail';
+        fyMessage = `Outside current ${fyCheck.fyLabel}`;
+      }
+    }
+    
     return [
       {
         id: "category",
         label: "Category",
-        status: claim?.category ? "pass" as const : "warning" as const,
-        message: claim?.category 
-          ? `Category: ${claim.category}` 
+        status: (formData.category || claim?.category) ? "pass" as const : "warning" as const,
+        message: (formData.category || claim?.category) 
+          ? `Category: ${formData.category || claim?.category}` 
           : "Category not set",
       },
       {
@@ -194,6 +253,12 @@ export default function EditClaim() {
           : "No documents attached",
       },
       {
+        id: "financial_year",
+        label: "Current financial year",
+        status: fyStatus,
+        message: fyMessage,
+      },
+      {
         id: "description",
         label: "Description provided",
         status: formData.description && formData.description.length > 10 
@@ -204,7 +269,7 @@ export default function EditClaim() {
           : "Add a detailed description",
       },
     ];
-  }, [claim, formData, amountValidation, dateValidation, documents]);
+  }, [claim, formData, amountValidation, dateValidation, documents, checkFinancialYear]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -224,6 +289,18 @@ export default function EditClaim() {
       }
       if (formData.description) {
         updateData.description = formData.description;
+      }
+      if (formData.category) {
+        updateData.category = formData.category;
+      }
+      if (formData.title) {
+        updateData.title = formData.title;
+      }
+      if (formData.project_code) {
+        updateData.project_code = formData.project_code;
+      }
+      if (formData.transaction_ref) {
+        updateData.transaction_ref = formData.transaction_ref;
       }
       
       // Include edited field sources - mark as 'manual' for edited fields
@@ -361,6 +438,52 @@ export default function EditClaim() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Category */}
+                <div className="space-y-2">
+                  <Label htmlFor="category" className="flex items-center">
+                    <Tag className="h-4 w-4 mr-2" />
+                    Category
+                    {getDataSourceBadge(editedFields.has('category') ? 'manual' : (claim.dataSource?.category || 'manual'))}
+                  </Label>
+                  <Select
+                    value={formData.category}
+                    onValueChange={(value) => {
+                      setFormData(prev => ({ ...prev, category: value }));
+                      setEditedFields(prev => new Set(prev).add('category'));
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categoryOptions.map((cat) => (
+                        <SelectItem key={cat.categoryCode} value={cat.value}>
+                          {cat.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Expense Title */}
+                <div className="space-y-2">
+                  <Label htmlFor="title" className="flex items-center">
+                    <FileText className="h-4 w-4 mr-2" />
+                    Expense Title
+                    {getDataSourceBadge(editedFields.has('title') ? 'manual' : (claim.dataSource?.title || 'manual'))}
+                  </Label>
+                  <Input
+                    id="title"
+                    type="text"
+                    value={formData.title}
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, title: e.target.value }));
+                      setEditedFields(prev => new Set(prev).add('title'));
+                    }}
+                    placeholder="Enter expense title"
+                  />
+                </div>
+
                 {/* Amount */}
                 <div className="space-y-2">
                   <Label htmlFor="amount" className="flex items-center">
@@ -383,11 +506,11 @@ export default function EditClaim() {
                   />
                 </div>
 
-                {/* Claim Date */}
+                {/* Expense Date */}
                 <div className="space-y-2">
                   <Label htmlFor="claim_date" className="flex items-center">
                     <Calendar className="h-4 w-4 mr-2" />
-                    Claim Date
+                    Expense Date
                     {getDataSourceBadge(editedFields.has('date') ? 'manual' : (claim.dataSource?.date || 'manual'))}
                   </Label>
                   <Input
@@ -399,6 +522,63 @@ export default function EditClaim() {
                       setEditedFields(prev => new Set(prev).add('date'));
                     }}
                     required
+                  />
+                </div>
+
+                {/* Project Code */}
+                <div className="space-y-2">
+                  <Label htmlFor="project_code" className="flex items-center">
+                    <Folder className="h-4 w-4 mr-2" />
+                    Project Code
+                    {getDataSourceBadge(editedFields.has('project_code') ? 'manual' : 'auto')}
+                  </Label>
+                  <Select
+                    value={formData.project_code}
+                    onValueChange={(value) => {
+                      setFormData(prev => ({ ...prev, project_code: value }));
+                      setEditedFields(prev => new Set(prev).add('project_code'));
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={isLoadingProjects ? "Loading projects..." : (employeeProjects.length === 0 ? "No projects assigned" : "Select project")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {employeeProjects.length > 0 ? (
+                        employeeProjects.map((project) => (
+                          <SelectItem key={project.id} value={project.projectCode}>
+                            <div className="flex items-center gap-2">
+                              <span>{project.projectCode} - {project.projectName}</span>
+                              {project.status !== 'ACTIVE' && (
+                                <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                  {project.status}
+                                </span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">No projects assigned</div>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Transaction Ref ID */}
+                <div className="space-y-2">
+                  <Label htmlFor="transaction_ref" className="flex items-center">
+                    <Hash className="h-4 w-4 mr-2" />
+                    Transaction Ref ID
+                    {getDataSourceBadge(editedFields.has('transaction_ref') ? 'manual' : (claim.dataSource?.transactionRef || 'manual'))}
+                  </Label>
+                  <Input
+                    id="transaction_ref"
+                    type="text"
+                    value={formData.transaction_ref}
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, transaction_ref: e.target.value }));
+                      setEditedFields(prev => new Set(prev).add('transaction_ref'));
+                    }}
+                    placeholder="Enter transaction reference ID"
                   />
                 </div>
 
@@ -426,7 +606,7 @@ export default function EditClaim() {
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                Only amount, date, and description can be edited. To change documents, please create a new claim.
+                Documents cannot be modified after upload. To change documents, please create a new claim.
               </AlertDescription>
             </Alert>
 

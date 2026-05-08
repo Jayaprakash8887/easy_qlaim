@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getAllDepartments } from '@/config/company';
+import { useDepartments } from '@/hooks/useDepartments';
+import { useDesignations } from '@/hooks/useSystemAdmin';
 import { ArrowLeft, Mail, Phone, Calendar, MapPin, Briefcase, Edit2, UserCheck, FolderKanban } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -48,7 +49,7 @@ export default function EmployeeDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  
+
   const { user } = useAuth();
   const tenantId = user?.tenantId;
   const { formatDate, formatCurrency } = useFormatting();
@@ -64,6 +65,22 @@ export default function EmployeeDetails() {
     employee?.projectIds?.includes(project.id) || project.managerId === id
   ) || [];
   const manager = allEmployees?.find((emp) => emp.id === employee?.managerId);
+
+  // Get departments from API
+  const { data: departmentsData } = useDepartments(tenantId);
+  const { data: designationsData } = useDesignations(tenantId);
+  
+  const departments = useMemo(() => {
+    if (!departmentsData || departmentsData.length === 0) {
+      if (!allEmployees) return [];
+      return [...new Set(allEmployees.map((e) => e.department).filter(Boolean))];
+    }
+    return departmentsData.map((d) => d.name);
+  }, [departmentsData, allEmployees]);
+  
+  const designations = useMemo(() => {
+    return designationsData || [];
+  }, [designationsData]);
 
   const handleUpdateEmployee = async (data: EmployeeFormData) => {
     if (!employee) return;
@@ -81,10 +98,10 @@ export default function EmployeeDetails() {
           address: data.address || '',
           department: data.department,
           designation: data.designation || data.role,
-          region: data.region || '',  // Region/location for policy applicability
+          region: Array.isArray(data.region) ? data.region : (data.region ? [data.region] : []),
           joinDate: data.dateOfJoining || employee.joinDate,
           managerId: data.managerId || undefined,
-          projectIds: data.projectIds || '',
+          projectIds: data.projectIds || [],
           role: data.role,  // Send role to backend for updating
         }
       });
@@ -134,7 +151,6 @@ export default function EmployeeDetails() {
     );
   }
 
-  const departments = getAllDepartments();
   const managers = allEmployees?.filter((emp) => emp.role === 'manager').map((emp) => ({
     id: emp.id,
     name: emp.name,
@@ -161,12 +177,13 @@ export default function EmployeeDetails() {
 
       {/* Edit Employee Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[700px]">
+        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Employee</DialogTitle>
           </DialogHeader>
           <EmployeeForm
             departments={departments}
+            designations={designations}
             managers={managers}
             projects={allProjects || []}
             onSubmit={handleUpdateEmployee}
@@ -183,10 +200,10 @@ export default function EmployeeDetails() {
               address: employee.address || '',
               department: employee.department,
               designation: employee.designation || '',
-              region: employee.region || '',
+              region: Array.isArray(employee.region) ? employee.region : (employee.region ? [employee.region] : []),
               dateOfJoining: employee.joinDate || '',
               managerId: employee.managerId || '',
-              projectIds: employee.projectIds?.[0] || '',
+              projectIds: employee.projectIds || [],
             }}
           />
         </DialogContent>

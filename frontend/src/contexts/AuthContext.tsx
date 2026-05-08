@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
 import { User, UserRole } from '@/types';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 // Storage keys for authentication
 const TOKEN_KEY = 'access_token';
@@ -27,6 +27,10 @@ function mapBackendEmployeeToUser(backendEmployee: any): User {
     ? mapBackendRolesToUserRole(backendEmployee.roles)
     : backendEmployee.role || 'employee';
 
+  // Use custom avatar URL if available, otherwise generate from name
+  const avatarUrl = backendEmployee.avatar_url || 
+    `https://api.dicebear.com/7.x/avataaars/svg?seed=${backendEmployee.first_name} ${backendEmployee.last_name}`;
+
   return {
     id: backendEmployee.id,
     tenantId: backendEmployee.tenant_id,
@@ -35,7 +39,7 @@ function mapBackendEmployeeToUser(backendEmployee: any): User {
     role: role,
     department: backendEmployee.department,
     managerId: backendEmployee.manager_id || undefined,
-    avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${backendEmployee.first_name} ${backendEmployee.last_name}`,
+    avatar: avatarUrl,
     // Extended employee fields
     employeeId: backendEmployee.employee_id,
     firstName: backendEmployee.first_name,
@@ -86,35 +90,120 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (storedToken && storedUser) {
         try {
-          // Verify token is still valid
+          // Verify token is still valid with timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+          
           const response = await fetch(`${API_BASE_URL}/auth/verify`, {
             headers: {
               'Authorization': `Bearer ${storedToken}`,
             },
+            signal: controller.signal,
           });
+          clearTimeout(timeoutId);
 
           if (response.ok) {
-            const userData = JSON.parse(storedUser);
-            setUser(userData);
+            // Fetch fresh user data from /auth/me to get updated roles
+            try {
+              const meResponse = await fetch(`${API_BASE_URL}/auth/me`, {
+                headers: {
+                  'Authorization': `Bearer ${storedToken}`,
+                },
+              });
+              if (meResponse.ok) {
+                const meData = await meResponse.json();
+                // Map the /auth/me response to our User type with fresh roles
+                const freshUserData: User = {
+                  id: meData.id,
+                  tenantId: meData.tenant_id,
+                  email: meData.email,
+                  name: meData.full_name,
+                  firstName: meData.first_name,
+                  lastName: meData.last_name,
+                  department: meData.department,
+                  designation: meData.designation || '',
+                  role: mapBackendRolesToUserRole(meData.roles || []),
+                  avatar: meData.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${meData.first_name} ${meData.last_name}`,
+                  phone: '',
+                  mobile: '',
+                  address: '',
+                  region: meData.region?.join(', ') || '',
+                  joinDate: '',
+                  status: 'active',
+                  projectIds: [],
+                };
+                localStorage.setItem(USER_KEY, JSON.stringify(freshUserData));
+                setUser(freshUserData);
+              } else {
+                // Fallback to stored user if /me fails
+                const userData = JSON.parse(storedUser);
+                setUser(userData);
+              }
+            } catch {
+              // Fallback to stored user if /me fails
+              const userData = JSON.parse(storedUser);
+              setUser(userData);
+            }
           } else {
             // Token invalid, try to refresh
             const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
             if (refreshToken) {
               try {
+                const refreshController = new AbortController();
+                const refreshTimeoutId = setTimeout(() => refreshController.abort(), 10000);
+                
                 const refreshResponse = await fetch(`${API_BASE_URL}/auth/refresh`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({ refresh_token: refreshToken }),
+                  signal: refreshController.signal,
                 });
+                clearTimeout(refreshTimeoutId);
 
                 if (refreshResponse.ok) {
                   const tokens = await refreshResponse.json();
                   localStorage.setItem(TOKEN_KEY, tokens.access_token);
                   localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token);
-                  const userData = JSON.parse(storedUser);
-                  setUser(userData);
+                  // Fetch fresh user data after token refresh
+                  try {
+                    const meResponse = await fetch(`${API_BASE_URL}/auth/me`, {
+                      headers: {
+                        'Authorization': `Bearer ${tokens.access_token}`,
+                      },
+                    });
+                    if (meResponse.ok) {
+                      const meData = await meResponse.json();
+                      const freshUserData: User = {
+                        id: meData.id,
+                        tenantId: meData.tenant_id,
+                        email: meData.email,
+                        name: meData.full_name,
+                        firstName: meData.first_name,
+                        lastName: meData.last_name,
+                        department: meData.department,
+                        designation: meData.designation || '',
+                        role: mapBackendRolesToUserRole(meData.roles || []),
+                        avatar: meData.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${meData.first_name} ${meData.last_name}`,
+                        phone: '',
+                        mobile: '',
+                        address: '',
+                        region: meData.region?.join(', ') || '',
+                        joinDate: '',
+                        status: 'active',
+                        projectIds: [],
+                      };
+                      localStorage.setItem(USER_KEY, JSON.stringify(freshUserData));
+                      setUser(freshUserData);
+                    } else {
+                      const userData = JSON.parse(storedUser);
+                      setUser(userData);
+                    }
+                  } catch {
+                    const userData = JSON.parse(storedUser);
+                    setUser(userData);
+                  }
                 } else {
                   clearAuthStorage();
                 }
@@ -244,16 +333,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [fetchEmployeeById]);
 
-  // Refresh current user data from API
+  // Refresh current user data from API - uses /auth/me to get latest data including avatar
   const refreshUser = useCallback(async () => {
-    if (user?.id) {
-      const updatedUser = await fetchEmployeeById(user.id, user.tenantId);
-      if (updatedUser) {
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/auth/me`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Map the /auth/me response to our User type
+        const updatedUser: User = {
+          ...user!,
+          id: data.id,
+          tenantId: data.tenant_id,
+          email: data.email,
+          name: data.full_name,
+          firstName: data.first_name,
+          lastName: data.last_name,
+          department: data.department,
+          role: mapBackendRolesToUserRole(data.roles || []),
+          avatar: data.avatar_url || user?.avatar,
+        };
         setUser(updatedUser);
         localStorage.setItem(USER_KEY, JSON.stringify(updatedUser));
       }
+    } catch (error) {
+      console.error('Error refreshing user:', error);
     }
-  }, [user?.id, fetchEmployeeById]);
+  }, [user]);
 
   const getAccessToken = useCallback(() => {
     return localStorage.getItem(TOKEN_KEY);

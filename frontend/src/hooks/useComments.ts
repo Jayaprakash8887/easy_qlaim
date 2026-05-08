@@ -1,7 +1,21 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Auth helpers
+function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+function getAuthHeadersWithJson(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+  };
+}
 
 export interface Comment {
   id: string;
@@ -27,7 +41,9 @@ export interface CommentCreate {
 
 // Fetch comments for a claim
 async function fetchComments(claimId: string, tenantId: string): Promise<Comment[]> {
-  const response = await fetch(`${API_BASE_URL}/comments/?claim_id=${claimId}&tenant_id=${tenantId}`);
+  const response = await fetch(`${API_BASE_URL}/comments/?claim_id=${claimId}&tenant_id=${tenantId}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch comments');
   }
@@ -38,9 +54,7 @@ async function fetchComments(claimId: string, tenantId: string): Promise<Comment
 async function createComment(comment: CommentCreate): Promise<Comment> {
   const response = await fetch(`${API_BASE_URL}/comments/`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: getAuthHeadersWithJson(),
     body: JSON.stringify(comment),
   });
 
@@ -55,6 +69,7 @@ async function createComment(comment: CommentCreate): Promise<Comment> {
 async function deleteComment(commentId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/comments/${commentId}`, {
     method: 'DELETE',
+    headers: getAuthHeaders(),
   });
 
   if (!response.ok) {

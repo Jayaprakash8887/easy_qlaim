@@ -492,26 +492,58 @@ max_parallel_workers = 4
 max_parallel_maintenance_workers = 2
 ```
 
-### 6.2 Connection Pooling
+### 6.2 Connection Pooling with PgBouncer
 
-Use PgBouncer for connection pooling:
+PgBouncer is included in the Docker Compose setup for connection pooling. All backend services connect through PgBouncer (port 6432) instead of directly to PostgreSQL.
 
+**Docker Compose Integration:**
+```yaml
+# PgBouncer service in docker-compose.yml
+pgbouncer:
+  image: edoburu/pgbouncer:1.21.0
+  ports:
+    - "6432:6432"
+  volumes:
+    - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+    - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+  depends_on:
+    postgres:
+      condition: service_healthy
+```
+
+**PgBouncer Configuration (`pgbouncer/pgbouncer.ini`):**
 ```ini
-# pgbouncer.ini
 [databases]
-easy_qlaim = host=postgres-primary port=5432 dbname=easy_qlaim
+reimbursement_db = host=postgres port=5432 dbname=reimbursement_db
 
 [pgbouncer]
+listen_addr = 0.0.0.0
 listen_port = 6432
-listen_addr = *
 auth_type = md5
 auth_file = /etc/pgbouncer/userlist.txt
+
+; Pool modes:
+; - session: dedicated connection (safest, lowest performance)
+; - transaction: connection returned after each transaction (recommended)
+; - statement: connection returned after each statement (not safe for complex queries)
 pool_mode = transaction
-max_client_conn = 1000
-default_pool_size = 50
-min_pool_size = 10
+
+; Pool sizing
+default_pool_size = 20
+min_pool_size = 5
+max_client_conn = 100
 reserve_pool_size = 5
+
+; Connection settings
+server_idle_timeout = 600
+query_wait_timeout = 120
 ```
+
+**Benefits of Transaction Pooling:**
+- Reduced connection overhead
+- Better resource utilization
+- Handles connection spikes gracefully
+- Compatible with most web application patterns
 
 ### 6.3 High Availability
 

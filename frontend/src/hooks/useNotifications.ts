@@ -1,7 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { UUID } from 'crypto';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Auth helpers
+function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
 
 // Types
 export interface Notification {
@@ -44,7 +50,9 @@ async function fetchNotifications(userId: string, tenantId?: string): Promise<No
   const params = new URLSearchParams({ user_id: userId });
   if (tenantId) params.append('tenant_id', tenantId);
   
-  const response = await fetch(`${API_BASE_URL}/notifications/?${params}`);
+  const response = await fetch(`${API_BASE_URL}/notifications/?${params}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) throw new Error('Failed to fetch notifications');
   return response.json();
 }
@@ -53,7 +61,9 @@ async function fetchNotificationSummary(userId: string, tenantId?: string): Prom
   const params = new URLSearchParams({ user_id: userId });
   if (tenantId) params.append('tenant_id', tenantId);
   
-  const response = await fetch(`${API_BASE_URL}/notifications/summary?${params}`);
+  const response = await fetch(`${API_BASE_URL}/notifications/summary?${params}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) throw new Error('Failed to fetch notification summary');
   return response.json();
 }
@@ -61,6 +71,7 @@ async function fetchNotificationSummary(userId: string, tenantId?: string): Prom
 async function markNotificationRead(notificationId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/notifications/${notificationId}/read`, {
     method: 'POST',
+    headers: getAuthHeaders(),
   });
   if (!response.ok) throw new Error('Failed to mark notification as read');
 }
@@ -68,6 +79,7 @@ async function markNotificationRead(notificationId: string): Promise<void> {
 async function markNotificationUnread(notificationId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/notifications/${notificationId}/unread`, {
     method: 'POST',
+    headers: getAuthHeaders(),
   });
   if (!response.ok) throw new Error('Failed to mark notification as unread');
 }
@@ -78,6 +90,7 @@ async function markAllNotificationsRead(userId: string, tenantId?: string): Prom
   
   const response = await fetch(`${API_BASE_URL}/notifications/mark-all-read?${params}`, {
     method: 'POST',
+    headers: getAuthHeaders(),
   });
   if (!response.ok) throw new Error('Failed to mark all notifications as read');
   return response.json();
@@ -86,6 +99,7 @@ async function markAllNotificationsRead(userId: string, tenantId?: string): Prom
 async function clearNotification(notificationId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/notifications/${notificationId}`, {
     method: 'DELETE',
+    headers: getAuthHeaders(),
   });
   if (!response.ok) throw new Error('Failed to clear notification');
 }
@@ -97,6 +111,7 @@ async function clearAllNotifications(userId: string, tenantId?: string, onlyRead
   
   const response = await fetch(`${API_BASE_URL}/notifications/clear-all?${params}`, {
     method: 'POST',
+    headers: getAuthHeaders(),
   });
   if (!response.ok) throw new Error('Failed to clear all notifications');
   return response.json();

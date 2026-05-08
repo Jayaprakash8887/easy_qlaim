@@ -44,7 +44,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { Claim, ClaimStatus } from '@/types';
 
-// Helper to get pending status based on role
+// Helper to get pending status based on role (frontend status format for client-side filtering)
 function getPendingStatusForRole(role: string): ClaimStatus | null {
   switch (role) {
     case 'manager': return 'pending_manager';
@@ -68,7 +68,11 @@ export default function ApprovalQueue() {
 
   const tenantId = user?.tenantId;
   const queryClient = useQueryClient();
-  const { data: allClaims = [], isLoading, error, refetch } = useClaims();
+  
+  // Fetch claims for approval - backend automatically filters by role-appropriate pending status
+  const { data: allClaims = [], isLoading, error, refetch } = useClaims({ 
+    forApproval: true  // Backend will auto-apply PENDING_MANAGER/HR/FINANCE based on role
+  });
   const { formatDate, formatDateTime, formatCurrency } = useFormatting();
 
   const pendingClaims = useMemo(() => {
@@ -90,8 +94,9 @@ export default function ApprovalQueue() {
         case 'confidence':
           return (b.aiConfidence || 0) - (a.aiConfidence || 0);
         default:
-          const aDate = a.submissionDate || new Date();
-          const bDate = b.submissionDate || new Date();
+          // Sort by updated_at (latest modified first) for approval queue
+          const aDate = a.updatedAt ? new Date(a.updatedAt) : (a.submissionDate || new Date());
+          const bDate = b.updatedAt ? new Date(b.updatedAt) : (b.submissionDate || new Date());
           return bDate.getTime() - aDate.getTime();
       }
     });
@@ -106,7 +111,7 @@ export default function ApprovalQueue() {
   const confirmAction = async () => {
     if (!currentClaim) return;
 
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
     const action = actionDialog.action;
 
     try {
@@ -138,13 +143,28 @@ export default function ApprovalQueue() {
 
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(localStorage.getItem('access_token') ? { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } : {}),
+        },
         body: JSON.stringify(body),
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Action failed');
+        // Handle Pydantic validation errors (array of detail objects) or simple string errors
+        let errorMessage = 'Action failed';
+        if (error.detail) {
+          if (Array.isArray(error.detail)) {
+            // Pydantic validation error format: [{loc: [...], msg: "...", type: "..."}]
+            errorMessage = error.detail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join(', ');
+          } else if (typeof error.detail === 'string') {
+            errorMessage = error.detail;
+          } else {
+            errorMessage = JSON.stringify(error.detail);
+          }
+        }
+        throw new Error(errorMessage);
       }
 
       const messages = {
@@ -469,12 +489,39 @@ export default function ApprovalQueue() {
                   <p className="text-sm text-muted-foreground">Description</p>
                   <p className="font-medium">{currentClaim.description || 'N/A'}</p>
                 </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Expense Date</p>
-                  <p className="font-medium">
-                    {formatDate(currentClaim.claimDate || currentClaim.submissionDate)}
-                  </p>
-                </div>
+                {currentClaim.calculationDetails?.period_start ? (
+                  // For allowance claims, show From Date and To Date
+                  <>
+                    <div>
+                      <p className="text-sm text-muted-foreground">From Date</p>
+                      <p className="font-medium">
+                        {formatDate(currentClaim.calculationDetails.period_start)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">To Date</p>
+                      <p className="font-medium">
+                        {formatDate(currentClaim.calculationDetails.period_end)}
+                      </p>
+                    </div>
+                    {currentClaim.calculationDetails.leave_days !== undefined && currentClaim.calculationDetails.leave_days > 0 && (
+                      <div>
+                        <p className="text-sm text-muted-foreground">Leaves/Holidays</p>
+                        <p className="font-medium text-destructive">
+                          {currentClaim.calculationDetails.leave_days} days
+                        </p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  // For regular claims, show Expense Date
+                  <div>
+                    <p className="text-sm text-muted-foreground">Expense Date</p>
+                    <p className="font-medium">
+                      {formatDate(currentClaim.claimDate || currentClaim.submissionDate)}
+                    </p>
+                  </div>
+                )}
                 <div>
                   <p className="text-sm text-muted-foreground">Project</p>
                   <p className="font-medium">{currentClaim.projectName || currentClaim.projectCode || 'N/A'}</p>

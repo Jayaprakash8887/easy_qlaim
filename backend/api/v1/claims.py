@@ -14,8 +14,8 @@ from pathlib import Path
 import json
 import logging
 
-from database import get_async_db
-from models import Claim, Document, User, Comment
+from database import get_async_db, get_sync_db
+from models import Claim, Document, User, Comment, Designation
 # Employee is now an alias for User
 Employee = User
 from schemas import (
@@ -27,7 +27,12 @@ from agents.orchestrator import process_claim_task
 from services.storage import upload_to_gcs
 from services.duplicate_detection import check_duplicate_claim, check_batch_duplicates
 from services.ai_analysis import generate_ai_analysis, generate_policy_checks
+from services.cumulative_limit_service import check_cumulative_limit, get_category_utilization_summary
 from services.security import audit_logger, get_client_ip
+from services.redis_cache import redis_cache
+from services.email_service import get_email_service
+from services.communication_service import send_claim_notification as send_teams_notification
+from config import get_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -35,6 +40,174 @@ router = APIRouter()
 # Ensure upload directory exists
 UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", "./uploads"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# Get settings for email notifications
+_settings = get_settings()
+
+
+async def _send_claim_notification(
+    notification_type: str,
+    claim: Claim,
+    db: AsyncSession,
+    **kwargs
+):
+    """
+    Send email notification for claim events.
+    
+    notification_type: 'submitted', 'returned', 'rejected', 'settled'
+    """
+    try:
+        # Check if SMTP is configured
+        if not _settings.SMTP_HOST or not _settings.SMTP_USER:
+            logger.debug("SMTP not configured, skipping email notification")
+            return
+        
+        email_service = get_email_service()
+        login_url = _settings.FRONTEND_URL or "http://localhost:8080"
+        
+        # Get employee email
+        emp_result = await db.execute(select(User).where(User.id == claim.employee_id))
+        employee = emp_result.scalar_one_or_none()
+        
+        if not employee or not employee.email:
+            logger.warning(f"Cannot send notification: employee not found or no email for claim {claim.claim_number}")
+            return
+        
+        if notification_type == 'submitted':
+            # Send notification to the next approver
+            approver_email = kwargs.get('approver_email')
+            approver_name = kwargs.get('approver_name', 'Approver')
+            
+            if approver_email:
+                email_service.send_claim_submitted_notification(
+                    to_email=approver_email,
+                    approver_name=approver_name,
+                    employee_name=employee.full_name or employee.username,
+                    claim_number=claim.claim_number,
+                    amount=float(claim.amount),
+                    category=claim.category,
+                    description=claim.description or '',
+                    login_url=login_url
+                )
+                logger.info(f"Sent claim submitted notification to {approver_email} for claim {claim.claim_number}")
+        
+        elif notification_type == 'returned':
+            return_reason = kwargs.get('return_reason', 'Please review and correct')
+            returned_by = kwargs.get('returned_by', 'Approver')
+            
+            email_service.send_claim_returned_notification(
+                to_email=employee.email,
+                employee_name=employee.full_name or employee.username,
+                claim_number=claim.claim_number,
+                amount=float(claim.amount),
+                return_reason=return_reason,
+                returned_by=returned_by,
+                login_url=login_url
+            )
+            logger.info(f"Sent claim returned notification to {employee.email} for claim {claim.claim_number}")
+        
+        elif notification_type == 'rejected':
+            rejection_reason = kwargs.get('rejection_reason', 'Claim does not meet policy requirements')
+            rejected_by = kwargs.get('rejected_by', 'Approver')
+            
+            email_service.send_claim_rejected_notification(
+                to_email=employee.email,
+                employee_name=employee.full_name or employee.username,
+                claim_number=claim.claim_number,
+                amount=float(claim.amount),
+                rejection_reason=rejection_reason,
+                rejected_by=rejected_by,
+                login_url=login_url
+            )
+            logger.info(f"Sent claim rejected notification to {employee.email} for claim {claim.claim_number}")
+        
+        elif notification_type == 'settled':
+            payment_reference = kwargs.get('payment_reference')
+            payment_method = kwargs.get('payment_method')
+            settled_date = kwargs.get('settled_date')
+            
+            email_service.send_claim_settled_notification(
+                to_email=employee.email,
+                employee_name=employee.full_name or employee.username,
+                claim_number=claim.claim_number,
+                amount=float(claim.amount),
+                payment_reference=payment_reference,
+                payment_method=payment_method,
+                settled_date=settled_date,
+                login_url=login_url
+            )
+            logger.info(f"Sent claim settled notification to {employee.email} for claim {claim.claim_number}")
+        
+        # Also send Teams/Slack notification for claim events
+        # (approval/rejection handled separately in their endpoints with more detail)
+        if notification_type == 'submitted':
+            try:
+                from database import SyncSessionLocal as SessionLocal
+                sync_db = SessionLocal()
+                try:
+                    await send_teams_notification(
+                        db=sync_db,
+                        tenant_id=claim.tenant_id,
+                        event_type='submitted',
+                        claim_number=claim.claim_number,
+                        employee_name=employee.full_name or employee.username,
+                        amount=float(claim.amount) if claim.amount else 0,
+                        currency=claim.currency or "INR"
+                    )
+                finally:
+                    sync_db.close()
+            except Exception as teams_err:
+                logger.error(f"Failed to send Teams notification for claim {claim.claim_number}: {str(teams_err)}")
+            
+    except Exception as e:
+        logger.error(f"Failed to send email notification for claim {claim.claim_number}: {str(e)}")
+
+
+async def _get_next_approver(db: AsyncSession, claim: Claim, employee: User) -> tuple:
+    """
+    Get the next approver for a claim based on its status.
+    Returns (email, name) tuple or (None, None) if not found.
+    
+    Uses designation-to-role mapping to find users with HR/FINANCE roles.
+    """
+    from database import SyncSessionLocal
+    from services.role_service import get_first_user_with_role
+    
+    try:
+        status = claim.status
+        
+        if status == "PENDING_MANAGER":
+            # Get employee's manager
+            if employee.manager_id:
+                mgr_result = await db.execute(select(User).where(User.id == employee.manager_id))
+                manager = mgr_result.scalar_one_or_none()
+                if manager and manager.email:
+                    return (manager.email, manager.full_name or manager.username)
+        
+        elif status == "PENDING_HR":
+            # Get any HR user in the same tenant (via designation-to-role mapping)
+            sync_db = SyncSessionLocal()
+            try:
+                hr_user = get_first_user_with_role(claim.tenant_id, "HR", sync_db)
+                if hr_user and hr_user.email:
+                    return (hr_user.email, hr_user.full_name or hr_user.username)
+            finally:
+                sync_db.close()
+        
+        elif status == "PENDING_FINANCE":
+            # Get any Finance user in the same tenant (via designation-to-role mapping)
+            sync_db = SyncSessionLocal()
+            try:
+                fin_user = get_first_user_with_role(claim.tenant_id, "FINANCE", sync_db)
+                if fin_user and fin_user.email:
+                    return (fin_user.email, fin_user.full_name or fin_user.username)
+            finally:
+                sync_db.close()
+        
+        return (None, None)
+    except Exception as e:
+        logger.error(f"Error getting next approver: {str(e)}")
+        return (None, None)
 
 
 def _map_category(category_str: str) -> str:
@@ -74,6 +247,101 @@ def _map_category(category_str: str) -> str:
     # For dynamic categories (from policy_categories table), 
     # return as uppercase to match category_code convention
     return category_str.upper()
+
+
+def _get_tenant_fiscal_year_start(tenant_id: UUID) -> str:
+    """
+    Get the fiscal year start month for a tenant.
+    Returns month code like 'jan', 'apr', etc. Default is 'apr'.
+    """
+    from database import SyncSessionLocal
+    from models import SystemSettings
+    from sqlalchemy import and_
+    
+    sync_db = SyncSessionLocal()
+    try:
+        setting = sync_db.query(SystemSettings).filter(
+            and_(
+                SystemSettings.setting_key == "fiscal_year_start",
+                SystemSettings.tenant_id == tenant_id
+            )
+        ).first()
+        
+        if setting and setting.setting_value:
+            return setting.setting_value.lower().strip()
+        return "apr"  # Default to April
+    except Exception as e:
+        logger.warning(f"Failed to get fiscal year start for tenant {tenant_id}: {e}")
+        return "apr"
+    finally:
+        sync_db.close()
+
+
+def _get_initial_claim_status(
+    tenant_id: UUID,
+    employee_email: str,
+    employee_designation_code: Optional[str],
+    claim_amount: float,
+    category_code: Optional[str] = None,
+    project_code: Optional[str] = None
+) -> tuple[str, dict]:
+    """
+    Determine the initial claim status based on approval skip rules.
+    
+    Returns:
+        tuple: (initial_status, skip_info_dict)
+        
+    The skip_info_dict contains details about which levels were skipped and why.
+    """
+    from api.v1.approval_skip_rules import get_approval_skip_for_employee
+    from database import SyncSessionLocal
+    
+    # Use a sync session for the skip rule check
+    sync_db = SyncSessionLocal()
+    try:
+        # Check if any skip rules apply
+        skip_result = get_approval_skip_for_employee(
+            db=sync_db,
+            tenant_id=tenant_id,
+            employee_email=employee_email,
+            employee_designation=employee_designation_code,
+            claim_amount=claim_amount,
+            category_code=category_code,
+            project_code=project_code
+        )
+    finally:
+        sync_db.close()
+    
+    skip_info = {
+        "skip_manager": skip_result.skip_manager,
+        "skip_hr": skip_result.skip_hr,
+        "skip_finance": skip_result.skip_finance,
+        "applied_rule_id": str(skip_result.applied_rule_id) if skip_result.applied_rule_id else None,
+        "applied_rule_name": skip_result.applied_rule_name,
+        "reason": skip_result.reason
+    }
+    
+    # Determine initial status based on skipped levels
+    # Normal flow: PENDING_MANAGER -> PENDING_HR -> PENDING_FINANCE -> SETTLED
+    
+    if skip_result.skip_manager and skip_result.skip_hr and skip_result.skip_finance:
+        # All approvals skipped - go directly to settled
+        initial_status = "SETTLED"
+        skip_info["auto_settled"] = True
+        logger.info(f"Claim auto-settled due to skip rules: {skip_result.reason}")
+    elif skip_result.skip_manager and skip_result.skip_hr:
+        # Manager and HR skipped - go to Finance
+        initial_status = "PENDING_FINANCE"
+        logger.info(f"Claim skipping manager and HR approval: {skip_result.reason}")
+    elif skip_result.skip_manager:
+        # Only manager skipped - go to HR
+        initial_status = "PENDING_HR"
+        logger.info(f"Claim skipping manager approval: {skip_result.reason}")
+    else:
+        # Normal flow - start with manager
+        initial_status = "PENDING_MANAGER"
+    
+    return initial_status, skip_info
 
 
 @router.post("/batch", response_model=BatchClaimResponse, status_code=status.HTTP_201_CREATED)
@@ -147,6 +415,8 @@ async def create_batch_claims(
             "project_code": batch.project_code,
             "batch_index": idx,
             "batch_total": len(batch.claims),
+            # Custom fields from policy category
+            "custom_fields": claim_item.custom_fields,
             # Field source tracking: 'ocr' for auto-extracted, 'manual' for user-entered
             "category_source": claim_item.category_source or 'manual',
             "title_source": claim_item.title_source or 'manual',
@@ -183,6 +453,28 @@ async def create_batch_claims(
         )
         claim_payload["ai_analysis"] = ai_analysis
         
+        # Get tenant's fiscal year start for policy checks
+        fiscal_year_start = _get_tenant_fiscal_year_start(employee.tenant_id)
+        
+        # Check cumulative limit for this category
+        from database import SyncSessionLocal as SessionLocal
+        sync_db = SessionLocal()
+        try:
+            cumulative_check = check_cumulative_limit(
+                db=sync_db,
+                tenant_id=employee.tenant_id,
+                employee_id=employee.id,
+                category_code=category,
+                claim_amount=claim_item.amount,
+                claim_date=claim_item.claim_date
+            )
+        finally:
+            sync_db.close()
+        
+        # Get category name for display
+        from services.category_cache import category_cache
+        category_name = category_cache.get_category_name_by_code(category, tenant_id=employee.tenant_id)
+        
         # Generate policy compliance checks
         policy_checks = generate_policy_checks(
             claim_data={
@@ -194,11 +486,27 @@ async def create_batch_claims(
                 "vendor": claim_item.vendor,
             },
             has_document=False,
-            policy_limit=None,  # TODO: Get from policy_categories table
+            policy_limit=None,  # Using cumulative check instead
             submission_window_days=15,
-            is_potential_duplicate=is_potential_dup
+            is_potential_duplicate=is_potential_dup,
+            fiscal_year_start=fiscal_year_start,
+            cumulative_limit_check=cumulative_check,
+            category_name=category_name
         )
         claim_payload["policy_checks"] = policy_checks
+        
+        # Check approval skip rules for this employee
+        initial_status, skip_info = _get_initial_claim_status(
+            tenant_id=employee.tenant_id,
+            employee_email=employee.email,
+            employee_designation_code=employee.designation,
+            claim_amount=claim_item.amount,
+            category_code=category
+        )
+        
+        # Store skip info in claim payload for audit trail
+        if skip_info.get("applied_rule_id"):
+            claim_payload["approval_skip_info"] = skip_info
         
         # Create claim
         new_claim = Claim(
@@ -213,7 +521,7 @@ async def create_batch_claims(
             claim_date=claim_item.claim_date,
             description=claim_item.description or claim_item.title,
             claim_payload=claim_payload,
-            status="PENDING_MANAGER",  # Direct submit to manager approval
+            status=initial_status,  # Use status from skip rule check
             submission_date=datetime.utcnow(),
             can_edit=False
         )
@@ -229,6 +537,12 @@ async def create_batch_claims(
         await db.refresh(claim)
         claim_ids.append(claim.id)
         claim_numbers.append(claim.claim_number)
+    
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(employee.tenant_id) if employee.tenant_id else None,
+        employee_id=str(employee.id) if employee.id else None
+    )
     
     return BatchClaimResponse(
         success=True,
@@ -317,7 +631,12 @@ async def create_batch_claims_with_document(
         # Generate unique filename
         file_extension = Path(file.filename).suffix
         unique_filename = f"{uuid4()}{file_extension}"
-        file_path = UPLOAD_DIR / unique_filename
+        
+        # Create tenant-based local folder structure
+        tenant_id_str = str(employee.tenant_id) if employee.tenant_id else "default"
+        tenant_upload_dir = UPLOAD_DIR / "tenants" / tenant_id_str / "claims" / "batch_upload" / "documents"
+        tenant_upload_dir.mkdir(parents=True, exist_ok=True)
+        file_path = tenant_upload_dir / unique_filename
         
         # Save file locally first
         try:
@@ -331,13 +650,14 @@ async def create_batch_claims_with_document(
                 detail=f"Failed to save document: {str(e)}"
             )
         
-        # Upload to GCS
+        # Upload to GCS with tenant-based folder structure
         try:
             gcs_uri, gcs_blob_name = upload_to_gcs(
                 file_path=file_path,
                 claim_id="batch_upload",  # Temporary - will be updated per claim
                 original_filename=file.filename,
-                content_type=file.content_type
+                content_type=file.content_type,
+                tenant_id=str(employee.tenant_id) if employee.tenant_id else None
             )
             if gcs_uri:
                 logger.info(f"Document uploaded to GCS: {gcs_uri}")
@@ -365,6 +685,8 @@ async def create_batch_claims_with_document(
             "project_code": batch.project_code,
             "batch_index": idx,
             "batch_total": len(batch.claims),
+            # Custom fields from policy category
+            "custom_fields": claim_item.custom_fields,
             # Field source tracking
             "category_source": claim_item.category_source or 'manual',
             "title_source": claim_item.title_source or 'manual',
@@ -402,6 +724,28 @@ async def create_batch_claims_with_document(
         )
         claim_payload["ai_analysis"] = ai_analysis
         
+        # Get tenant's fiscal year start for policy checks
+        fiscal_year_start = _get_tenant_fiscal_year_start(employee.tenant_id)
+        
+        # Check cumulative limit for this category
+        from database import SyncSessionLocal as SessionLocal
+        sync_db_cl = SessionLocal()
+        try:
+            cumulative_check = check_cumulative_limit(
+                db=sync_db_cl,
+                tenant_id=employee.tenant_id,
+                employee_id=employee.id,
+                category_code=category,
+                claim_amount=claim_item.amount,
+                claim_date=claim_item.claim_date
+            )
+        finally:
+            sync_db_cl.close()
+        
+        # Get category name for display
+        from services.category_cache import category_cache
+        category_name = category_cache.get_category_name_by_code(category, tenant_id=employee.tenant_id)
+        
         # Generate policy compliance checks
         policy_checks = generate_policy_checks(
             claim_data={
@@ -413,11 +757,28 @@ async def create_batch_claims_with_document(
                 "vendor": claim_item.vendor,
             },
             has_document=has_doc,
-            policy_limit=None,  # TODO: Get from policy_categories table
+            policy_limit=None,  # Using cumulative check instead
             submission_window_days=15,
-            is_potential_duplicate=is_potential_dup
+            is_potential_duplicate=is_potential_dup,
+            fiscal_year_start=fiscal_year_start,
+            cumulative_limit_check=cumulative_check,
+            category_name=category_name
         )
         claim_payload["policy_checks"] = policy_checks
+        
+        # Check approval skip rules for this employee
+        initial_status, skip_info = _get_initial_claim_status(
+            tenant_id=employee.tenant_id,
+            employee_email=employee.email,
+            employee_designation_code=employee.designation,
+            claim_amount=claim_item.amount,
+            category_code=category,
+            project_code=batch.project_code
+        )
+        
+        # Store skip info in claim payload for audit trail
+        if skip_info.get("applied_rule_id"):
+            claim_payload["approval_skip_info"] = skip_info
         
         # Create claim
         new_claim = Claim(
@@ -432,7 +793,7 @@ async def create_batch_claims_with_document(
             claim_date=claim_item.claim_date,
             description=claim_item.description or claim_item.title,
             claim_payload=claim_payload,
-            status="PENDING_MANAGER",
+            status=initial_status,  # Use status from skip rule check
             submission_date=datetime.utcnow(),
             can_edit=False
         )
@@ -472,6 +833,24 @@ async def create_batch_claims_with_document(
         await db.commit()
         logger.info(f"Created {len(created_claims)} document records linked to claims")
     
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(employee.tenant_id) if employee.tenant_id else None,
+        employee_id=str(employee.id) if employee.id else None
+    )
+    
+    # Send email notifications to approvers for each created claim
+    for claim in created_claims:
+        approver_email, approver_name = await _get_next_approver(db, claim, employee)
+        if approver_email:
+            await _send_claim_notification(
+                'submitted',
+                claim,
+                db,
+                approver_email=approver_email,
+                approver_name=approver_name
+            )
+    
     return BatchClaimResponse(
         success=True,
         total_claims=len(created_claims),
@@ -481,6 +860,57 @@ async def create_batch_claims_with_document(
         message=f"Successfully created {len(created_claims)} claims totaling ₹{total_amount:.2f}" + 
                 (f" with document attached" if file else "")
     )
+
+
+@router.get("/category-utilization/{employee_id}/{category_code}")
+async def get_category_utilization(
+    employee_id: UUID,
+    category_code: str,
+    reference_date: Optional[str] = None,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Get category utilization summary for an employee.
+    
+    Shows how much of the category limit has been used within the current period
+    (based on the category's frequency_limit setting).
+    
+    Useful for showing remaining budget before submitting a claim.
+    """
+    from database import SyncSessionLocal as SessionLocal
+    from datetime import datetime
+    
+    sync_db = SessionLocal()
+    try:
+        # Get employee to get tenant_id
+        result = await db.execute(select(User).where(User.id == employee_id))
+        employee = result.scalar_one_or_none()
+        
+        if not employee:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Employee not found: {employee_id}"
+            )
+        
+        # Parse reference date if provided
+        ref_date = None
+        if reference_date:
+            try:
+                ref_date = datetime.strptime(reference_date, "%Y-%m-%d").date()
+            except ValueError:
+                ref_date = None
+        
+        utilization = get_category_utilization_summary(
+            db=sync_db,
+            tenant_id=employee.tenant_id,
+            employee_id=employee_id,
+            category_code=category_code,
+            reference_date=ref_date
+        )
+        
+        return utilization
+    finally:
+        sync_db.close()
 
 
 @router.post("/", response_model=ClaimResponse, status_code=status.HTTP_201_CREATED)
@@ -504,6 +934,21 @@ async def create_claim(
             detail="Employee not found"
         )
     
+    # Check approval skip rules for this employee
+    initial_status, skip_info = _get_initial_claim_status(
+        tenant_id=employee.tenant_id,
+        employee_email=employee.email,
+        employee_designation_code=employee.designation,
+        claim_amount=float(claim.amount),
+        category_code=claim.category,
+        project_code=claim.project_code
+    )
+    
+    # Prepare claim payload with skip info if applicable
+    claim_payload = claim.claim_payload or {}
+    if skip_info.get("applied_rule_id"):
+        claim_payload["approval_skip_info"] = skip_info
+    
     # Create claim
     new_claim = Claim(
         tenant_id=employee.tenant_id,
@@ -516,8 +961,8 @@ async def create_claim(
         amount=claim.amount,
         claim_date=claim.claim_date,
         description=claim.description,
-        claim_payload=claim.claim_payload,
-        status="PENDING_MANAGER",
+        claim_payload=claim_payload,
+        status=initial_status,  # Use status from skip rule check
         submission_date=datetime.utcnow()
     )
     
@@ -533,7 +978,7 @@ async def submit_claim(
     claim_id: UUID,
     db: AsyncSession = Depends(get_async_db),
 ):
-    """Submit a claim for processing - moves to PENDING_MANAGER status"""
+    """Submit a claim for processing - moves to appropriate status based on skip rules"""
     
     # Get claim
     result = await db.execute(select(Claim).where(Claim.id == claim_id))
@@ -575,12 +1020,68 @@ async def submit_claim(
                 }
             )
     
-    # Update status - ensure it's PENDING_MANAGER for manager review
-    claim.status = "PENDING_MANAGER"
+    # Get employee for skip rule check
+    emp_result = await db.execute(select(Employee).where(Employee.id == claim.employee_id))
+    employee = emp_result.scalar_one_or_none()
+    
+    # Get project_code from claim payload if available
+    claim_project_code = claim.claim_payload.get("project_code") if claim.claim_payload else None
+    
+    # Check approval skip rules
+    if employee:
+        initial_status, skip_info = _get_initial_claim_status(
+            tenant_id=claim.tenant_id,
+            employee_email=employee.email,
+            employee_designation_code=employee.designation,
+            claim_amount=float(claim.amount),
+            category_code=claim.category,
+            project_code=claim_project_code
+        )
+        
+        # Store skip info in claim payload if rules applied
+        if skip_info.get("applied_rule_id"):
+            if not claim.claim_payload:
+                claim.claim_payload = {}
+            claim.claim_payload["approval_skip_info"] = skip_info
+            flag_modified(claim, "claim_payload")
+        
+        claim.status = initial_status
+    else:
+        # Fallback to normal flow if employee not found
+        claim.status = "PENDING_MANAGER"
+    
     claim.submission_date = datetime.utcnow()
     claim.can_edit = False
     await db.commit()
     await db.refresh(claim)
+    
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(claim.tenant_id) if claim.tenant_id else None,
+        employee_id=str(claim.employee_id) if claim.employee_id else None
+    )
+    
+    # Send Teams/Slack notification for claim submission
+    try:
+        employee_name = employee.full_name if employee else "Unknown"
+        
+        # Get sync db session for communication service
+        from database import SyncSessionLocal as SessionLocal
+        sync_db = SessionLocal()
+        try:
+            await send_teams_notification(
+                db=sync_db,
+                tenant_id=claim.tenant_id,
+                event_type='submitted',
+                claim_number=claim.claim_number,
+                employee_name=employee_name,
+                amount=float(claim.amount) if claim.amount else 0,
+                currency=claim.currency or "INR"
+            )
+        finally:
+            sync_db.close()
+    except Exception as e:
+        logger.error(f"Failed to send Teams notification for claim {claim.claim_number}: {str(e)}")
     
     # Queue for processing
     has_documents = await _check_has_documents(db, claim_id)
@@ -602,16 +1103,24 @@ async def list_claims(
     tenant_id: Optional[UUID] = None,
     user_id: Optional[UUID] = None,
     role: Optional[str] = None,
+    for_approval: bool = False,
+    my_claims: bool = False,
     db: AsyncSession = Depends(get_async_db),
 ):
     """List claims with pagination and filters
     
     Role-based filtering:
+    - my_claims=True: Only shows the user's own claims (for "My Claims" page)
     - manager: Only sees claims from direct reports (employees where manager_id = user_id)
-    - hr: Sees claims in PENDING_HR, MANAGER_APPROVED status
-    - finance: Sees claims in PENDING_FINANCE, HR_APPROVED status
+              When for_approval=True or no status provided, auto-filters to PENDING_MANAGER
+    - hr: When for_approval=True or no status provided, auto-filters to PENDING_HR
+    - finance: When for_approval=True or no status provided, auto-filters to PENDING_FINANCE
     - admin: Sees all claims
     - employee: Sees only their own claims
+    
+    Args:
+        for_approval: If True, automatically applies role-appropriate pending status filter
+        my_claims: If True, only returns claims submitted by the user (ignores role-based filtering)
     """
     from services.category_cache import category_cache
     from services.cached_data import cached_data
@@ -622,8 +1131,18 @@ async def list_claims(
     if tenant_id:
         query = query.where(Claim.tenant_id == tenant_id)
     
-    # Role-based filtering for managers - show claims from direct reports only
-    if role == 'manager' and user_id:
+    # Determine effective status filter based on role
+    # If status is explicitly provided, use it; otherwise apply role-based defaults for approval views
+    effective_status = status
+    
+    # If my_claims=True, only show the user's own claims regardless of role
+    if my_claims and user_id:
+        query = query.where(Claim.employee_id == user_id)
+    # Role-based filtering (only when not in my_claims mode)
+    elif role == 'manager' and user_id:
+        from sqlalchemy import or_
+        from models import Project
+        
         # Get direct reports (employees where manager_id = current user)
         direct_reports_query = select(User.id).where(
             User.manager_id == user_id,
@@ -632,18 +1151,51 @@ async def list_claims(
         direct_reports_result = await db.execute(direct_reports_query)
         direct_report_ids = [row[0] for row in direct_reports_result.fetchall()]
         
+        # Get projects where current user is the project manager
+        project_codes_query = select(Project.project_code).where(
+            Project.manager_id == user_id,
+            Project.tenant_id == tenant_id if tenant_id else True
+        )
+        project_codes_result = await db.execute(project_codes_query)
+        managed_project_codes = [row[0] for row in project_codes_result.fetchall()]
+        
+        # Build filter conditions
+        filter_conditions = []
+        
         if direct_report_ids:
-            # Filter claims to only those from direct reports
-            query = query.where(Claim.employee_id.in_(direct_report_ids))
+            # Claims from direct reports
+            filter_conditions.append(Claim.employee_id.in_(direct_report_ids))
+        
+        if managed_project_codes:
+            # Claims from projects where user is project manager
+            # Claims store project_code in claim_payload JSONB field
+            for project_code in managed_project_codes:
+                filter_conditions.append(
+                    Claim.claim_payload['project_code'].astext == project_code
+                )
+        
+        if filter_conditions:
+            query = query.where(or_(*filter_conditions))
+            # Auto-apply PENDING_MANAGER status if for_approval or no status specified
+            if for_approval and not status:
+                effective_status = 'PENDING_MANAGER'
         else:
-            # No direct reports - return empty list by filtering for impossible condition
+            # No direct reports and no managed projects - return empty list
             query = query.where(Claim.employee_id == None)
+    elif role == 'hr' and user_id:
+        # HR: auto-apply PENDING_HR status if for_approval or no status specified
+        if for_approval and not status:
+            effective_status = 'PENDING_HR'
+    elif role == 'finance' and user_id:
+        # Finance: auto-apply PENDING_FINANCE status if for_approval or no status specified
+        if for_approval and not status:
+            effective_status = 'PENDING_FINANCE'
     elif role == 'employee' and user_id:
         # Employees only see their own claims
         query = query.where(Claim.employee_id == user_id)
     
-    if status:
-        query = query.where(Claim.status == status)
+    if effective_status:
+        query = query.where(Claim.status == effective_status)
     if claim_type:
         query = query.where(Claim.claim_type == claim_type)
     
@@ -676,7 +1228,7 @@ async def list_claims(
         project_code = payload.get('project_code', '')
         claim_dict = {
             **{c.name: getattr(claim, c.name) for c in claim.__table__.columns},
-            "category_name": category_cache.get_category_name_by_code(claim.category),
+            "category_name": category_cache.get_category_name_by_code(claim.category, tenant_id=claim.tenant_id),
             "project_name": project_names.get(project_code, '')
         }
         claims_with_names.append(claim_dict)
@@ -719,7 +1271,7 @@ async def get_claim(
     # Add category_name and project_name to the response
     claim_dict = {
         **{c.name: getattr(claim, c.name) for c in claim.__table__.columns},
-        "category_name": category_cache.get_category_name_by_code(claim.category),
+        "category_name": category_cache.get_category_name_by_code(claim.category, tenant_id=claim.tenant_id),
         "project_name": project_name
     }
     
@@ -757,12 +1309,22 @@ async def update_claim(
         claim.claim_date = claim_update.claim_date
     if claim_update.description is not None:
         claim.description = claim_update.description
+    if claim_update.category is not None:
+        claim.category = claim_update.category
     if claim_update.claim_payload is not None:
         claim.claim_payload = claim_update.claim_payload
     
+    # Update payload fields (title, project_code, transaction_ref)
+    payload = dict(claim.claim_payload or {})
+    if claim_update.title is not None:
+        payload['title'] = claim_update.title
+    if claim_update.project_code is not None:
+        payload['project_code'] = claim_update.project_code
+    if claim_update.transaction_ref is not None:
+        payload['transaction_ref'] = claim_update.transaction_ref
+    
     # Update data source flags for edited fields
     if claim_update.edited_sources:
-        payload = dict(claim.claim_payload or {})  # Make a copy
         source_field_map = {
             'amount': 'amount_source',
             'date': 'date_source',
@@ -772,21 +1334,26 @@ async def update_claim(
             'title': 'title_source',
             'transaction_ref': 'transaction_ref_source',
             'payment_method': 'payment_method_source',
+            'project_code': 'project_code_source',
         }
         for field in claim_update.edited_sources:
             source_key = source_field_map.get(field)
             if source_key:
                 payload[source_key] = 'manual'
+    
+    # Always save payload if we made changes
+    if payload != (claim.claim_payload or {}):
         claim.claim_payload = payload
         # Force SQLAlchemy to detect the change in JSONB field
         flag_modified(claim, 'claim_payload')
     
     # Handle status update for resubmission
     if claim_update.status == 'PENDING_MANAGER':
-        # Check for duplicate claims before resubmission
-        # Use updated values if provided, otherwise use existing values
+        # Regenerate policy checks with updated claim data
         check_amount = float(claim_update.amount if claim_update.amount is not None else claim.amount)
         check_date = claim_update.claim_date if claim_update.claim_date is not None else claim.claim_date
+        check_category = claim_update.category if claim_update.category is not None else claim.category
+        check_description = claim_update.description if claim_update.description is not None else claim.description
         
         # Get transaction_ref from updated payload or existing payload
         if claim_update.claim_payload is not None:
@@ -794,6 +1361,10 @@ async def update_claim(
         else:
             check_txn_ref = claim.claim_payload.get("transaction_ref") if claim.claim_payload else None
         
+        # Get tenant's fiscal year start for policy checks
+        fiscal_year_start = _get_tenant_fiscal_year_start(claim.tenant_id)
+        
+        # Check for potential duplicate
         dup_result = await check_duplicate_claim(
             db=db,
             employee_id=claim.employee_id,
@@ -803,6 +1374,62 @@ async def update_claim(
             exclude_claim_id=claim.id,
             tenant_id=claim.tenant_id
         )
+        
+        is_potential_dup = dup_result.get("is_duplicate", False)
+        
+        # Check if claim has documents - use claim_payload since documents relationship requires lazy load
+        # The document_urls or documents array in claim_payload indicates attached documents
+        claim_payload_data = claim.claim_payload or {}
+        has_documents = bool(
+            claim_payload_data.get("document_urls") or 
+            claim_payload_data.get("documents") or
+            claim_payload_data.get("document_id")
+        )
+        
+        # Check cumulative limit for this category
+        from database import SyncSessionLocal as SessionLocal
+        sync_db_cl = SessionLocal()
+        try:
+            cumulative_check = check_cumulative_limit(
+                db=sync_db_cl,
+                tenant_id=claim.tenant_id,
+                employee_id=claim.employee_id,
+                category_code=check_category,
+                claim_amount=check_amount,
+                claim_date=check_date,
+                exclude_claim_id=claim.id  # Exclude current claim for edits
+            )
+        finally:
+            sync_db_cl.close()
+        
+        # Get category name for display
+        from services.category_cache import category_cache
+        category_name = category_cache.get_category_name_by_code(check_category, tenant_id=claim.tenant_id)
+        
+        # Regenerate policy checks
+        policy_checks = generate_policy_checks(
+            claim_data={
+                "amount": check_amount,
+                "category": check_category,
+                "claim_type": claim.claim_type,
+                "claim_date": check_date,
+                "description": check_description,
+                "vendor": payload.get("vendor") or (claim.claim_payload or {}).get("vendor"),
+            },
+            has_document=has_documents,
+            policy_limit=None,  # Using cumulative check instead
+            submission_window_days=15,
+            is_potential_duplicate=is_potential_dup,
+            fiscal_year_start=fiscal_year_start,
+            cumulative_limit_check=cumulative_check,
+            category_name=category_name
+        )
+        
+        # Update policy_checks in payload
+        payload = dict(claim.claim_payload or {})
+        payload["policy_checks"] = policy_checks
+        claim.claim_payload = payload
+        flag_modified(claim, 'claim_payload')
         
         # Block submission if exact duplicate found
         if dup_result["is_duplicate"] and dup_result["match_type"] == "exact":
@@ -821,6 +1448,12 @@ async def update_claim(
     
     await db.commit()
     await db.refresh(claim)
+    
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(claim.tenant_id) if claim.tenant_id else None,
+        employee_id=str(claim.employee_id) if claim.employee_id else None
+    )
     
     return claim
 
@@ -859,16 +1492,26 @@ async def hr_edit_claim(
         claim.amount = hr_edit.amount
     if hr_edit.description is not None:
         claim.description = hr_edit.description
+    if hr_edit.category is not None:
+        claim.category = hr_edit.category
     
     # Update claim_payload with HR edits and source tracking
+    payload = dict(claim.claim_payload or {})
+    payload_modified = False
+    
+    # Handle project_code - stored in claim_payload
+    if hr_edit.project_code is not None:
+        payload['project_code'] = hr_edit.project_code if hr_edit.project_code else None
+        payload_modified = True
+    
     if hr_edit.claim_payload is not None:
-        payload = dict(claim.claim_payload or {})
-        
         # Merge the new payload data
         for key, value in hr_edit.claim_payload.items():
             payload[key] = value
-        
-        # Update source fields for HR-edited fields
+        payload_modified = True
+    
+    # Update source fields for HR-edited fields
+    if hr_edit.hr_edited_fields:
         source_field_map = {
             'amount': 'amount_source',
             'date': 'date_source',
@@ -879,13 +1522,17 @@ async def hr_edit_claim(
             'transactionRef': 'transaction_ref_source',
             'transaction_ref': 'transaction_ref_source',
             'payment_method': 'payment_method_source',
+            'projectCode': 'project_code_source',
+            'project_code': 'project_code_source',
         }
         
         for field in hr_edit.hr_edited_fields:
             source_key = source_field_map.get(field)
             if source_key:
                 payload[source_key] = 'hr'
-        
+                payload_modified = True
+    
+    if payload_modified:
         claim.claim_payload = payload
         flag_modified(claim, 'claim_payload')
     
@@ -908,6 +1555,12 @@ async def hr_edit_claim(
     
     await db.commit()
     await db.refresh(claim)
+    
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(claim.tenant_id) if claim.tenant_id else None,
+        employee_id=str(claim.employee_id) if claim.employee_id else None
+    )
     
     logger.info(f"HR edited claim {claim_id}, fields: {hr_edit.hr_edited_fields}")
     
@@ -952,8 +1605,18 @@ async def delete_claim(
             detail=f"Cannot delete claims in {claim.status} status. Only pending or returned claims can be deleted."
         )
     
+    # Store tenant and employee IDs before deletion for cache invalidation
+    tenant_id = str(claim.tenant_id) if claim.tenant_id else None
+    employee_id = str(claim.employee_id) if claim.employee_id else None
+    
     await db.delete(claim)
     await db.commit()
+    
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=tenant_id,
+        employee_id=employee_id
+    )
 
 
 @router.post("/{claim_id}/return", response_model=ClaimResponse)
@@ -998,7 +1661,7 @@ async def return_to_employee(
         "approver_id": str(return_data.approver_id) if return_data.approver_id else None,
         "approver_name": return_data.approver_name,
         "approver_role": return_data.approver_role,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat() + "Z"  # Add Z suffix to indicate UTC
     })
     # Flag claim_payload as modified for SQLAlchemy to detect JSONB changes
     flag_modified(claim, "claim_payload")
@@ -1026,12 +1689,15 @@ async def return_to_employee(
         )
         db.add(comment)
     else:
-        # Fallback: find a user with appropriate role
+        # Fallback: find a user with appropriate role (via designation-to-role mapping)
+        from database import SyncSessionLocal
+        from services.role_service import get_first_user_with_role
         role_to_find = role_map.get(previous_status, "MANAGER")
-        approver_user = await db.execute(
-            select(User).where(User.roles.contains([role_to_find])).limit(1)
-        )
-        approver = approver_user.scalar_one_or_none()
+        sync_db = SyncSessionLocal()
+        try:
+            approver = get_first_user_with_role(claim.tenant_id, role_to_find, sync_db)
+        finally:
+            sync_db.close()
         if approver:
             comment = Comment(
                 id=uuid4(),
@@ -1049,6 +1715,12 @@ async def return_to_employee(
     await db.commit()
     await db.refresh(claim)
     
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(claim.tenant_id) if claim.tenant_id else None,
+        employee_id=str(claim.employee_id) if claim.employee_id else None
+    )
+    
     # Audit log for claim return
     audit_logger.log_claim_action(
         user_id="approver",
@@ -1063,7 +1735,14 @@ async def return_to_employee(
         ip_address=get_client_ip(request)
     )
     
-    # TODO: Send notification to employee
+    # Send email notification to employee
+    await _send_claim_notification(
+        'returned',
+        claim,
+        db,
+        return_reason=return_data.return_reason,
+        returned_by=return_data.approver_name or comment_role
+    )
     
     return claim
 
@@ -1075,7 +1754,13 @@ async def approve_claim(
     approve_data: ApproveRejectClaim = None,
     db: AsyncSession = Depends(get_async_db),
 ):
-    """Approve a claim - moves to next approval stage"""
+    """Approve a claim - moves to next approval stage, respecting skip rules and auto-approval settings"""
+    from models import SystemSettings
+    from utils.timezone import (
+        DEFAULT_AUTO_APPROVAL_THRESHOLD,
+        DEFAULT_MAX_AUTO_APPROVAL_AMOUNT,
+        DEFAULT_ENABLE_AUTO_APPROVAL
+    )
     
     result = await db.execute(select(Claim).where(Claim.id == claim_id))
     claim = result.scalar_one_or_none()
@@ -1086,16 +1771,77 @@ async def approve_claim(
             detail="Claim not found"
         )
     
-    # Define status transitions
-    status_transitions = {
-        "PENDING_MANAGER": "MANAGER_APPROVED",
-        "MANAGER_APPROVED": "PENDING_HR",  # Auto-transition to HR
-        "PENDING_HR": "HR_APPROVED",
-        "HR_APPROVED": "PENDING_FINANCE",  # Auto-transition to Finance
-        "PENDING_FINANCE": "FINANCE_APPROVED",
-    }
+    # Get approval skip info from claim payload (set at claim creation time)
+    skip_info = claim.claim_payload.get("approval_skip_info", {}) if claim.claim_payload else {}
+    skip_hr = skip_info.get("skip_hr", False)
+    skip_finance = skip_info.get("skip_finance", False)
     
-    if claim.status not in status_transitions:
+    # Auto-approval eligibility flag (checked after manager approval)
+    auto_approval_eligible = False
+    
+    if claim.tenant_id:
+        # Fetch tenant settings for auto-approval
+        settings_result = await db.execute(
+            select(SystemSettings).where(
+                SystemSettings.tenant_id == claim.tenant_id,
+                SystemSettings.setting_key.in_([
+                    "enable_auto_approval",
+                    "auto_skip_after_manager",
+                    "auto_approval_threshold",
+                    "max_auto_approval_amount",
+                    "policy_compliance_threshold"
+                ])
+            )
+        )
+        settings_rows = settings_result.scalars().all()
+        tenant_settings = {s.setting_key: s.setting_value for s in settings_rows}
+        
+        enable_auto_approval = tenant_settings.get("enable_auto_approval", "true").lower() == "true"
+        auto_skip_after_manager = tenant_settings.get("auto_skip_after_manager", "true").lower() == "true"
+        auto_approval_threshold = float(tenant_settings.get("auto_approval_threshold", DEFAULT_AUTO_APPROVAL_THRESHOLD)) / 100.0
+        max_auto_approval_amount = float(tenant_settings.get("max_auto_approval_amount", DEFAULT_MAX_AUTO_APPROVAL_AMOUNT))
+        policy_compliance_threshold = float(tenant_settings.get("policy_compliance_threshold", "80")) / 100.0
+        
+        # Get claim's AI confidence and validation data
+        validation = claim.claim_payload.get("validation", {}) if claim.claim_payload else {}
+        ai_analysis = claim.claim_payload.get("ai_analysis", {}) if claim.claim_payload else {}
+        confidence = validation.get("confidence", 0) or ai_analysis.get("ai_confidence", 0) or 0
+        if isinstance(confidence, (int, float)) and confidence > 1:
+            confidence = confidence / 100.0  # Normalize if stored as percentage
+        claim_amount = float(claim.amount) if claim.amount else 0.0
+        
+        # Get policy compliance score (from validation or policy_checks)
+        policy_checks = claim.claim_payload.get("policy_checks", {}) if claim.claim_payload else {}
+        policy_compliance = validation.get("policy_compliance", 0) or policy_checks.get("compliance_score", 0) or 0
+        if isinstance(policy_compliance, (int, float)) and policy_compliance > 1:
+            policy_compliance = policy_compliance / 100.0  # Normalize if stored as percentage
+        
+        # Check for policy violations
+        failed_rules = [r for r in validation.get("rules_checked", []) if r.get("result") == "fail"]
+        
+        # Determine if auto-approval conditions are met (only applies after manager approval)
+        # Must meet BOTH AI confidence threshold AND policy compliance threshold
+        if enable_auto_approval and auto_skip_after_manager and not failed_rules:
+            meets_confidence = confidence >= auto_approval_threshold
+            meets_policy_compliance = policy_compliance >= policy_compliance_threshold
+            within_amount = claim_amount <= max_auto_approval_amount
+            
+            if meets_confidence and meets_policy_compliance and within_amount:
+                auto_approval_eligible = True
+                logger.info(
+                    f"Claim {claim.claim_number}: Auto-approval eligible - "
+                    f"AI confidence {confidence*100:.1f}% >= {auto_approval_threshold*100:.1f}%, "
+                    f"policy compliance {policy_compliance*100:.1f}% >= {policy_compliance_threshold*100:.1f}%, "
+                    f"amount {claim_amount} <= {max_auto_approval_amount}"
+                )
+            elif meets_confidence and within_amount and not meets_policy_compliance:
+                logger.info(
+                    f"Claim {claim.claim_number}: Auto-approval NOT eligible - "
+                    f"policy compliance {policy_compliance*100:.1f}% < {policy_compliance_threshold*100:.1f}%"
+                )
+    
+    # Define status transitions
+    if claim.status not in ["PENDING_MANAGER", "MANAGER_APPROVED", "PENDING_HR", "HR_APPROVED", "PENDING_FINANCE"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot approve claim in {claim.status} status"
@@ -1103,45 +1849,76 @@ async def approve_claim(
     
     # Get next status
     previous_status = claim.status
-    next_status = status_transitions[claim.status]
     
-    # If manager approved, move directly to pending HR
-    if next_status == "MANAGER_APPROVED":
-        claim.status = "PENDING_HR"
-    elif next_status == "HR_APPROVED":
-        claim.status = "PENDING_FINANCE"
+    # Determine next status based on current status
+    # Priority: 1) Auto-approval rules → FINANCE_APPROVED, 2) Skip rules for individual level skipping
+    if previous_status == "PENDING_MANAGER":
+        # Manager approved - first check auto-approval, then skip rules
+        if auto_approval_eligible:
+            # Auto-approval met: skip directly to FINANCE_APPROVED
+            claim.status = "FINANCE_APPROVED"
+            logger.info(f"Claim {claim.claim_number}: Manager approved, auto-approval criteria met → FINANCE_APPROVED")
+        elif skip_hr and skip_finance:
+            # Skip rules: both HR and Finance skipped
+            claim.status = "FINANCE_APPROVED"
+            logger.info(f"Claim {claim.claim_number}: Manager approved, HR and Finance skipped per designation skip rules → FINANCE_APPROVED")
+        elif skip_hr:
+            # Skip rules: HR skipped, go to Finance
+            claim.status = "PENDING_FINANCE"
+            logger.info(f"Claim {claim.claim_number}: Manager approved, HR skipped per skip rules → PENDING_FINANCE")
+        else:
+            # Normal flow: go to HR
+            claim.status = "PENDING_HR"
+    elif previous_status == "PENDING_HR":
+        # HR approved - check skip rules for Finance
+        if skip_finance:
+            claim.status = "FINANCE_APPROVED"
+            logger.info(f"Claim {claim.claim_number}: HR approved, Finance skipped per skip rules → FINANCE_APPROVED")
+        else:
+            claim.status = "PENDING_FINANCE"
+    elif previous_status == "PENDING_FINANCE":
+        claim.status = "FINANCE_APPROVED"
     else:
-        claim.status = next_status
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot approve claim in {previous_status} status"
+        )
     
     claim.can_edit = False
     
-    # Store approval comment in payload and create Comment record
+    # Always record approval history
+    if not claim.claim_payload:
+        claim.claim_payload = {}
+    if "approval_history" not in claim.claim_payload:
+        claim.claim_payload["approval_history"] = []
+    
+    # Determine role for this approval based on previous status
+    role_map = {
+        "PENDING_MANAGER": "MANAGER",
+        "PENDING_HR": "HR",
+        "PENDING_FINANCE": "FINANCE"
+    }
+    approver_role = (approve_data.approver_role if approve_data else None) or role_map.get(previous_status, "APPROVER")
+    approver_name = (approve_data.approver_name if approve_data else None) or approver_role
+    approver_id = str(approve_data.approver_id) if approve_data and approve_data.approver_id else None
+    comment_text = approve_data.comment if approve_data and approve_data.comment else None
+    
+    claim.claim_payload["approval_history"].append({
+        "action": "approved",
+        "from_status": previous_status,
+        "to_status": claim.status,
+        "comment": comment_text,
+        "approver_id": approver_id,
+        "approver_name": approver_name,
+        "approver_role": approver_role,
+        "timestamp": datetime.utcnow().isoformat() + "Z"  # Add Z suffix to indicate UTC
+    })
+    # Flag claim_payload as modified for SQLAlchemy to detect JSONB changes
+    flag_modified(claim, "claim_payload")
+    
+    # Create a Comment record for visibility (only if comment provided)
     if approve_data and approve_data.comment:
-        if not claim.claim_payload:
-            claim.claim_payload = {}
-        if "approval_history" not in claim.claim_payload:
-            claim.claim_payload["approval_history"] = []
-        claim.claim_payload["approval_history"].append({
-            "action": "approved",
-            "from_status": previous_status,
-            "to_status": claim.status,
-            "comment": approve_data.comment,
-            "approver_id": str(approve_data.approver_id) if approve_data.approver_id else None,
-            "approver_name": approve_data.approver_name,
-            "approver_role": approve_data.approver_role,
-            "timestamp": datetime.utcnow().isoformat()
-        })
-        # Flag claim_payload as modified for SQLAlchemy to detect JSONB changes
-        flag_modified(claim, "claim_payload")
-        
-        # Create a Comment record for visibility
-        # Determine role for comment based on previous status
-        role_map = {
-            "PENDING_MANAGER": "MANAGER",
-            "PENDING_HR": "HR",
-            "PENDING_FINANCE": "FINANCE"
-        }
-        comment_role = approve_data.approver_role or role_map.get(previous_status, "APPROVER")
+        comment_role = approver_role
         
         # Use provided approver info or find a fallback user
         if approve_data.approver_id and approve_data.approver_name:
@@ -1158,12 +1935,15 @@ async def approve_claim(
             )
             db.add(comment)
         else:
-            # Fallback: find a user with appropriate role
+            # Fallback: find a user with appropriate role (via designation-to-role mapping)
+            from database import SyncSessionLocal
+            from services.role_service import get_first_user_with_role
             role_to_find = role_map.get(previous_status, "MANAGER")
-            approver_user = await db.execute(
-                select(User).where(User.roles.contains([role_to_find])).limit(1)
-            )
-            approver = approver_user.scalar_one_or_none()
+            sync_db = SyncSessionLocal()
+            try:
+                approver = get_first_user_with_role(claim.tenant_id, role_to_find, sync_db)
+            finally:
+                sync_db.close()
             if approver:
                 comment = Comment(
                     id=uuid4(),
@@ -1181,6 +1961,12 @@ async def approve_claim(
     await db.commit()
     await db.refresh(claim)
     
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(claim.tenant_id) if claim.tenant_id else None,
+        employee_id=str(claim.employee_id) if claim.employee_id else None
+    )
+    
     # Audit log for claim approval
     audit_logger.log_claim_action(
         user_id="system",  # Approver ID not passed in current request body
@@ -1195,6 +1981,32 @@ async def approve_claim(
         },
         ip_address=get_client_ip(request)
     )
+    
+    # Send Teams/Slack notification for approval
+    try:
+        # Get employee name for notification
+        employee_result = await db.execute(select(User).where(User.id == claim.employee_id))
+        employee = employee_result.scalar_one_or_none()
+        employee_name = employee.full_name if employee else "Unknown"
+        
+        # Get sync db session for communication service
+        from database import SyncSessionLocal as SessionLocal
+        sync_db = SessionLocal()
+        try:
+            await send_teams_notification(
+                db=sync_db,
+                tenant_id=claim.tenant_id,
+                event_type='approved',
+                claim_number=claim.claim_number,
+                employee_name=employee_name,
+                amount=float(claim.amount) if claim.amount else 0,
+                currency=claim.currency or "INR",
+                approver_name=approver_name
+            )
+        finally:
+            sync_db.close()
+    except Exception as e:
+        logger.error(f"Failed to send Teams notification for claim {claim.claim_number}: {str(e)}")
     
     return claim
 
@@ -1242,7 +2054,7 @@ async def reject_claim(
             "approver_id": str(reject_data.approver_id) if reject_data.approver_id else None,
             "approver_name": reject_data.approver_name,
             "approver_role": reject_data.approver_role,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat() + "Z"  # Add Z suffix to indicate UTC
         })
         # Flag claim_payload as modified for SQLAlchemy to detect JSONB changes
         flag_modified(claim, "claim_payload")
@@ -1270,12 +2082,15 @@ async def reject_claim(
             )
             db.add(comment)
         else:
-            # Fallback: find a user with appropriate role
+            # Fallback: find a user with appropriate role (via designation-to-role mapping)
+            from database import SyncSessionLocal
+            from services.role_service import get_first_user_with_role
             role_to_find = role_map.get(previous_status, "MANAGER")
-            approver_user = await db.execute(
-                select(User).where(User.roles.contains([role_to_find])).limit(1)
-            )
-            approver = approver_user.scalar_one_or_none()
+            sync_db = SyncSessionLocal()
+            try:
+                approver = get_first_user_with_role(claim.tenant_id, role_to_find, sync_db)
+            finally:
+                sync_db.close()
             if approver:
                 comment = Comment(
                     id=uuid4(),
@@ -1293,6 +2108,12 @@ async def reject_claim(
     await db.commit()
     await db.refresh(claim)
     
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(claim.tenant_id) if claim.tenant_id else None,
+        employee_id=str(claim.employee_id) if claim.employee_id else None
+    )
+    
     # Audit log for claim rejection
     audit_logger.log_claim_action(
         user_id="system",  # Approver ID not passed in current request body
@@ -1306,6 +2127,51 @@ async def reject_claim(
         },
         ip_address=get_client_ip(request)
     )
+    
+    # Determine who rejected for email notification
+    role_map = {
+        "PENDING_MANAGER": "MANAGER",
+        "PENDING_HR": "HR",
+        "PENDING_FINANCE": "FINANCE"
+    }
+    rejected_by = (reject_data.approver_name if reject_data else None) or role_map.get(previous_status, "Approver")
+    rejection_reason = (reject_data.comment if reject_data else None) or "Claim does not meet policy requirements"
+    
+    # Send email notification to employee
+    await _send_claim_notification(
+        'rejected',
+        claim,
+        db,
+        rejection_reason=rejection_reason,
+        rejected_by=rejected_by
+    )
+    
+    # Send Teams/Slack notification
+    try:
+        # Get employee name for notification
+        employee_result = await db.execute(select(User).where(User.id == claim.employee_id))
+        employee = employee_result.scalar_one_or_none()
+        employee_name = employee.full_name if employee else "Unknown"
+        
+        # Get sync db session for communication service
+        from database import SyncSessionLocal as SessionLocal
+        sync_db = SessionLocal()
+        try:
+            await send_teams_notification(
+                db=sync_db,
+                tenant_id=claim.tenant_id,
+                event_type='rejected',
+                claim_number=claim.claim_number,
+                employee_name=employee_name,
+                amount=float(claim.amount) if claim.amount else 0,
+                currency=claim.currency or "INR",
+                approver_name=rejected_by,
+                reason=rejection_reason
+            )
+        finally:
+            sync_db.close()
+    except Exception as e:
+        logger.error(f"Failed to send Teams notification for claim {claim.claim_number}: {str(e)}")
     
     return claim
 
@@ -1384,6 +2250,12 @@ async def settle_claim(
     await db.commit()
     await db.refresh(claim)
     
+    # Invalidate dashboard cache for tenant and employee
+    await redis_cache.invalidate_dashboard_cache(
+        tenant_id=str(claim.tenant_id) if claim.tenant_id else None,
+        employee_id=str(claim.employee_id) if claim.employee_id else None
+    )
+    
     # Audit log for claim settlement
     audit_logger.log_claim_action(
         user_id="finance",
@@ -1398,6 +2270,40 @@ async def settle_claim(
         },
         ip_address=get_client_ip(request)
     )
+    
+    # Send email notification to employee about payment
+    await _send_claim_notification(
+        'settled',
+        claim,
+        db,
+        payment_reference=settlement_data.payment_reference,
+        payment_method=settlement_data.payment_method,
+        settled_date=settlement_time.strftime('%B %d, %Y')
+    )
+    
+    # Send Teams/Slack notification for settlement
+    try:
+        employee_result = await db.execute(select(User).where(User.id == claim.employee_id))
+        employee = employee_result.scalar_one_or_none()
+        employee_name = employee.full_name if employee else "Unknown"
+        
+        from database import SyncSessionLocal as SessionLocal
+        sync_db = SessionLocal()
+        try:
+            await send_teams_notification(
+                db=sync_db,
+                tenant_id=claim.tenant_id,
+                event_type='settled',
+                claim_number=claim.claim_number,
+                employee_name=employee_name,
+                amount=float(claim.amount) if claim.amount else 0,
+                currency=claim.currency or "INR",
+                approver_name="Finance Team"
+            )
+        finally:
+            sync_db.close()
+    except Exception as e:
+        logger.error(f"Failed to send Teams notification for claim settlement {claim.claim_number}: {str(e)}")
     
     return claim
 

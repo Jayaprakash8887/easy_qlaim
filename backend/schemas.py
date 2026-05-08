@@ -90,6 +90,7 @@ class BatchClaimItem(BaseModel):
     description: Optional[str] = None
     transaction_ref: Optional[str] = None
     payment_method: Optional[str] = None
+    custom_fields: Optional[Dict[str, Any]] = None  # Custom field values
     # Field source tracking: 'ocr' for auto-extracted, 'manual' for user-entered
     category_source: Optional[str] = 'manual'
     title_source: Optional[str] = 'manual'
@@ -124,6 +125,10 @@ class ClaimUpdate(BaseModel):
     amount: Optional[float] = Field(None, gt=0)
     claim_date: Optional[date] = None
     description: Optional[str] = None
+    category: Optional[str] = None  # Category code
+    title: Optional[str] = None  # Expense title
+    project_code: Optional[str] = None  # Project code
+    transaction_ref: Optional[str] = None  # Transaction reference ID
     claim_payload: Optional[Dict[str, Any]] = None
     status: Optional[str] = None  # For resubmission: 'PENDING_MANAGER'
     edited_sources: Optional[List[str]] = None  # Fields edited by user (e.g., ['amount', 'date'])
@@ -247,12 +252,34 @@ class EmployeeCreate(BaseModel):
     mobile: Optional[str] = None
     address: Optional[str] = None
     department: Optional[str] = None
-    designation: Optional[str] = None
-    region: Optional[List[str]] = None  # Region/location for policy applicability
+    designation: str  # Designation is required
+    region: List[str]  # Region/location is required for policy applicability
     date_of_joining: Optional[date] = None
     manager_id: Optional[str] = None
     project_ids: Optional[List[str]] = []
     employee_data: Dict[str, Any] = {}
+
+
+class BulkEmployeeImport(BaseModel):
+    """Schema for bulk employee import request"""
+    tenant_id: UUID
+    employees: List[EmployeeCreate]
+
+
+class BulkEmployeeImportResult(BaseModel):
+    """Individual result for each employee import"""
+    employee_id: str
+    email: str
+    success: bool
+    error: Optional[str] = None
+
+
+class BulkEmployeeImportResponse(BaseModel):
+    """Response for bulk employee import"""
+    total: int
+    success_count: int
+    failed_count: int
+    results: List[BulkEmployeeImportResult]
 
 
 
@@ -267,6 +294,7 @@ class EmployeeResponse(BaseModel):
     employee_id: Optional[str] = None  # employee_code
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    full_name: Optional[str] = None
     email: str
     phone: Optional[str] = None
     mobile: Optional[str] = None
@@ -278,6 +306,7 @@ class EmployeeResponse(BaseModel):
     employment_status: str = "ACTIVE"
     region: Optional[List[str]] = None  # Region/location for policy applicability
     roles: List[str] = []  # Dynamically resolved from designation-to-role mappings
+    avatar_url: Optional[str] = None  # Profile picture URL
     employee_data: Dict[str, Any] = {}
     created_at: datetime
     
@@ -428,6 +457,114 @@ class IBUListResponse(BaseModel):
     limit: int
 
 
+# Department Schemas
+class DepartmentBase(BaseModel):
+    code: str = Field(..., min_length=1, max_length=50)
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+
+
+class DepartmentCreate(DepartmentBase):
+    head_id: Optional[UUID] = None
+    display_order: int = 0
+
+
+class DepartmentUpdate(BaseModel):
+    code: Optional[str] = Field(None, min_length=1, max_length=50)
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    head_id: Optional[UUID] = None
+    display_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class DepartmentResponse(DepartmentBase):
+    id: UUID
+    tenant_id: UUID
+    head_id: Optional[UUID] = None
+    is_active: bool = True
+    display_order: int = 0
+    created_at: datetime
+    updated_at: datetime
+    
+    # Optional: populated when fetching with details
+    head_name: Optional[str] = None
+    employee_count: Optional[int] = None
+    
+    class Config:
+        from_attributes = True
+
+
+# Client Schemas
+class ClientBase(BaseModel):
+    client_code: str
+    client_name: str
+    description: Optional[str] = None
+    contact_person: Optional[str] = None
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
+    address: Optional[str] = None
+
+    @validator('contact_email', pre=True, always=True)
+    def empty_str_to_none_email(cls, v):
+        if v == '' or v is None:
+            return None
+        return v
+
+    @validator('description', 'contact_person', 'contact_phone', 'address', pre=True, always=True)
+    def empty_str_to_none(cls, v):
+        if v == '':
+            return None
+        return v
+
+
+class ClientCreate(ClientBase):
+    pass
+
+
+class ClientUpdate(BaseModel):
+    client_code: Optional[str] = None
+    client_name: Optional[str] = None
+    description: Optional[str] = None
+    contact_person: Optional[str] = None
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
+    address: Optional[str] = None
+    is_active: Optional[bool] = None
+
+    @validator('contact_email', pre=True, always=True)
+    def empty_str_to_none_email(cls, v):
+        if v == '' or v is None:
+            return None
+        return v
+
+    @validator('description', 'contact_person', 'contact_phone', 'address', pre=True, always=True)
+    def empty_str_to_none(cls, v):
+        if v == '':
+            return None
+        return v
+
+
+class ClientResponse(ClientBase):
+    id: UUID
+    tenant_id: UUID
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    project_count: Optional[int] = 0  # Number of linked projects
+    
+    class Config:
+        from_attributes = True
+
+
+class ClientWithProjects(ClientResponse):
+    """Client response including linked projects"""
+    projects: List["ProjectResponse"] = []
+    
+    class Config:
+        from_attributes = True
+
+
 # Project Schemas
 class ProjectBase(BaseModel):
     project_code: str
@@ -440,6 +577,7 @@ class ProjectCreate(ProjectBase):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     ibu_id: Optional[UUID] = None
+    client_id: Optional[UUID] = None  # Optional client association
 
 
 class ProjectUpdate(BaseModel):
@@ -453,6 +591,7 @@ class ProjectUpdate(BaseModel):
     is_active: Optional[bool] = None
     manager_id: Optional[UUID] = None
     ibu_id: Optional[UUID] = None
+    client_id: Optional[UUID] = None  # Optional client association (can be set to null)
 
 
 class ProjectResponse(ProjectBase):
@@ -467,6 +606,9 @@ class ProjectResponse(ProjectBase):
     ibu_id: Optional[UUID] = None
     ibu_name: Optional[str] = None
     ibu_code: Optional[str] = None
+    client_id: Optional[UUID] = None
+    client_name: Optional[str] = None
+    client_code: Optional[str] = None
     created_at: datetime
     
     class Config:
@@ -518,6 +660,8 @@ class HREdit(BaseModel):
     """Schema for HR editing claim fields"""
     amount: Optional[float] = Field(None, gt=0)
     description: Optional[str] = None
+    category: Optional[str] = None
+    project_code: Optional[str] = None
     claim_payload: Optional[Dict[str, Any]] = None
     hr_edited_fields: List[str] = []  # List of field names edited by HR
 
@@ -670,12 +814,21 @@ class ValidationStatus(str, Enum):
     FAIL = "FAIL"
 
 
+class CalculationType(str, Enum):
+    """How claim amounts are calculated for allowances"""
+    PER_DAY = "per_day"     # Working Days × Per Day Rate (e.g., food allowance)
+    PER_KM = "per_km"       # Distance × Rate per KM × Trips (e.g., conveyance)
+    FIXED = "fixed"         # Direct amount entry (no calculation)
+
+
 # Policy Category Schemas (extracted from policy document)
 class PolicyCategoryBase(BaseModel):
     category_name: str = Field(..., min_length=1, max_length=100)
     category_code: str = Field(..., min_length=1, max_length=50)
     category_type: CategoryType
     description: Optional[str] = None
+    calculation_type: CalculationType = CalculationType.PER_DAY  # How amount is calculated
+    rate_per_unit: Optional[float] = None  # Per-day or per-km rate
     max_amount: Optional[float] = None
     min_amount: Optional[float] = None
     currency: str = "INR"
@@ -699,6 +852,8 @@ class PolicyCategoryUpdate(BaseModel):
     category_code: Optional[str] = Field(None, min_length=1, max_length=50)
     category_type: Optional[CategoryType] = None
     description: Optional[str] = None
+    calculation_type: Optional[CalculationType] = None  # How amount is calculated
+    rate_per_unit: Optional[float] = None  # Per-day or per-km rate
     max_amount: Optional[float] = None
     min_amount: Optional[float] = None
     currency: Optional[str] = None
@@ -711,6 +866,7 @@ class PolicyCategoryUpdate(BaseModel):
     submission_window_days: Optional[int] = None
     is_active: Optional[bool] = None
     display_order: Optional[int] = None
+    custom_fields: Optional[List[Dict[str, Any]]] = None
 
 
 class PolicyCategoryResponse(BaseModel):
@@ -721,6 +877,8 @@ class PolicyCategoryResponse(BaseModel):
     category_code: str
     category_type: str
     description: Optional[str]
+    calculation_type: Optional[str] = "per_day"  # How amount is calculated
+    rate_per_unit: Optional[float] = None  # Per-day or per-km rate
     max_amount: Optional[float]
     min_amount: Optional[float]
     currency: str
@@ -733,6 +891,7 @@ class PolicyCategoryResponse(BaseModel):
     submission_window_days: Optional[int]
     is_active: bool
     display_order: int
+    custom_fields: List[Dict[str, Any]] = []
     source_text: Optional[str]
     ai_confidence: Optional[float]
     created_at: datetime
@@ -804,6 +963,15 @@ class PolicyUploadListResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class PolicyMetadataUpdate(BaseModel):
+    """Schema for updating policy metadata without uploading a new document"""
+    policy_name: Optional[str] = None
+    description: Optional[str] = None
+    region: Optional[List[str]] = None  # List of region codes
+    effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
 
 
 class PolicyApprovalRequest(BaseModel):
@@ -942,7 +1110,7 @@ class CustomClaimBase(BaseModel):
     claim_name: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = None
     category_type: CustomClaimCategoryType
-    region: Optional[List[str]] = None  # Region where this claim type is applicable
+    region: List[str] = Field(..., min_length=1, description="Region codes where this claim type is applicable (required)")
     max_amount: Optional[float] = Field(None, ge=0)
     min_amount: Optional[float] = Field(None, ge=0)
     default_amount: Optional[float] = Field(None, ge=0)
@@ -1064,3 +1232,71 @@ class RegionResponse(RegionBase):
 
     class Config:
         from_attributes = True
+
+
+# ==================== APPROVAL SKIP RULE SCHEMAS ====================
+
+class ApprovalSkipRuleBase(BaseModel):
+    """Base schema for approval skip rules"""
+    rule_name: str = Field(..., min_length=1, max_length=100, description="Name of the rule")
+    description: Optional[str] = Field(None, description="Description of when/why this rule applies")
+    match_type: str = Field("designation", description="'designation', 'email', or 'project'")
+    designations: List[str] = Field(default=[], description="List of designation codes to match")
+    emails: List[str] = Field(default=[], description="List of specific email addresses to match")
+    project_codes: List[str] = Field(default=[], description="List of project codes to match")
+    skip_manager_approval: bool = Field(False, description="Skip manager approval level")
+    skip_hr_approval: bool = Field(False, description="Skip HR approval level")
+    skip_finance_approval: bool = Field(False, description="Skip finance approval (usually False)")
+    max_amount_threshold: Optional[float] = Field(None, description="Max amount for rule to apply (null=unlimited)")
+    category_codes: List[str] = Field(default=[], description="Specific categories (empty=all)")
+    priority: int = Field(100, description="Rule priority (lower=higher priority)")
+    is_active: bool = Field(True, description="Whether the rule is active")
+
+
+class ApprovalSkipRuleCreate(ApprovalSkipRuleBase):
+    """Schema for creating an approval skip rule"""
+    pass
+
+
+class ApprovalSkipRuleUpdate(BaseModel):
+    """Schema for updating an approval skip rule"""
+    rule_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    match_type: Optional[str] = None
+    designations: Optional[List[str]] = None
+    emails: Optional[List[str]] = None
+    project_codes: Optional[List[str]] = None
+    skip_manager_approval: Optional[bool] = None
+    skip_hr_approval: Optional[bool] = None
+    skip_finance_approval: Optional[bool] = None
+    max_amount_threshold: Optional[float] = None
+    category_codes: Optional[List[str]] = None
+    priority: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class ApprovalSkipRuleResponse(ApprovalSkipRuleBase):
+    """Response schema for approval skip rules"""
+    id: UUID
+    tenant_id: UUID
+    created_by: Optional[UUID] = None
+    updated_by: Optional[UUID] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ApprovalSkipResult(BaseModel):
+    """Result of checking approval skip rules for a claim"""
+    skip_manager: bool = False
+    skip_hr: bool = False
+    skip_finance: bool = False
+    applied_rule_id: Optional[UUID] = None
+    applied_rule_name: Optional[str] = None
+    reason: Optional[str] = None
+
+
+# Rebuild models that use forward references
+ClientWithProjects.model_rebuild()

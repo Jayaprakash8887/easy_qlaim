@@ -2,12 +2,27 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Region } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { extractErrorMessage } from '@/lib/utils';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Auth helpers
+function getAuthHeaders(): HeadersInit {
+    const token = localStorage.getItem('access_token');
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+function getAuthHeadersWithJson(): HeadersInit {
+    const token = localStorage.getItem('access_token');
+    return {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    };
+}
 
 // Build URL with query params
 const buildUrl = (baseUrl: string, params: Record<string, any>) => {
-    const url = new URL(baseUrl);
+    const url = new URL(baseUrl, window.location.origin);
     Object.keys(params).forEach(key => {
         if (params[key]) {
             url.searchParams.append(key, params[key]);
@@ -18,7 +33,9 @@ const buildUrl = (baseUrl: string, params: Record<string, any>) => {
 
 async function fetchRegions(tenantId?: string): Promise<Region[]> {
     const url = buildUrl(`${API_BASE_URL}/regions/`, { tenant_id: tenantId });
-    const response = await fetch(url);
+    const response = await fetch(url, {
+        headers: getAuthHeaders(),
+    });
     if (!response.ok) {
         throw new Error('Failed to fetch regions');
     }
@@ -43,9 +60,7 @@ async function createRegion(region: Partial<Region>, tenantId?: string): Promise
         : `${API_BASE_URL}/regions/`;
     const response = await fetch(url, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
+        headers: getAuthHeadersWithJson(),
         body: JSON.stringify({
             name: region.name,
             code: region.code,
@@ -57,7 +72,7 @@ async function createRegion(region: Partial<Region>, tenantId?: string): Promise
 
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to create region');
+        throw new Error(extractErrorMessage(error, 'Failed to create region'));
     }
 
     const data = await response.json();
@@ -80,9 +95,7 @@ async function updateRegion({ id, data, tenantId }: { id: string; data: Partial<
         : `${API_BASE_URL}/regions/${id}`;
     const response = await fetch(url, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-        },
+        headers: getAuthHeadersWithJson(),
         body: JSON.stringify({
             name: data.name,
             code: data.code,
@@ -94,7 +107,7 @@ async function updateRegion({ id, data, tenantId }: { id: string; data: Partial<
 
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to update region');
+        throw new Error(extractErrorMessage(error, 'Failed to update region'));
     }
 
     const result = await response.json();
@@ -117,11 +130,12 @@ async function deleteRegion({ id, tenantId }: { id: string; tenantId?: string })
         : `${API_BASE_URL}/regions/${id}`;
     const response = await fetch(url, {
         method: 'DELETE',
+        headers: getAuthHeaders(),
     });
 
     if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to delete region');
+        throw new Error(extractErrorMessage(error, 'Failed to delete region'));
     }
 }
 

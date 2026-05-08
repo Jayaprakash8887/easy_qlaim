@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Search, CheckCircle2, Clock, Wallet, Download, Eye, Calendar } from 'lucide-react';
+import { extractErrorMessage } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,8 +37,9 @@ import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { Claim } from '@/types';
 import { useFormatting } from '@/hooks/useFormatting';
+import { formatCategory } from '@/lib/categoryUtils';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 export default function SettlementsPending() {
   const { user } = useAuth();
@@ -123,7 +125,10 @@ export default function SettlementsPending() {
 
         const response = await fetch(`${API_BASE_URL}/claims/${claimId}/settle?tenant_id=${tenantId}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(localStorage.getItem('access_token') ? { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } : {}),
+          },
           body: JSON.stringify({
             claim_id: claimId,
             payment_reference: settlementData.transactionId,
@@ -135,7 +140,7 @@ export default function SettlementsPending() {
 
         if (!response.ok) {
           const error = await response.json();
-          throw new Error(error.detail || 'Failed to settle claim');
+          throw new Error(extractErrorMessage(error, 'Failed to settle claim'));
         }
       }
 
@@ -296,9 +301,9 @@ export default function SettlementsPending() {
                       {claim.employeeName}
                     </TableCell>
                     <TableCell>
-                      {typeof claim.category === 'string'
+                      {claim.categoryName || formatCategory(typeof claim.category === 'string'
                         ? claim.category
-                        : claim.category?.name || '-'}
+                        : claim.category?.name)}
                     </TableCell>
                     <TableCell className="font-semibold">
                       {formatCurrency(claim.amount)}

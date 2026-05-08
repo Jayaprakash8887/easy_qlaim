@@ -26,6 +26,11 @@ from database import get_sync_db
 from models import Tenant, User
 from config import settings
 from api.v1.auth import get_current_user
+from services.storage import (
+    is_cloud_storage_configured,
+    upload_branding_to_cloud,
+    delete_branding_from_cloud
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,37 +165,102 @@ def validate_file(file: UploadFile, file_type: str) -> tuple[bool, str]:
     return True, ""
 
 
-def save_branding_file(file: UploadFile, tenant_id: UUID, file_type: str) -> str:
-    """Save branding file and return the URL path"""
-    # Create tenant-specific directory
+def save_branding_file(file: UploadFile, tenant_id: UUID, file_type: str) -> tuple[str, Optional[str]]:
+    """
+    Save branding file and return the URL path.
+    
+    Tries cloud storage first (GCS), falls back to local storage.
+    
+    Returns:
+        Tuple of (url, blob_name) - blob_name is None for local storage
+    """
+    # Read file content
+    file_content = file.file.read()
+    file.file.seek(0)  # Reset for potential local fallback
+    
+    # Determine content type
+    ext = file.filename.split('.')[-1].lower()
+    content_type_map = {
+        "svg": "image/svg+xml",
+        "png": "image/png",
+        "ico": "image/x-icon",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "webp": "image/webp"
+    }
+    content_type = content_type_map.get(ext, file.content_type)
+    
+    # Try cloud storage first
+    if is_cloud_storage_configured():
+        public_url, blob_name = upload_branding_to_cloud(
+            file_content=file_content,
+            tenant_id=str(tenant_id),
+            file_type=file_type,
+            original_filename=file.filename,
+            content_type=content_type
+        )
+        
+        if public_url and blob_name:
+            logger.info(f"Branding file uploaded to cloud: {public_url}")
+            return public_url, blob_name
+        else:
+            logger.warning("Cloud upload failed, falling back to local storage")
+    
+    # Fallback to local storage
     tenant_dir = os.path.join(BRANDING_DIR, str(tenant_id))
     os.makedirs(tenant_dir, exist_ok=True)
     
     # Generate unique filename
-    ext = file.filename.split('.')[-1].lower()
     unique_id = str(uuid_module.uuid4())[:8]
     filename = f"{file_type}_{unique_id}.{ext}"
     filepath = os.path.join(tenant_dir, filename)
     
     # Save file
     with open(filepath, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        buffer.write(file_content)
     
     # Return URL path (relative to API)
-    return f"/api/v1/branding/files/{tenant_id}/{filename}"
+    return f"/api/v1/branding/files/{tenant_id}/{filename}", None
 
 
-def delete_branding_file(tenant_id: UUID, file_url: str) -> bool:
-    """Delete a branding file"""
+def delete_branding_file(tenant_id: UUID, file_url: str, blob_name: Optional[str] = None) -> bool:
+    """
+    Delete a branding file from storage.
+    
+    Args:
+        tenant_id: Tenant ID
+        file_url: The URL of the file
+        blob_name: Cloud storage blob name (if stored in cloud)
+    
+    Returns:
+        True on success, False on failure
+    """
     if not file_url:
         return True
     
-    # Extract filename from URL
+    # Check if it's a cloud URL (GCS public URL pattern)
+    if file_url.startswith("https://storage.googleapis.com/"):
+        # Extract blob name from URL if not provided
+        if not blob_name:
+            # URL format: https://storage.googleapis.com/bucket-name/path/to/file
+            try:
+                parts = file_url.replace("https://storage.googleapis.com/", "").split("/", 1)
+                if len(parts) > 1:
+                    blob_name = parts[1]
+            except Exception as e:
+                logger.error(f"Failed to extract blob name from URL: {e}")
+        
+        if blob_name:
+            return delete_branding_from_cloud(blob_name)
+        return False
+    
+    # Local file - extract filename from URL
     try:
         filename = file_url.split('/')[-1]
         filepath = os.path.join(BRANDING_DIR, str(tenant_id), filename)
         if os.path.exists(filepath):
             os.remove(filepath)
+            logger.info(f"Deleted local branding file: {filepath}")
             return True
     except Exception as e:
         logger.error(f"Failed to delete branding file: {e}")
@@ -249,13 +319,16 @@ def check_branding_access(current_user: Optional[User], tenant_id: UUID) -> None
             detail="Authentication required"
         )
     
+    # Get user's roles (it's an array)
+    user_roles = current_user.roles or []
+    
     # System Admin can modify any tenant
-    if current_user.role == 'system_admin':
+    if 'SYSTEM_ADMIN' in user_roles:
         return
     
     # Admin can only modify their own tenant
-    if current_user.role == 'admin':
-        if current_user.tenant_id != tenant_id:
+    if 'ADMIN' in user_roles:
+        if str(current_user.tenant_id) != str(tenant_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You can only modify branding for your own tenant"
@@ -380,19 +453,27 @@ async def upload_branding_file(
     branding = get_tenant_branding(tenant)
     old_url = getattr(branding, f"{file_type}_url", None)
     if old_url:
-        delete_branding_file(tenant_id, old_url)
+        # Get old blob name from tenant settings if available
+        tenant_settings = tenant.settings or {}
+        branding_settings = tenant_settings.get("branding", {})
+        old_blob_name = branding_settings.get(f"{file_type}_blob_name")
+        delete_branding_file(tenant_id, old_url, old_blob_name)
     
     # Save new file
-    file_url = save_branding_file(file, tenant_id, file_type)
+    file_url, blob_name = save_branding_file(file, tenant_id, file_type)
     
-    # Update tenant settings
-    update_tenant_branding(db, tenant, {f"{file_type}_url": file_url})
+    # Update tenant settings with URL and blob_name (for cloud storage)
+    updates = {f"{file_type}_url": file_url}
+    if blob_name:
+        updates[f"{file_type}_blob_name"] = blob_name
+    update_tenant_branding(db, tenant, updates)
     db.refresh(tenant)
     
     return {
         "message": f"{BRANDING_FILE_SPECS[file_type]['name']} uploaded successfully",
         "file_type": file_type,
         "url": file_url,
+        "storage": "cloud" if blob_name else "local",
         "specs": BRANDING_FILE_SPECS[file_type]
     }
 
@@ -427,19 +508,23 @@ async def delete_branding_file_endpoint(
             detail="Tenant not found"
         )
     
-    # Get current branding
-    branding = get_tenant_branding(tenant)
-    file_url = getattr(branding, f"{file_type}_url", None)
-    
-    if file_url:
-        delete_branding_file(tenant_id, file_url)
-    
-    # Update tenant settings to remove the URL
+    # Get current branding URL and blob name
     tenant_settings = dict(tenant.settings or {})
     branding_settings = dict(tenant_settings.get("branding", {}))
+    
+    file_url = branding_settings.get(f"{file_type}_url")
+    blob_name = branding_settings.get(f"{file_type}_blob_name")
+    
+    if file_url:
+        delete_branding_file(tenant_id, file_url, blob_name)
+    
+    # Update tenant settings to remove the URL and blob_name
     url_key = f"{file_type}_url"
+    blob_key = f"{file_type}_blob_name"
     if url_key in branding_settings:
         del branding_settings[url_key]
+    if blob_key in branding_settings:
+        del branding_settings[blob_key]
     tenant_settings["branding"] = branding_settings
     tenant.settings = tenant_settings
     db.commit()

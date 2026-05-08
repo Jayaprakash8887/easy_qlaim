@@ -322,6 +322,7 @@ class CommunicationConfigResponse(BaseModel):
     slack_workspace_id: Optional[str]
     slack_channel_id: Optional[str]
     teams_tenant_id: Optional[str]
+    teams_webhook_url: Optional[str]
     teams_channel_id: Optional[str]
     notify_on_claim_submitted: bool
     notify_on_claim_approved: bool
@@ -1375,19 +1376,75 @@ async def test_communication(
             if not config.teams_webhook_url:
                 raise HTTPException(status_code=400, detail="Teams webhook URL is required")
             
+            webhook_url = config.teams_webhook_url
+            
+            # Detect if it's a Power Automate URL vs standard Teams webhook
+            is_power_automate = "powerautomate" in webhook_url.lower() or "flow.microsoft" in webhook_url.lower()
+            
+            if is_power_automate:
+                # Power Automate expects Adaptive Card format
+                payload = {
+                    "type": "message",
+                    "attachments": [
+                        {
+                            "contentType": "application/vnd.microsoft.card.adaptive",
+                            "content": {
+                                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                                "type": "AdaptiveCard",
+                                "version": "1.4",
+                                "body": [
+                                    {
+                                        "type": "TextBlock",
+                                        "size": "Medium",
+                                        "weight": "Bolder",
+                                        "text": "🧪 Easy Qlaim - Test Notification",
+                                        "wrap": True
+                                    },
+                                    {
+                                        "type": "TextBlock",
+                                        "text": test_message,
+                                        "wrap": True
+                                    },
+                                    {
+                                        "type": "FactSet",
+                                        "facts": [
+                                            {"title": "Status", "value": "✅ Integration Working"},
+                                            {"title": "System", "value": "Claims Management System"},
+                                            {"title": "Time", "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")}
+                                        ]
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            else:
+                # Standard Teams Incoming Webhook uses MessageCard format
+                payload = {
+                    "@type": "MessageCard",
+                    "@context": "http://schema.org/extensions",
+                    "summary": "Test Message",
+                    "themeColor": "0076D7",
+                    "title": "Easy Qlaim - Test Notification",
+                    "sections": [
+                        {
+                            "activityTitle": "🧪 Integration Test",
+                            "facts": [
+                                {"name": "Status", "value": "✅ Working"},
+                                {"name": "Message", "value": test_message}
+                            ],
+                            "markdown": True
+                        }
+                    ]
+                }
+            
             async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    config.teams_webhook_url,
-                    json={
-                        "@type": "MessageCard",
-                        "@context": "http://schema.org/extensions",
-                        "summary": "Test Message",
-                        "themeColor": "0076D7",
-                        "title": "Claims Management System",
-                        "text": test_message
-                    }
-                )
-                if response.status_code == 200:
+                response = await client.post(webhook_url, json=payload)
+                
+                logger.info(f"Teams webhook response: {response.status_code} - {response.text[:200] if response.text else 'No body'}")
+                
+                # Teams webhooks return 200 or 202 (Accepted) on success
+                if response.status_code in (200, 202):
                     return {"success": True, "message": "Test message sent to Teams"}
                 return {"success": False, "error": f"HTTP {response.status_code}: {response.text}"}
         

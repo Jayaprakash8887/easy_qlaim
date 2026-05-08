@@ -74,10 +74,10 @@ export default function ClaimsList() {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<'date' | 'amount'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  
+
   const { user } = useAuth();
   const tenantId = user?.tenantId;
-  const { data: claims = [], isLoading, error, refetch } = useClaims(tenantId);
+  const { data: claims = [], isLoading, error, refetch } = useClaims({ myClaims: true });
   const deleteClaim = useDeleteClaim();
   const { formatDate, formatCurrency } = useFormatting();
 
@@ -98,7 +98,7 @@ export default function ClaimsList() {
     if (!confirm(`Are you sure you want to delete claim ${claimNumber}?`)) {
       return;
     }
-    
+
     try {
       await deleteClaim.mutateAsync(claimId);
       toast({
@@ -116,7 +116,7 @@ export default function ClaimsList() {
 
   const filteredClaims = useMemo(() => {
     // Filter by current user's employee ID if available
-    let result = user?.id 
+    let result = user?.id
       ? claims.filter(claim => claim.employeeId === user.id)
       : claims;
 
@@ -232,10 +232,6 @@ export default function ClaimsList() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button variant="outline" className="gap-2">
-                <Download className="h-4 w-4" />
-                <span className="hidden sm:inline">Export</span>
-              </Button>
             </div>
           </div>
 
@@ -285,165 +281,165 @@ export default function ClaimsList() {
 
       {/* Claims Table */}
       {!isLoading && !error && (
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12">
-                  <Checkbox
-                    checked={
-                      paginatedClaims.length > 0 &&
-                      selectedClaims.length === paginatedClaims.length
-                    }
-                    onCheckedChange={handleSelectAll}
-                  />
-                </TableHead>
-                <TableHead>Claim ID</TableHead>
-                <TableHead>Title</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => toggleSort('amount')}
-                    className="gap-1 -ml-3"
-                  >
-                    Amount
-                    <ArrowUpDown className="h-3 w-3" />
-                  </Button>
-                </TableHead>
-                <TableHead>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => toggleSort('date')}
-                    className="gap-1 -ml-3"
-                  >
-                    Date
-                    <ArrowUpDown className="h-3 w-3" />
-                  </Button>
-                </TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>AI / Compliance</TableHead>
-                <TableHead className="w-12"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paginatedClaims.length === 0 ? (
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={9} className="h-32 text-center">
-                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                      <FileText className="h-8 w-8" />
-                      <p>No claims found</p>
-                    </div>
-                  </TableCell>
+                  <TableHead className="w-12">
+                    <Checkbox
+                      checked={
+                        paginatedClaims.length > 0 &&
+                        selectedClaims.length === paginatedClaims.length
+                      }
+                      onCheckedChange={handleSelectAll}
+                    />
+                  </TableHead>
+                  <TableHead>Claim ID</TableHead>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => toggleSort('amount')}
+                      className="gap-1 -ml-3"
+                    >
+                      Amount
+                      <ArrowUpDown className="h-3 w-3" />
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => toggleSort('date')}
+                      className="gap-1 -ml-3"
+                    >
+                      Date
+                      <ArrowUpDown className="h-3 w-3" />
+                    </Button>
+                  </TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>AI / Compliance</TableHead>
+                  <TableHead className="w-12"></TableHead>
                 </TableRow>
-              ) : (
-                paginatedClaims.map((claim) => (
-                  <TableRow key={claim.id} className="group">
-                    <TableCell>
-                      <Checkbox
-                        checked={selectedClaims.includes(claim.id)}
-                        onCheckedChange={(checked) =>
-                          handleSelectClaim(claim.id, checked as boolean)
-                        }
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Link
-                        to={`/claims/${claim.id}`}
-                        className="font-mono text-sm text-primary hover:underline"
-                      >
-                        {claim.claimNumber}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <div className="max-w-[200px]">
-                        <p className="truncate font-medium">{claim.title || 'Untitled Claim'}</p>
-                        <p className="truncate text-sm text-muted-foreground">
-                          {claim.description || '-'}
-                        </p>
+              </TableHeader>
+              <TableBody>
+                {paginatedClaims.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="h-32 text-center">
+                      <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                        <FileText className="h-8 w-8" />
+                        <p>No claims found</p>
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{formatCategory(claim.category || 'Other')}</Badge>
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {formatCurrency(claim.amount)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDate(claim.claimDate || claim.submissionDate)}
-                    </TableCell>
-                    <TableCell>
-                      <ClaimStatusBadge status={claim.status} size="sm" />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-1">
-                        {claim.aiConfidence > 0 && (
-                          <AIConfidenceBadge score={claim.aiConfidence} size="sm" />
-                        )}
-                        {(claim.complianceScore || 0) > 0 && (
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-xs font-medium w-fit",
-                              (claim.complianceScore || 0) >= 80 ? "bg-success/10 text-success border-success/20" :
-                              (claim.complianceScore || 0) >= 60 ? "bg-warning/10 text-warning border-warning/20" :
-                              "bg-destructive/10 text-destructive border-destructive/20"
-                            )}
-                          >
-                            {(claim.complianceScore || 0).toFixed(0)}% Policy
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="opacity-0 group-hover:opacity-100"
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link to={`/claims/${claim.id}`} className="flex items-center gap-2">
-                              <Eye className="h-4 w-4" />
-                              View Details
-                            </Link>
-                          </DropdownMenuItem>
-                          {claim.status === 'returned' && (
-                            <DropdownMenuItem className="gap-2" asChild>
-                              <Link to={`/claims/${claim.id}/edit`}>
-                                <Edit className="h-4 w-4" />
-                                Edit
-                              </Link>
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuSeparator />
-                          {(claim.status === 'pending_manager' || claim.status === 'returned') && (
-                          <DropdownMenuItem 
-                            className="gap-2 text-destructive cursor-pointer"
-                            onClick={() => handleDeleteClaim(claim.id, claim.claimNumber || claim.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                ) : (
+                  paginatedClaims.map((claim) => (
+                    <TableRow key={claim.id} className="group">
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedClaims.includes(claim.id)}
+                          onCheckedChange={(checked) =>
+                            handleSelectClaim(claim.id, checked as boolean)
+                          }
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Link
+                          to={`/claims/${claim.id}`}
+                          className="font-mono text-sm text-primary hover:underline"
+                        >
+                          {claim.claimNumber}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <div className="max-w-[200px]">
+                          <p className="truncate font-medium">{claim.title || 'Untitled Claim'}</p>
+                          <p className="truncate text-sm text-muted-foreground">
+                            {claim.description || '-'}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{formatCategory(claim.category || 'Other')}</Badge>
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {formatCurrency(claim.amount)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {formatDate(claim.claimDate || claim.submissionDate)}
+                      </TableCell>
+                      <TableCell>
+                        <ClaimStatusBadge status={claim.status} size="sm" />
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          {claim.aiConfidence > 0 && (
+                            <AIConfidenceBadge score={claim.aiConfidence} size="sm" />
+                          )}
+                          {(claim.complianceScore || 0) > 0 && (
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "text-xs font-medium w-fit",
+                                (claim.complianceScore || 0) >= 80 ? "bg-success/10 text-success border-success/20" :
+                                  (claim.complianceScore || 0) >= 60 ? "bg-warning/10 text-warning border-warning/20" :
+                                    "bg-destructive/10 text-destructive border-destructive/20"
+                              )}
+                            >
+                              {(claim.complianceScore || 0).toFixed(0)}% Policy
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="opacity-0 group-hover:opacity-100"
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem asChild>
+                              <Link to={`/claims/${claim.id}`} className="flex items-center gap-2">
+                                <Eye className="h-4 w-4" />
+                                View Details
+                              </Link>
+                            </DropdownMenuItem>
+                            {claim.status === 'returned' && (
+                              <DropdownMenuItem className="gap-2" asChild>
+                                <Link to={`/claims/${claim.id}/edit`}>
+                                  <Edit className="h-4 w-4" />
+                                  Edit
+                                </Link>
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            {(claim.status === 'pending_manager' || claim.status === 'returned') && (
+                              <DropdownMenuItem
+                                className="gap-2 text-destructive cursor-pointer"
+                                onClick={() => handleDeleteClaim(claim.id, claim.claimNumber || claim.id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Delete
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
 
       {/* Pagination */}

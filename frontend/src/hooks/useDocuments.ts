@@ -2,7 +2,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ClaimDocument } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+// Auth helpers
+function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem('access_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
 
 // Transform backend document to frontend format
 function transformDocument(doc: any): ClaimDocument {
@@ -10,7 +16,7 @@ function transformDocument(doc: any): ClaimDocument {
     id: doc.id,
     name: doc.filename || doc.name || 'Document',
     filename: doc.filename,
-    url: doc.download_url || `/api/v1/documents/${doc.id}/view`,
+    url: doc.download_url || `${API_BASE_URL}/documents/${doc.id}/view`,
     type: doc.file_type || doc.type || 'UNKNOWN',
     size: doc.file_size || doc.size || 0,
     uploadedAt: doc.uploaded_at ? new Date(doc.uploaded_at) : new Date(),
@@ -26,7 +32,9 @@ function transformDocument(doc: any): ClaimDocument {
 
 // Fetch documents for a claim
 async function fetchDocumentsForClaim(claimId: string, tenantId: string): Promise<ClaimDocument[]> {
-  const response = await fetch(`${API_BASE_URL}/documents/?claim_id=${claimId}&tenant_id=${tenantId}`);
+  const response = await fetch(`${API_BASE_URL}/documents/?claim_id=${claimId}&tenant_id=${tenantId}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('Failed to fetch documents');
   }
@@ -36,7 +44,9 @@ async function fetchDocumentsForClaim(claimId: string, tenantId: string): Promis
 
 // Fetch a single document
 async function fetchDocument(documentId: string): Promise<ClaimDocument | undefined> {
-  const response = await fetch(`${API_BASE_URL}/documents/${documentId}`);
+  const response = await fetch(`${API_BASE_URL}/documents/${documentId}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     if (response.status === 404) return undefined;
     throw new Error('Failed to fetch document');
@@ -52,6 +62,7 @@ async function uploadDocument(claimId: string, file: File): Promise<ClaimDocumen
 
   const response = await fetch(`${API_BASE_URL}/documents/upload/${claimId}`, {
     method: 'POST',
+    headers: getAuthHeaders(),
     body: formData,
   });
 
@@ -67,6 +78,7 @@ async function uploadDocument(claimId: string, file: File): Promise<ClaimDocumen
 async function deleteDocument(documentId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/documents/${documentId}`, {
     method: 'DELETE',
+    headers: getAuthHeaders(),
   });
 
   if (!response.ok) {
@@ -132,7 +144,9 @@ export function getDocumentDownloadUrl(documentId: string): string {
 
 // Fetch the signed URL for a document (for direct image/pdf loading)
 export async function fetchDocumentSignedUrl(documentId: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/documents/${documentId}/signed-url`);
+  const response = await fetch(`${API_BASE_URL}/documents/${documentId}/signed-url`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('Failed to get document URL');
   }
