@@ -54,13 +54,22 @@ System Admin is a platform-level role with access to:
 Claims for expenses paid by employees that require receipt verification.
 
 **Supported Categories:**
-| Category | Description | Max Limit | Docs Required |
-|----------|-------------|-----------|---------------|
-| CERTIFICATION | Professional exams, courses | ₹25,000 | Yes |
-| TRAVEL | Business travel expenses | ₹50,000 | Yes |
-| TEAM_LUNCH | Team meals | ₹500/person | Yes |
-| EQUIPMENT | Work equipment | ₹20,000 | Yes |
-| TRAINING | Training programs | ₹30,000 | Yes |
+
+Categories are dynamically defined through uploaded policy documents. Each tenant can have different categories extracted from their policies. Below are typical default categories:
+
+| Category | Type | Description | Docs Required |
+|----------|------|-------------|---------------|
+| CERTIFICATION | Reimbursement | Professional exams, courses | Yes |
+| TRAVEL | Reimbursement | Business travel expenses | Yes |
+| TEAM_LUNCH | Reimbursement | Team meals | Yes |
+| EQUIPMENT | Reimbursement | Work equipment | Yes |
+| TRAINING | Reimbursement | Training programs | Yes |
+| ONCALL | Allowance | On-call duty allowance | No |
+| OVERTIME | Allowance | Overtime allowance | No |
+| WFH | Allowance | Work from home allowance | No |
+| PHONE | Allowance | Mobile recharge | No |
+
+> **Note:** Amount limits, frequency limits, and eligibility criteria are defined per-category in uploaded policy documents and can vary by tenant and region. See Section 7 (Policy Management) for details.
 
 **Submission Flow:**
 ```
@@ -83,15 +92,15 @@ Claims for expenses paid by employees that require receipt verification.
 
 ### 3.2 Allowance Claims
 
-Fixed-amount claims that don't require receipts.
+Fixed-amount claims that don't require receipts. Categories and amounts are defined by tenant policies.
 
-**Supported Categories:**
-| Category | Description | Amount | Frequency |
-|----------|-------------|--------|-----------|
-| ONCALL | On-call duty allowance | ₹2,000/day | Per occurrence |
-| OVERTIME | Overtime allowance | ₹3,000/day | Per occurrence |
-| WFH | Work from home allowance | ₹500/day | Monthly |
-| PHONE | Mobile recharge | ₹500/month | Monthly |
+**Typical Allowance Categories:**
+| Category | Description | Frequency |
+|----------|-------------|----------|
+| ONCALL | On-call duty allowance | Per occurrence |
+| OVERTIME | Overtime allowance | Per occurrence |
+| WFH | Work from home allowance | Monthly |
+| PHONE | Mobile recharge | Monthly |
 
 **Submission Flow:**
 ```
@@ -127,13 +136,13 @@ Fixed-amount claims that don't require receipts.
 │                        CLAIM LIFECYCLE                                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  SUBMITTED ──▶ AI_PROCESSING ──┬─────▶ AUTO_APPROVED (High Confidence)      │
+│  AI_PROCESSING ──┬─────▶ FINANCE_APPROVED (Auto-Approved, High Confidence)      │
 │                                │                                             │
 │                                ├─────▶ PENDING_MANAGER                      │
 │                                │              │                              │
 │                                │       ┌──────┴──────┐                      │
 │                                │       ▼             ▼                      │
-│                                │   APPROVED     RETURNED                    │
+│                                │   MANAGER_APPROVED  RETURNED_TO_EMPLOYEE  │
 │                                │       │             │                      │
 │                                │       ▼             ▼                      │
 │                                │   PENDING_HR   EDIT_MODE                   │
@@ -145,7 +154,10 @@ Fixed-amount claims that don't require receipts.
 │                                │   PENDING_FINANCE                          │
 │                                │       │                                    │
 │                                │       ▼                                    │
-│                                └─────▶ SETTLED                              │
+│                                └─────▶ FINANCE_APPROVED                     │
+│                                        │                                    │
+│                                        ▼                                    │
+│                                     SETTLED                                  │
 │                                                                              │
 │  Any Stage ───▶ REJECTED                                                    │
 │                                                                              │
@@ -725,4 +737,4 @@ All actions are logged:
 
 ---
 
-*Document Version: 1.1 | Last Updated: December 2025*
+*Document Version: 1.2 | Last Updated: May 2026*

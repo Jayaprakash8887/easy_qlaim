@@ -52,13 +52,19 @@ The Orchestrator Agent is the central coordinator of the Easy Qlaim multi-agent 
 │         ┌────────Yes────────┐                    │                         │
 │         ▼                   ▼                    ▼                         │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────┐                │
-│  │ Document    │    │ Validation  │    │ Allowance       │                │
+│  │ Document    │    │ Integration │    │ Allowance       │                │
 │  │ Agent       │───▶│ Agent       │    │ Workflow        │                │
 │  └─────────────┘    └──────┬──────┘    │ (No Documents)  │                │
 │                            │           └────────┬────────┘                │
 │                            ▼                    │                          │
 │                     ┌─────────────┐              │                         │
-│                     │ Approval    │◀─────────────┘                         │
+│                     │ Validation  │              │                         │
+│                     │ Agent       │◀─────────────┘                         │
+│                     └──────┬──────┘                                        │
+│                            │                                               │
+│                            ▼                                               │
+│                     ┌─────────────┐                                        │
+│                     │ Approval    │                                        │
 │                     │ Agent       │                                        │
 │                     └─────────────┘                                        │
 │                                                                              │

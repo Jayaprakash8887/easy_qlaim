@@ -31,8 +31,8 @@ The fastest way to get started is using Docker Compose:
 
 ```bash
 # Clone repository
-git clone https://github.com/your-org/easy-qlaim.git
-cd easy-qlaim
+git clone https://github.com/Jayaprakash8887/easy_qlaim.git
+cd easy_qlaim
 
 # Start all services
 ./start.sh
@@ -62,8 +62,8 @@ docker-compose logs -f
 #### 3.1 Clone Repository
 
 ```bash
-git clone https://github.com/your-org/easy-qlaim.git
-cd easy-qlaim
+git clone https://github.com/Jayaprakash8887/easy_qlaim.git
+cd easy_qlaim
 ```
 
 #### 3.2 Backend Setup

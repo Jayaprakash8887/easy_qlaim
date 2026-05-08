@@ -33,13 +33,17 @@ Easy Qlaim employs a multi-agent architecture where specialized AI agents collab
 │  └─────────────────┘    └─────────────────────┘    └─────────────────────┘     │
 │                                                                                  │
 │  ┌──────────────────────────────────────────────────────────────────────────┐   │
-│  │                     SUPPORTING AGENTS                                     │   │
-│  │  ┌─────────────────────┐        ┌─────────────────────────────────────┐  │   │
-│  │  │  NOTIFICATION       │        │  DUPLICATE DETECTION                │  │   │
-│  │  │    AGENT            │        │       AGENT                         │  │   │
-│  │  │  • Email Alerts     │        │  • Similarity Check                 │  │   │
-│  │  │  • Status Updates   │        │  • Fraud Prevention                 │  │   │
-│  │  └─────────────────────┘        └─────────────────────────────────────┘  │   │
+│  │                     SUPPORTING AGENTS & SERVICES                          │   │
+│  │  ┌─────────────────────┐  ┌─────────────────────┐                        │   │
+│  │  │  INTEGRATION        │  │  LEARNING            │                       │   │
+│  │  │    AGENT            │  │    AGENT              │                       │   │
+│  │  │  • Employee Data    │  │  • Accuracy Analysis  │                      │   │
+│  │  │  • Project Data     │  │  • Pattern Detection  │                      │   │
+│  │  │  • HRMS Fetch       │  │  • Recommendations    │                      │   │
+│  │  └─────────────────────┘  └─────────────────────┘                        │   │
+│  │  ┌─────────────────────────────────────────────┐                         │   │
+│  │  │  SERVICES: Duplicate Detection | Notification                         │   │
+│  │  └─────────────────────────────────────────────┘                         │   │
 │  └──────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                  │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -55,10 +59,10 @@ Easy Qlaim employs a multi-agent architecture where specialized AI agents collab
 |-------|----------------|----------|-----------|
 | **Orchestrator** | Workflow coordination | Claim submission | No |
 | **Document** | OCR & data extraction | Has attachments | Yes (Vision) |
+| **Integration** | Employee/project data fetch | Always | No |
 | **Validation** | Policy compliance check | Always | Conditional |
 | **Approval** | Routing & auto-approval | Always | No |
-| **Notification** | User alerts | Status changes | No |
-| **Duplicate Detection** | Fraud prevention | Optional | Yes |
+| **Learning** | Continuous improvement & analytics | Scheduled (daily/weekly/monthly) | No |
 
 ### 3.2 Agent Execution Order
 
@@ -69,23 +73,29 @@ Easy Qlaim employs a multi-agent architecture where specialized AI agents collab
    ├─► 2. Document Agent (OCR Processing)
    │       └─► Extract text, parse amounts, dates
    │
-   ├─► 3. Validation Agent (Policy Check)
+   ├─► 3. Integration Agent (Data Fetch)
+   │       └─► Fetch employee, project, timesheet data
+   │
+   ├─► 4. Validation Agent (Policy Check)
    │       ├─► Rule-based validation first
    │       └─► LLM reasoning if rules fail
    │
-   └─► 4. Approval Agent (Routing)
-           └─► Route based on confidence + rules
+   └─► 5. Approval Agent (Routing)
+           └─► Route based on confidence + rules + tenant settings
 ```
 
 **Allowance Claims (no documents):**
 ```
 1. Orchestrator Agent
    │
-   ├─► 2. Validation Agent (Policy Check)
+   ├─► 2. Integration Agent (Data Fetch)
+   │       └─► Fetch employee, project, timesheet data
+   │
+   ├─► 3. Validation Agent (Policy Check)
    │       └─► Rule-based validation
    │
-   └─► 3. Approval Agent (Routing)
-           └─► Route based on confidence
+   └─► 4. Approval Agent (Routing)
+           └─► Route based on confidence + tenant settings
 ```
 
 ---
@@ -195,6 +205,7 @@ Agents are executed as Celery tasks in chains:
 # Reimbursement workflow
 workflow = chain(
     process_documents_task.s(claim_id),    # Document Agent
+    fetch_employee_data_task.s(claim_id),   # Integration Agent
     validate_claim_task.s(claim_id),        # Validation Agent
     route_claim_task.s(claim_id),           # Approval Agent
 )
@@ -235,23 +246,17 @@ workflow.apply_async()
 │           ┌─────────────────────┼─────────────────────┐                         │
 │           ▼                     ▼                     ▼                         │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐                 │
-│  │ Document Agent  │─▶│ Validation Agent│─▶│ Approval Agent  │                 │
-│  │                 │  │                 │  │                 │                 │
-│  │ Input:          │  │ Input:          │  │ Input:          │                 │
-│  │ - Claim ID      │  │ - Claim ID      │  │ - Claim ID      │                 │
-│  │ - Documents     │  │ - OCR data      │  │ - Validation    │                 │
-│  │                 │  │ - Policies      │  │   results       │                 │
-│  │ Output:         │  │                 │  │                 │                 │
-│  │ - OCR text      │  │ Output:         │  │ Output:         │                 │
-│  │ - Parsed data   │  │ - Confidence    │  │ - New status    │                 │
-│  │ - Confidence    │  │ - Recommendation│  │ - Routing       │                 │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘                 │
-│                                                │                                 │
-│                                                ▼                                 │
-│                                       ┌─────────────────┐                       │
-│                                       │  Notification   │                       │
-│                                       │     Agent       │                       │
-│                                       └─────────────────┘                       │
+│  │ Document Agent  │─▶│Integration Agent│─▶│ Validation Agent│─▶│Approval Agent │ │
+│  │                 │  │                 │  │                 │  │               │ │
+│  │ Input:          │  │ Input:          │  │ Input:          │  │ Input:        │ │
+│  │ - Claim ID      │  │ - Claim ID      │  │ - Claim ID      │  │ - Claim ID    │ │
+│  │ - Documents     │  │                 │  │ - OCR data      │  │ - Validation  │ │
+│  │                 │  │ Output:         │  │ - Policies      │  │   results     │ │
+│  │ Output:         │  │ - Employee data │  │                 │  │               │ │
+│  │ - OCR text      │  │ - Project data  │  │ Output:         │  │ Output:       │ │
+│  │ - Parsed data   │  │ - Timesheet     │  │ - Confidence    │  │ - New status  │ │
+│  │ - Confidence    │  │                 │  │ - Recommendation│  │ - Routing     │ │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘  └───────────────┘ │
 │                                                                                  │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
