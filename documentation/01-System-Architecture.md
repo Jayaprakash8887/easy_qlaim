@@ -45,12 +45,16 @@ Easy Qlaim is a multi-tenant SaaS platform that automates expense reimbursement 
 │  ┌──────────────────────────────────────┐  ┌────────────────────────────────┐   │
 │  │         REST API Endpoints            │  │      Background Workers        │   │
 │  │  ┌────────┐ ┌────────┐ ┌────────┐    │  │  ┌──────────────────────────┐  │   │
-│  │  │ Claims │ │ Users  │ │Approval│    │  │  │    Celery Workers         │  │   │
+│  │  │ Claims │ │Employee│ │Approval│    │  │  │    Celery Workers         │  │   │
 │  │  │  API   │ │  API   │ │  API   │    │  │  │  - OCR Processing        │  │   │
 │  │  └────────┘ └────────┘ └────────┘    │  │  │  - AI Validation         │  │   │
-│  │  ┌────────┐ ┌────────┐ ┌────────┐    │  │  │  - Notification Dispatch │  │   │
+│  │  ┌────────┐ ┌────────┐ ┌────────┐    │  │  │  - Claim Routing         │  │   │
 │  │  │ Docs   │ │ Policy │ │Dashboard│   │  │  └──────────────────────────┘  │   │
 │  │  │  API   │ │  API   │ │  API   │    │  └────────────────────────────────┘   │
+│  │  └────────┘ └────────┘ └────────┘    │                                        │
+│  │  ┌────────┐ ┌────────┐ ┌────────┐    │                                        │
+│  │  │Project │ │ IBU    │ │Settings│    │                                        │
+│  │  │  API   │ │  API   │ │  API   │    │                                        │
 │  │  └────────┘ └────────┘ └────────┘    │                                        │
 │  └──────────────────────────────────────┘                                        │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -75,7 +79,7 @@ Easy Qlaim is a multi-tenant SaaS platform that automates expense reimbursement 
 │  └────────────────┘  └─────────────────────┘  └─────────────────────────┘       │
 │                                                                                  │
 │  ┌──────────────────────────────────────────────────────────────────────────┐   │
-│  │ Supporting Agents: Notification Agent | Duplicate Detection Agent        │   │
+│  │ Supporting Agents: Integration Agent | Learning Agent                    │   │
 │  └──────────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────────┘
                │
@@ -184,19 +188,24 @@ Easy Qlaim is a multi-tenant SaaS platform that automates expense reimbursement 
 │                          APPROVAL STATE MACHINE                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  SUBMITTED ──▶ AI_PROCESSING ──┬──▶ AUTO_APPROVED (High Confidence)        │
-│                                │                                             │
-│                                ├──▶ PENDING_MANAGER ──┬──▶ APPROVED         │
-│                                │                      │                      │
-│                                │                      ├──▶ REJECTED          │
-│                                │                      │                      │
-│                                │                      └──▶ RETURNED ──▶ (Re-submit)
-│                                │                                             │
-│                                ├──▶ PENDING_HR ──┬──▶ HR_APPROVED ──▶ FINANCE│
-│                                │                 │                           │
-│                                │                 └──▶ RETURNED               │
-│                                │                                             │
-│                                └──▶ PENDING_FINANCE ──▶ SETTLED              │
+│  AI_PROCESSING ──┬──▶ FINANCE_APPROVED (Auto-Approved, High Confidence)    │
+│                  │                                                           │
+│                  ├──▶ PENDING_MANAGER ──┬──▶ MANAGER_APPROVED               │
+│                  │                      │       │                            │
+│                  │                      │       ├──▶ PENDING_HR              │
+│                  │                      │       │       └──▶ HR_APPROVED     │
+│                  │                      │       │              └──▶ PENDING_FINANCE
+│                  │                      │       │                    └──▶ FINANCE_APPROVED
+│                  │                      │       │                          └──▶ SETTLED
+│                  │                      │       └──▶ FINANCE_APPROVED (auto-skip)
+│                  │                      │                                    │
+│                  │                      ├──▶ REJECTED                        │
+│                  │                      │                                    │
+│                  │                      └──▶ RETURNED_TO_EMPLOYEE ──▶ (Re-submit)
+│                  │                                                           │
+│                  ├──▶ PENDING_HR (policy exceptions)                         │
+│                  │                                                           │
+│                  └──▶ REJECTED (low confidence)                              │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -234,13 +243,18 @@ Orchestrator Agent (Coordinator)
     │
     ├── Document Agent (OCR + Data Extraction)
     │
+    ├── Integration Agent (Employee/Project Data Fetch)
+    │
     ├── Validation Agent (Policy Compliance)
     │
     └── Approval Agent (Workflow Routing)
     
 Supporting Agents:
-    ├── Notification Agent (Alerts)
-    └── Duplicate Detection Agent (Fraud Prevention)
+    └── Learning Agent (Continuous Improvement & Analytics)
+
+Supporting Services:
+    ├── Duplicate Detection Service
+    └── Notification Service
 ```
 
 ### 5.3 Data Layer

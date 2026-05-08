@@ -54,13 +54,22 @@ System Admin is a platform-level role with access to:
 Claims for expenses paid by employees that require receipt verification.
 
 **Supported Categories:**
-| Category | Description | Max Limit | Docs Required |
-|----------|-------------|-----------|---------------|
-| CERTIFICATION | Professional exams, courses | ₹25,000 | Yes |
-| TRAVEL | Business travel expenses | ₹50,000 | Yes |
-| TEAM_LUNCH | Team meals | ₹500/person | Yes |
-| EQUIPMENT | Work equipment | ₹20,000 | Yes |
-| TRAINING | Training programs | ₹30,000 | Yes |
+
+Categories are dynamically defined through uploaded policy documents. Each tenant can have different categories extracted from their policies. Below are typical default categories:
+
+| Category | Type | Description | Docs Required |
+|----------|------|-------------|---------------|
+| CERTIFICATION | Reimbursement | Professional exams, courses | Yes |
+| TRAVEL | Reimbursement | Business travel expenses | Yes |
+| TEAM_LUNCH | Reimbursement | Team meals | Yes |
+| EQUIPMENT | Reimbursement | Work equipment | Yes |
+| TRAINING | Reimbursement | Training programs | Yes |
+| ONCALL | Allowance | On-call duty allowance | No |
+| OVERTIME | Allowance | Overtime allowance | No |
+| WFH | Allowance | Work from home allowance | No |
+| PHONE | Allowance | Mobile recharge | No |
+
+> **Note:** Amount limits, frequency limits, and eligibility criteria are defined per-category in uploaded policy documents and can vary by tenant and region. See Section 7 (Policy Management) for details.
 
 **Submission Flow:**
 ```
@@ -83,15 +92,15 @@ Claims for expenses paid by employees that require receipt verification.
 
 ### 3.2 Allowance Claims
 
-Fixed-amount claims that don't require receipts.
+Fixed-amount claims that don't require receipts. Categories and amounts are defined by tenant policies.
 
-**Supported Categories:**
-| Category | Description | Amount | Frequency |
-|----------|-------------|--------|-----------|
-| ONCALL | On-call duty allowance | ₹2,000/day | Per occurrence |
-| OVERTIME | Overtime allowance | ₹3,000/day | Per occurrence |
-| WFH | Work from home allowance | ₹500/day | Monthly |
-| PHONE | Mobile recharge | ₹500/month | Monthly |
+**Typical Allowance Categories:**
+| Category | Description | Frequency |
+|----------|-------------|----------|
+| ONCALL | On-call duty allowance | Per occurrence |
+| OVERTIME | Overtime allowance | Per occurrence |
+| WFH | Work from home allowance | Monthly |
+| PHONE | Mobile recharge | Monthly |
 
 **Submission Flow:**
 ```
@@ -101,207 +110,7 @@ Fixed-amount claims that don't require receipts.
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-### 3.3 Allowance Calculation Types
-
-Allowance claims support three calculation methodologies based on policy configuration:
-
-#### 3.3.1 Per Day Calculation
-
-For time-based allowances (e.g., WFH, On-Call, Deputation).
-
-**Input Fields:**
-| Field | Description |
-|-------|-------------|
-| Period Start | Start date of the allowance period |
-| Period End | End date of the allowance period |
-| Per Day Rate | Rate per working day (from policy or manual) |
-| Leave Days | Number of leaves/holidays to exclude |
-
-**Calculation Formula:**
-```
-Working Days = Weekdays between Period Start and Period End
-Net Working Days = Working Days - Leave Days
-Total Amount = Net Working Days × Per Day Rate
-```
-
-**Example:**
-- Period: Dec 1-31, 2025 (23 working days)
-- Leave Days: 2
-- Per Day Rate: ₹300
-- **Total = (23 - 2) × 300 = ₹6,300**
-
-#### 3.3.2 Per KM Calculation
-
-For distance-based allowances (e.g., Conveyance, Travel Allowance).
-
-**Input Fields:**
-| Field | Description |
-|-------|-------------|
-| From Location | Starting point (map picker) |
-| To Location | Destination point (map picker) |
-| Number of Trips | Round trips made |
-| Rate per KM | Rate from policy configuration |
-
-**Calculation Formula:**
-```
-One-Way Distance = Haversine distance between From and To locations
-Total Distance = One-Way Distance × Number of Trips × 2 (round trip)
-Total Amount = Total Distance × Rate per KM
-```
-
-**Haversine Formula (for distance calculation):**
-```
-R = 6371 km (Earth's radius)
-a = sin²(Δlat/2) + cos(lat1) × cos(lat2) × sin²(Δlng/2)
-c = 2 × atan2(√a, √(1-a))
-Distance = R × c
-```
-
-**Example:**
-- From: Chennai Office (13.0827°N, 80.2707°E)
-- To: Client Site (12.9716°N, 77.5946°E)  
-- Distance: ~290 km one-way
-- Trips: 2 round trips
-- Rate: ₹8/km
-- **Total = 290 × 2 × 2 × 8 = ₹9,280**
-
-#### 3.3.3 Fixed Amount
-
-For fixed allowances where amount is entered directly.
-
-**Input Fields:**
-| Field | Description |
-|-------|-------------|
-| Amount | Fixed amount to claim |
-| Description | Justification for the claim |
-
-**Policy Configuration:**
-```json
-{
-  "calculation_type": "per_day" | "per_km" | "fixed",
-  "rate_per_unit": 300,  // Rate per day or per km
-  "max_amount": 25000    // Maximum limit per claim/period
-}
-```
-
-### 3.4 Location Picker with Dual Map Provider
-
-For per-km calculations, the system provides an interactive map-based location picker with **Google Maps as the primary provider** and **OpenStreetMap as automatic fallback**.
-
-**Provider Selection Logic:**
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Map Provider Selection                        │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌────────────────────────┐                                      │
-│  │ Google Maps API Key    │                                      │
-│  │ Configured?            │                                      │
-│  └───────────┬────────────┘                                      │
-│              │                                                   │
-│     ┌────────┴────────┐                                          │
-│     │                 │                                          │
-│   [YES]             [NO]                                         │
-│     │                 │                                          │
-│     ▼                 │                                          │
-│  ┌──────────────┐     │                                          │
-│  │ Load Google  │     │                                          │
-│  │ Maps API     │     │                                          │
-│  └───────┬──────┘     │                                          │
-│          │            │                                          │
-│    ┌─────┴─────┐      │                                          │
-│    │           │      │                                          │
-│ [SUCCESS]   [FAIL]    │                                          │
-│    │           │      │                                          │
-│    ▼           ▼      ▼                                          │
-│ ┌──────────┐  ┌──────────────┐                                   │
-│ │ Google   │  │ OpenStreetMap│                                   │
-│ │ Maps     │  │ (Fallback)   │                                   │
-│ └──────────┘  └──────────────┘                                   │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Features:**
-| Feature | Google Maps | OpenStreetMap (Fallback) |
-|---------|-------------|-------------------------|
-| Interactive Map | Google Maps JS API | Leaflet.js |
-| Map Tiles | Google Maps Tiles | OpenStreetMap tiles |
-| Search | Places Autocomplete | Nominatim API |
-| Geocoding | Google Geocoding API | Nominatim API |
-| Click to Select | ✓ | ✓ |
-| Draggable Marker | ✓ | ✓ |
-| Current Location | ✓ (GPS) | ✓ (GPS) |
-| Reverse Geocoding | ✓ | ✓ |
-| API Key Required | Yes | No |
-
-**Google Maps (Primary):**
-- **Requirements:** 
-  - `VITE_GOOGLE_MAPS_API_KEY` - Your Google Maps API key
-  - `VITE_GOOGLE_MAPS_ID` - Map ID from Google Cloud Console (required for Advanced Markers)
-- **Features:** Places Autocomplete, Advanced Markers, rich geocoding
-- **Accuracy:** Higher accuracy for addresses
-- **Cost:** Pay-per-use (Google Cloud billing)
-
-**OpenStreetMap (Fallback):**
-- **Triggers:** No API key, API key invalid, Google Maps fails to load
-- **Map Tiles:** Free, no API key required
-- **Geocoding:** Nominatim API (free, 1 req/sec limit)
-- **Indicator:** Shows "Using OpenStreetMap" message when active
-
-**Configuration:**
-```bash
-# docker-compose.yml
-environment:
-  VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY}
-  VITE_GOOGLE_MAPS_ID: ${VITE_GOOGLE_MAPS_ID}
-
-# .env file (project root)
-VITE_GOOGLE_MAPS_API_KEY=your-google-maps-api-key
-VITE_GOOGLE_MAPS_ID=your-google-maps-id
-```
-
-**Getting a Map ID:**
-1. Go to Google Cloud Console → Google Maps Platform → Map Management
-2. Click "Create Map ID"
-3. Select **JavaScript** as Map type and **Vector** for raster/vector
-4. Copy the generated Map ID
-
-**Search Functionality:**
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  🔍 Search for a place...                                       │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │ Chennai Central Railway Station                         │    │
-│  │ Chennai, Tamil Nadu, India                              │    │
-│  ├─────────────────────────────────────────────────────────┤    │
-│  │ Chennai Airport                                          │    │
-│  │ Tirusulam, Chennai, Tamil Nadu, India                   │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│                                                                  │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                      [MAP VIEW]                          │    │
-│  │                         📍                               │    │
-│  │                                                          │    │
-│  │                                                          │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│                                                                  │
-│  Selected: 13.0827°N, 80.2707°E                                 │
-│  Address: Chennai Central, Chennai, Tamil Nadu                  │
-│  • Powered by Google Maps                                       │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Usage Notes:**
-- Google Maps: Enable Maps JavaScript API, Places API, and Geocoding API in Google Cloud Console
-- Google Maps: Create a Map ID (required for Advanced Markers) in Map Management
-- OpenStreetMap: Nominatim usage policy max 1 request/second
-- Search results limited to 5 suggestions
-- Coordinates stored with full precision
-- Addresses are display-only (coordinates used for calculation)
-
-### 3.5 Document Upload
+### 3.3 Document Upload
 
 **Supported Formats:**
 - PDF (up to 10MB)
@@ -327,13 +136,13 @@ VITE_GOOGLE_MAPS_ID=your-google-maps-id
 │                        CLAIM LIFECYCLE                                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  SUBMITTED ──▶ AI_PROCESSING ──┬─────▶ AUTO_APPROVED (High Confidence)      │
+│  AI_PROCESSING ──┬─────▶ FINANCE_APPROVED (Auto-Approved, High Confidence)      │
 │                                │                                             │
 │                                ├─────▶ PENDING_MANAGER                      │
 │                                │              │                              │
 │                                │       ┌──────┴──────┐                      │
 │                                │       ▼             ▼                      │
-│                                │   APPROVED     RETURNED                    │
+│                                │   MANAGER_APPROVED  RETURNED_TO_EMPLOYEE  │
 │                                │       │             │                      │
 │                                │       ▼             ▼                      │
 │                                │   PENDING_HR   EDIT_MODE                   │
@@ -345,7 +154,10 @@ VITE_GOOGLE_MAPS_ID=your-google-maps-id
 │                                │   PENDING_FINANCE                          │
 │                                │       │                                    │
 │                                │       ▼                                    │
-│                                └─────▶ SETTLED                              │
+│                                └─────▶ FINANCE_APPROVED                     │
+│                                        │                                    │
+│                                        ▼                                    │
+│                                     SETTLED                                  │
 │                                                                              │
 │  Any Stage ───▶ REJECTED                                                    │
 │                                                                              │
@@ -378,119 +190,6 @@ VITE_GOOGLE_MAPS_ID=your-google-maps-id
 | **Settle** | Process payment | Mark as SETTLED |
 | **Reject** | Financial issues | Claim rejected |
 
-### 4.5 Approval Skip Rules (CXO/Executive Fast-Track)
-
-This feature allows administrators to configure rules that automatically skip certain approval levels for designated employees (e.g., CXOs, executives, VPs). This enables faster reimbursement processing for senior leadership.
-
-**Use Cases:**
-- Skip manager approval for C-suite executives (CEO, CTO, CFO, etc.)
-- Skip all approvals for board members with pre-approved expense budgets
-- Fast-track specific individuals by email address
-
-**Configuration Location:**
-- Admin Dashboard → Approval Rules → Skip Rules tab
-
-**Rule Types:**
-
-| Match Type | Description | Example |
-|------------|-------------|---------|
-| **Designation** | Match by job title/designation code | `['CEO', 'CTO', 'CFO', 'VP']` |
-| **Email** | Match by specific email addresses | `['ceo@company.com', 'cto@company.com']` |
-
-**Skip Options:**
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| Skip Manager Approval | Bypass manager review | `false` |
-| Skip HR Approval | Bypass HR review | `false` |
-| Skip Finance Approval | Bypass finance review | `false` |
-
-**Optional Constraints:**
-
-| Constraint | Description |
-|------------|-------------|
-| Max Amount Threshold | Rule only applies to claims below this amount (NULL = no limit) |
-| Category Codes | Specific categories this rule applies to (empty = all categories) |
-| Priority | Lower number = higher priority, checked first (1-100 recommended) |
-
-**Workflow with Skip Rules:**
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│               CLAIM WITH APPROVAL SKIP RULES                                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  SUBMITTED ──▶ AI_PROCESSING ──▶ Check Skip Rules                           │
-│                                         │                                    │
-│                      ┌──────────────────┴──────────────────┐                │
-│                      ▼                                      ▼                │
-│              Rule Matches                            No Rule Match           │
-│              (e.g., CEO)                            (Normal Flow)            │
-│                      │                                      │                │
-│           ┌──────────┼──────────┐                          │                │
-│           ▼          ▼          ▼                          ▼                │
-│      Skip Mgr   Skip HR   Skip Fin           PENDING_MANAGER                │
-│           │          │          │                          │                │
-│           ▼          ▼          ▼                          ▼                │
-│      Goes directly to next non-skipped level        Normal workflow         │
-│                      │                                                       │
-│                      ▼                                                       │
-│              FINANCE_APPROVED (if all skipped)                              │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Example Configurations:**
-
-1. **CEO Full Skip:**
-   - Rule Name: `CEO Fast Track`
-   - Match Type: `designation`
-   - Designations: `['CEO']`
-   - Skip Manager: ✅
-   - Skip HR: ✅
-   - Skip Finance: ✅
-
-2. **VPs Skip Manager Only:**
-   - Rule Name: `VP Manager Skip`
-   - Match Type: `designation`
-   - Designations: `['VP', 'SVP', 'EVP']`
-   - Skip Manager: ✅
-   - Skip HR: ❌
-   - Skip Finance: ❌
-   - Max Amount: `50000`
-
-3. **Specific Executive:**
-   - Rule Name: `Board Member Express`
-   - Match Type: `email`
-   - Emails: `['board.member@company.com']`
-   - Skip Manager: ✅
-   - Skip HR: ✅
-   - Skip Finance: ❌
-
-4. **Project-Based Skip:**
-   - Rule Name: `High Priority Projects`
-   - Match Type: `project`
-   - Project Codes: `['PROJ-001', 'PROJ-002']`
-   - Skip Manager: ✅
-   - Skip HR: ❌
-   - Skip Finance: ❌
-   - Description: Skip manager approval for high-priority projects
-
-**API Endpoints:**
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/approval-skip-rules/` | List all rules for tenant |
-| POST | `/api/v1/approval-skip-rules/` | Create new rule |
-| GET | `/api/v1/approval-skip-rules/{id}` | Get specific rule |
-| PUT | `/api/v1/approval-skip-rules/{id}` | Update rule |
-| DELETE | `/api/v1/approval-skip-rules/{id}` | Delete rule |
-| GET | `/api/v1/approval-skip-rules/check/{user_id}` | Check applicable rules for user |
-
-**Database Table:**
-- Table name: `approval_skip_rules`
-- Migration: `003_create_approval_skip_rules.sql`
-
 ---
 
 ## 5. AI-Powered Features
@@ -516,8 +215,6 @@ This feature allows administrators to configure rules that automatically skip ce
 - Tenure requirements
 - Document completeness
 - Date validity
-- **Cumulative limit validation per period**
-- Fiscal year boundary checking
 
 **AI Reasoning:**
 - Policy exception analysis
@@ -525,64 +222,7 @@ This feature allows administrators to configure rules that automatically skip ce
 - Fraud pattern detection
 - Duplicate claim detection
 
-### 5.3 Cumulative Limit Validation
-
-The system validates claims against cumulative limits based on the policy's frequency period and tenant's fiscal year settings.
-
-**Frequency Periods:**
-| Period | Description | Example |
-|--------|-------------|---------|
-| DAILY | Per day limit | Max 1 meal claim per day |
-| WEEKLY | Per week limit | Max ₹5,000 per week |
-| MONTHLY | Per month limit | Max ₹10,000 per month |
-| QUARTERLY | Per fiscal quarter | Max ₹25,000 per quarter |
-| YEARLY | Per fiscal year | Max ₹50,000 per fiscal year |
-| ONCE | Lifetime limit | One-time joining bonus |
-| UNLIMITED | No limit | No restrictions |
-
-**Validation Flow:**
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    CUMULATIVE LIMIT VALIDATION                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  1. Get Policy Category (max_amount, frequency_limit)                       │
-│                            │                                                 │
-│                            ▼                                                 │
-│  2. Calculate Period Boundaries (respects tenant fiscal_year_start)         │
-│     YEARLY: Apr 1 - Mar 31 (Indian FY)                                      │
-│     QUARTERLY: Based on fiscal quarters                                     │
-│                            │                                                 │
-│                            ▼                                                 │
-│  3. Sum Existing Claims (same employee + category + period)                 │
-│     Excludes: REJECTED, CANCELLED claims                                    │
-│                            │                                                 │
-│                            ▼                                                 │
-│  4. Compare: (cumulative_used + new_claim) vs max_amount                    │
-│                            │                                                 │
-│                ┌───────────┴───────────┐                                    │
-│                │                       │                                    │
-│                ▼                       ▼                                    │
-│          ✅ PASS                 ❌ FAIL                                    │
-│       Within limit           Exceeds period limit                           │
-│                                                                              │
-│  5. Calculate Utilization: Shows remaining budget to user                   │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Policy Checks Display:**
-- Real-time validation in claim submission form
-- Utilization progress bar showing % used
-- Remaining budget display
-- Warning at 80%+ utilization
-- Block submission when limit exceeded
-
-**Configuration:**
-- Set `max_amount` and `frequency_limit` per PolicyCategory
-- Configure tenant's `fiscal_year_start` in System Settings (e.g., "apr" for April)
-
-### 5.4 Auto-Approval
+### 5.3 Auto-Approval
 
 **Admin Control:**
 - **Enable Auto-Approval (Admin Setting)**: Master switch to enable/disable all auto-approval functionality
@@ -770,147 +410,7 @@ Each tenant can define their own designation-to-role mappings:
 - Claims auto-route to assigned manager
 - Bulk reassignment supported
 
-### 8.4 Project Allocations
-
-Employees can be assigned to **multiple projects simultaneously**. Project allocations track both current and historical assignments.
-
-**Allocation Status:**
-| Status | Description |
-|--------|-------------|
-| ACTIVE | Currently assigned to the project |
-| COMPLETED | Assignment ended (project or allocation completed) |
-| REMOVED | Removed from project before completion |
-
-**Allocation Properties:**
-| Field | Description |
-|-------|-------------|
-| Project | The assigned project |
-| Role | Role in project (MEMBER, LEAD, MANAGER, etc.) |
-| Allocation % | Percentage of time allocated (0-100%) |
-| Allocated Date | When assignment started |
-| Deallocated Date | When assignment ended (null if active) |
-
-**Multi-Project Support:**
-- Employees can work on multiple projects concurrently
-- Each allocation tracked independently with history
-- Allocations can sum to more than 100% (for tracking purposes)
-
-**Claim Submission Project Dropdown:**
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Project Code *                                              │
-├─────────────────────────────────────────────────────────────┤
-│  ▼ Select a project                                          │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │ PROJ001 - Website Redesign        [Active]              ││
-│  │ PROJ002 - Mobile App              [Active]              ││
-│  │ PROJ003 - Legacy Migration        [COMPLETED]           ││
-│  │ PROJ004 - API Integration         [COMPLETED]           ││
-│  └─────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Features:**
-- **All Projects Shown**: Both current (ACTIVE) and past (COMPLETED/REMOVED) projects displayed
-- **Status Badges**: Visual indicator for each project's allocation status
-- **Auto-Selection**: If employee has only one active project, it's auto-selected
-- **Consistent Across Forms**: Same behavior in reimbursement and allowance submission forms
-
-### 8.5 Department Management
-
-Departments are now tenant-specific and managed via API. Admins can:
-
-**CRUD Operations:**
-- Create new departments with code, name, description
-- Update department details
-- Activate/deactivate departments
-- Delete departments (only if no employees assigned)
-
-**Department Properties:**
-| Field | Description |
-|-------|-------------|
-| Code | Unique short code (e.g., ENG, HR, FIN) |
-| Name | Full department name |
-| Description | Optional description |
-| Head | Optional department head (employee) |
-| Display Order | Ordering for dropdowns |
-| Active Status | Enable/disable without deleting |
-
-**Access Control:**
-- Only Admin users can access Department Management
-- Departments are isolated per tenant
-- Employee counts shown for each department
-
-**Navigation:**
-Admin sidebar → Departments
-
-### 8.6 Client Management
-
-Clients are tenant-specific customer/organization records that enable better expense tracking and project organization. Admins can manage client records and associate them with projects.
-
-**CRUD Operations:**
-- Create new clients with code, name, contact details
-- Update client information
-- Activate/deactivate clients
-- Delete clients (only if no projects linked)
-
-**Client Properties:**
-| Field | Required | Description |
-|-------|----------|-------------|
-| Client Code | Yes | Unique short code within tenant (e.g., ACME, BETA) |
-| Client Name | Yes | Full client/organization name |
-| Description | No | Client description or notes |
-| Contact Person | No | Primary contact name |
-| Contact Email | No | Contact email address (validated format) |
-| Contact Phone | No | Contact phone number |
-| Address | No | Physical/billing address |
-| Active Status | Yes | Enable/disable without deleting |
-| Custom Data | No | Additional JSON data for flexibility |
-
-**Features:**
-- **Project Association**: Link multiple projects to a client for organized expense tracking
-- **Bulk Project Linking**: Associate/unassociate multiple projects at once
-- **Active/Inactive Toggle**: Soft-delete clients while preserving historical data
-- **Client Dropdown in Projects**: When creating/editing projects, select associated client
-- **Reports Filtering**: Filter claims by client in reports
-
-**Access Control:**
-| Role | Permissions |
-|------|-------------|
-| Admin | Full CRUD access |
-| Manager | View only |
-| Other roles | No access |
-
-**Navigation:**
-Admin sidebar → Clients
-
-**Client-Project Workflow:**
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     CLIENT MANAGEMENT                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  1. Create Client                                            │
-│     └─▶ Code, Name, Contact details                         │
-│                                                              │
-│  2. Link Projects (Optional)                                │
-│     └─▶ Select existing projects to associate               │
-│                                                              │
-│  3. New Project Creation                                    │
-│     └─▶ Select client from dropdown (optional)              │
-│                                                              │
-│  4. Reports & Analytics                                     │
-│     └─▶ Filter claims by client                             │
-│     └─▶ View expenses per client                            │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Use Cases:**
-- Track expenses for different customers/clients
-- Bill-back client expenses
-- Generate client-specific expense reports
-- Organize projects by customer
+---
 
 ## 9. Notifications
 
@@ -1023,123 +523,17 @@ FINANCE_APPROVED ──▶ Process Payment ──▶ Enter Reference ──▶ S
 - Manager relationships
 - Designation mappings
 
-### 13.2 Map Provider Integration (Google Maps + OpenStreetMap)
-
-The system uses a **dual-provider architecture** for location-based features with Google Maps as primary and OpenStreetMap as automatic fallback.
-
-**Provider Selection:**
-| Scenario | Provider Used |
-|----------|---------------|
-| `VITE_GOOGLE_MAPS_API_KEY` set and valid | Google Maps |
-| No API key configured | OpenStreetMap |
-| Google Maps fails to load | OpenStreetMap (automatic fallback) |
-| API key invalid/expired | OpenStreetMap (automatic fallback) |
-
-**Google Maps Components:**
-| Component | Purpose |
-|-----------|----------|
-| `@googlemaps/js-api-loader` | Dynamic API loading |
-| Maps JavaScript API | Interactive map rendering |
-| Places API | Autocomplete search |
-| Geocoding API | Address lookup |
-| AdvancedMarkerElement | Draggable map markers |
-
-**OpenStreetMap Components (Fallback):**
-| Component | Provider | Purpose |
-|-----------|----------|----------|
-| Map Tiles | OpenStreetMap | Interactive map display |
-| Geocoding | Nominatim API | Address to coordinates |
-| Reverse Geocoding | Nominatim API | Coordinates to address |
-| Distance Calculation | Haversine Formula | Route-free distance |
-
-**Frontend Libraries:**
-- Google Maps: `@googlemaps/js-api-loader`
-- OpenStreetMap: Leaflet.js
-
-**API Endpoints:**
-```
-# Google Maps (Primary)
-Maps JavaScript API: Loaded dynamically via js-api-loader
-Places Autocomplete: Integrated with search input
-Geocoder: google.maps.Geocoder service
-
-# OpenStreetMap (Fallback)
-Search: https://nominatim.openstreetmap.org/search?q={query}&format=json
-Reverse: https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json
-Tiles: https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png
-```
-
-**Rate Limiting:**
-- Google Maps: Based on API quota and billing plan
-- Nominatim: 1 request/second (enforced via debouncing)
-- Search debounced to 300ms for both providers
-
-**Configuration:**
-```bash
-# Enable Google Maps (recommended for production)
-VITE_GOOGLE_MAPS_API_KEY=your-google-maps-api-key
-
-# OpenStreetMap requires no configuration
-# Simply omit the API key to use OSM only
-```
-
-### 13.3 Payroll Integration
+### 13.2 Payroll Integration
 
 - Settlement export
 - Payment reference import
 - Reconciliation reports
 
-### 13.4 SSO Integration
+### 13.3 SSO Integration
 
 - Keycloak SSO support
 - SAML/OIDC protocols
 - Automatic user provisioning
-
-### 13.5 Communication Integrations (Slack/Teams)
-
-Real-time notifications to team communication channels when claim events occur.
-
-**Supported Providers:**
-| Provider | Webhook Types | Notes |
-|----------|---------------|-------|
-| Slack | Incoming Webhooks | Standard Slack webhook URL |
-| Microsoft Teams | Office 365 Connector, Power Automate | Supports both direct webhooks and Power Automate workflows |
-
-**Notification Events:**
-| Event | Description | Notification Content |
-|-------|-------------|---------------------|
-| Claim Submitted | New claim submitted | Claim #, employee, amount, category |
-| Claim Approved | Claim approved by approver | Claim #, employee, amount, approved by |
-| Claim Rejected | Claim rejected | Claim #, employee, amount, rejected by, reason |
-| Claim Settled | Payment processed | Claim #, employee, amount, payment date |
-
-**Configuration:**
-
-**Navigation:** Admin Dashboard → Settings → Communication Integrations tab
-
-| Field | Description |
-|-------|-------------|
-| Provider | Select Slack or Microsoft Teams |
-| Webhook URL | Incoming webhook URL from your chat platform |
-| Channel Name | Display name for the channel (reference only) |
-| Notify on Submitted | Enable notifications when claims are submitted |
-| Notify on Approved | Enable notifications when claims are approved |
-| Notify on Rejected | Enable notifications when claims are rejected |
-| Enable Integration | Master toggle to activate/deactivate notifications |
-
-**Teams Power Automate Support:**
-The system automatically detects Microsoft Power Automate webhook URLs and sends notifications in Adaptive Card format, which provides rich formatting in Teams channels.
-
-**Example Teams Notification:**
-```
-🟢 Claim Approved
-━━━━━━━━━━━━━━━━━━━━━━
-Claim #: CLM-2025-0042
-Employee: John Doe
-Amount: ₹5,000.00
-Category: Certification
-Approved by: Jane Manager
-```
 
 ---
 
@@ -1165,31 +559,19 @@ Approved by: Jane Manager
 
 ### 15.1 General Settings
 
-**Navigation:** Admin Dashboard → Settings → General tab
-
-Admin users can configure basic tenant-wide settings:
+Admin users can configure tenant-wide settings:
 
 | Setting | Description | Options |
 |---------|-------------|---------|
-| Default Currency | Default currency for claims | USD, EUR, GBP, INR, AED, SGD, JPY |
-| Fiscal Year Start | When fiscal year begins | January, April, July, October |
-
-### 15.2 Approval Rules
-
-**Navigation:** Admin Dashboard → Approval Rules
-
-All approval-related settings are consolidated in a dedicated menu:
-
-#### Auto-Approval Tab
-
-| Setting | Description | Options |
-|---------|-------------|---------|
+| AI Processing | Enable AI for OCR and validation | On/Off |
 | Auto-Approval | Automatically approve high-confidence claims | On/Off |
 | **Enable Auto-Approval (Admin)** | Master switch to enable/disable all auto-approval | On/Off |
 | **Auto-Skip After Manager** | Skip HR/Finance after manager approval if thresholds met | On/Off |
 | AI Confidence Threshold | Minimum AI confidence for auto-approval | 50% - 100% |
 | Max Auto-Approval Amount | Maximum claim amount for auto-approval | Currency amount |
 | Policy Compliance Threshold | Minimum AI confidence for policy compliance | 50% - 100% |
+| Default Currency | Default currency for claims | USD, EUR, GBP, INR, AED, SGD, JPY |
+| Fiscal Year Start | When fiscal year begins | January, April, July, October |
 
 **Enable Auto-Approval (Admin):**
 Master control for the auto-approval feature:
@@ -1210,11 +592,7 @@ This setting controls when claims are flagged for review vs considered compliant
 - **Default**: 80%
 - **Use case**: Lower thresholds (e.g., 60%) allow more claims to pass; higher thresholds (e.g., 90%) require stricter compliance
 
-#### Skip Rules Tab
-
-Configure rules to automatically skip approval levels for designated employees. See section 4.5 for details.
-
-### 15.3 Regional Settings
+### 15.2 Regional Settings
 
 Each tenant can configure regional preferences:
 
@@ -1257,7 +635,7 @@ Each tenant can configure regional preferences:
 - Notifications show times in tenant timezone
 - Currency amounts formatted per locale
 
-### 15.4 Working Days Configuration
+### 15.3 Working Days Configuration
 
 Configure work week preferences:
 
@@ -1276,7 +654,7 @@ Configure work week preferences:
 | Monday | Europe, India |
 | Saturday | Middle East |
 
-### 15.5 Security Settings
+### 15.4 Security Settings
 
 Configure session and security preferences:
 
@@ -1296,39 +674,15 @@ Configure session and security preferences:
 - **Tenant Level (Admin):** Can set tenant-specific timeout up to the platform maximum
 - Users will be logged out after inactivity based on their tenant's configured timeout
 
-### 15.6 Notification Settings
+### 15.5 Notification Settings
 
 Manage notification preferences:
 - Email notifications enable/disable
 - System notification email address
 - Reminder frequency
+- Integration webhooks (Slack, etc.)
 
-### 15.7 Communication Integrations
-
-**Navigation:** Admin Dashboard → Settings → Communication Integrations tab
-
-Configure Slack or Microsoft Teams to receive real-time claim notifications:
-
-| Setting | Description |
-|---------|-------------|
-| Provider | Slack or Microsoft Teams |
-| Webhook URL | Your platform's incoming webhook URL |
-| Channel Name | Channel identifier (for display) |
-| Notification Events | Select which events trigger notifications |
-| Enable Integration | Toggle to activate/deactivate |
-
-**Setup Steps:**
-1. Create an incoming webhook in Slack or Teams (or Power Automate workflow)
-2. Copy the webhook URL
-3. Navigate to Settings → Communication Integrations
-4. Select your provider and paste the webhook URL
-5. Enable desired notification events
-6. Toggle "Enable Integration" ON
-7. Click Save, then Test to verify
-
-**Note:** Test button sends a sample notification to verify the webhook is working correctly.
-
-### 15.8 Branding Settings
+### 15.6 Branding Settings
 
 Admin users can customize the application appearance for their tenant:
 
@@ -1383,4 +737,4 @@ All actions are logged:
 
 ---
 
-*Document Version: 1.3 | Last Updated: January 2026*
+*Document Version: 1.2 | Last Updated: May 2026*
